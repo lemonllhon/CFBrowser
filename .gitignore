@@ -25,6 +25,12 @@ pnpm-debug.log*
 
 # Build outputs
 /bin/
+!build/
+!build/appicon.png
+!build/darwin/
+!build/darwin/**
+!build/windows/
+!build/windows/**
 build/bin/*
 !build/bin/README.md
 build/dist/
