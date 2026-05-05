@@ -92,7 +92,7 @@ export const profilePageConfig: ProfilePageLocalConfig = {
         icon: 'globe',
       }  ,
       {
-        name: 'Nodes',
+        name: 'Mail',
         description: '邮箱系统',
         detail: 'mail.lemon.vin',
         href: 'https://mail.lemon.vin',
