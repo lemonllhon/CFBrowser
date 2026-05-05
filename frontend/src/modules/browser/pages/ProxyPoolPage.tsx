@@ -21,6 +21,10 @@ const BUILTIN_PROXIES: BrowserProxy[] = [
   { proxyId: '__local__', proxyName: '本地代理', proxyConfig: 'http://127.0.0.1:7890' },
 ]
 
+function isBuiltinProxy(proxy: Pick<BrowserProxy, 'proxyId' | 'proxyConfig'>): boolean {
+  return BUILTIN_PROXY_IDS.has(proxy.proxyId) || proxy.proxyConfig.trim() === 'direct://'
+}
+
 function ensureBuiltinProxies(proxies: BrowserProxy[]): BrowserProxy[] {
   const result = [...proxies]
   for (const builtin of BUILTIN_PROXIES) {
@@ -711,6 +715,7 @@ export function ProxyPoolPage() {
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [batchDeleteConfirmOpen, setBatchDeleteConfirmOpen] = useState(false)
+  const [deleteTimeoutConfirmOpen, setDeleteTimeoutConfirmOpen] = useState(false)
 
   const [importModalOpen, setImportModalOpen] = useState(false)
   const [importMode, setImportMode] = useState<ProxyImportMode>('clash')
@@ -1037,6 +1042,16 @@ export function ProxyPoolPage() {
 
   const allFilteredSelected = filteredList.length > 0 && filteredList.every(p => selectedIds.has(p.proxyId))
   const someFilteredSelected = filteredList.some(p => selectedIds.has(p.proxyId))
+  const timeoutProxyIds = useMemo(() => {
+    return proxies
+      .filter(p => {
+        if (isBuiltinProxy(p)) return false
+        const cachedLatency = latencyMap[p.proxyId]
+        if (cachedLatency === -2) return true
+        return !!p.lastTestedAt && p.lastTestOk === false
+      })
+      .map(p => p.proxyId)
+  }, [proxies, latencyMap])
 
   const handleToggleAll = () => {
     if (allFilteredSelected) {
@@ -1071,6 +1086,39 @@ export function ProxyPoolPage() {
       setSelectedIds(new Set())
     } catch (error: any) {
       toast.error(error?.message || '删除失败')
+    }
+  }
+
+  const handleDeleteTimeoutConfirm = async () => {
+    const deleteIds = new Set(timeoutProxyIds)
+    if (deleteIds.size === 0) {
+      setDeleteTimeoutConfirmOpen(false)
+      toast.info('没有可删除的测试超时节点')
+      return
+    }
+    try {
+      const newProxies = proxies.filter(p => !deleteIds.has(p.proxyId))
+      await saveProxies(newProxies)
+      setLatencyMap(prev => {
+        const next = { ...prev }
+        deleteIds.forEach(id => { delete next[id] })
+        return next
+      })
+      setIPHealthMap(prev => {
+        const next = { ...prev }
+        deleteIds.forEach(id => { delete next[id] })
+        return next
+      })
+      setSelectedIds(prev => {
+        const next = new Set(prev)
+        deleteIds.forEach(id => next.delete(id))
+        return next
+      })
+      toast.success(`已删除 ${deleteIds.size} 个测试超时节点`)
+    } catch (error: any) {
+      toast.error(error?.message || '删除失败')
+    } finally {
+      setDeleteTimeoutConfirmOpen(false)
     }
   }
 
@@ -1557,6 +1605,15 @@ export function ProxyPoolPage() {
           </Button>
           <Button size="sm" variant="secondary" onClick={handleCheckAllIPHealth} loading={checkingAllIPHealth} disabled={filteredList.length === 0}>检测IP健康</Button>
           <Button size="sm" variant="secondary" onClick={handleTestAll} loading={testingAll} disabled={filteredList.length === 0}>测试全部</Button>
+          <Button
+            size="sm"
+            variant="danger"
+            onClick={() => setDeleteTimeoutConfirmOpen(true)}
+            disabled={timeoutProxyIds.length === 0}
+            title="删除除直连和本地代理之外，最近测速结果为超时的节点"
+          >
+            删除超时节点{timeoutProxyIds.length > 0 ? ` (${timeoutProxyIds.length})` : ''}
+          </Button>
           <Button size="sm" onClick={() => setImportModalOpen(true)}>导入代理</Button>
         </div>
       </div>
@@ -1867,6 +1924,9 @@ export function ProxyPoolPage() {
 
       <ConfirmModal open={batchDeleteConfirmOpen} onClose={() => setBatchDeleteConfirmOpen(false)} onConfirm={handleBatchDeleteConfirm}
         title="批量删除" content={`确定要删除选中的 ${selectedCount} 个代理吗？此操作不可恢复。`} confirmText="删除" danger />
+
+      <ConfirmModal open={deleteTimeoutConfirmOpen} onClose={() => setDeleteTimeoutConfirmOpen(false)} onConfirm={handleDeleteTimeoutConfirm}
+        title="删除测试超时节点" content={`确定要删除 ${timeoutProxyIds.length} 个测试超时节点吗？直连和本地代理会保留，此操作不可恢复。`} confirmText="删除超时节点" danger />
     </div>
   )
 }
