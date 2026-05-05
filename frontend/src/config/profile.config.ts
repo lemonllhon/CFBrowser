@@ -71,8 +71,8 @@ export const profilePageConfig: ProfilePageLocalConfig = {
     title: '全栈开发工程师',
     bio: '热爱开源，专注于 Web 和桌面应用开发。致力于打造优雅、高效的开发工具和框架。',
     location: '中国',
-    joinDate: '2020',
-    email: 'contact@antblack.dev',
+    joinDate: '2017',
+    email: 'lemon@lemon.vin',
     website: 'https://openai.lemon.vin',
     github: 'https://github.com/lemon-casino',
     skills: ['Java', 'Vue','React', 'TypeScript', 'Node.js', 'Go','Docker'],
@@ -90,7 +90,14 @@ export const profilePageConfig: ProfilePageLocalConfig = {
         detail: 'teamnode.lemon.vin',
         href: 'https://teamnode.lemon.vin',
         icon: 'globe',
-      },
+      }  ,
+      {
+        name: 'Nodes',
+        description: '邮箱系统',
+        detail: 'mail.lemon.vin',
+        href: 'https://mail.lemon.vin',
+        icon: 'mail',
+      }
     ],
   },
   project: {

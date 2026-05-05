@@ -70,6 +70,7 @@ proxies.yaml
 profiles.yaml
 
 # Frontend deps/cache
+!package-lock.json
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
