@@ -1,0 +1,214 @@
+name: Publish Windows Packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Package version. Empty means read wails.json info.productVersion."
+        required: false
+        default: ""
+      release_tag:
+        description: "Release tag to upload assets to, for example v1.1.0. Empty means v<version> for manual runs."
+        required: false
+        default: ""
+  push:
+    tags:
+      - "v*"
+  release:
+    types:
+      - published
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-2022
+
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install NSIS
+        run: choco install nsis -y --no-progress
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.11.0
+
+      - name: Add Go bin to PATH
+        run: echo "$(go env GOPATH)\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Resolve version
+        id: version
+        run: |
+          $inputVersion = "${{ inputs.version }}".Trim()
+          $inputReleaseTag = "${{ inputs.release_tag }}".Trim()
+          $releaseEventTag = "${{ github.event.release.tag_name }}".Trim()
+          $refType = "${{ github.ref_type }}".Trim()
+          $refName = "${{ github.ref_name }}".Trim()
+
+          $tag = ""
+          if ($releaseEventTag) {
+            $tag = $releaseEventTag
+          } elseif ($refType -eq "tag") {
+            $tag = $refName
+          } elseif ($inputReleaseTag) {
+            $tag = $inputReleaseTag
+          }
+
+          if ($inputVersion) {
+            $version = $inputVersion
+          } elseif ($tag) {
+            $version = $tag -replace '^[vV][\.\-_]*', ''
+          } else {
+            $wailsConfig = Get-Content -LiteralPath "wails.json" -Raw | ConvertFrom-Json
+            $version = [string]$wailsConfig.info.productVersion
+          }
+
+          $version = $version.Trim()
+          if ($version -match '^0\.0\.0\.(\d+)$') {
+            $version = "0.0.$([int]$Matches[1])"
+          } elseif ($version -match '^0\.(\d)(\d)$') {
+            $version = "0.$($Matches[1]).$([int]$Matches[2])"
+          } elseif ($version -match '^\d+\.\d+$') {
+            $version = "$version.0"
+          }
+
+          if ($version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z\.-]+)?(?:\+[0-9A-Za-z\.-]+)?$') {
+            throw "Invalid version: $version"
+          }
+
+          if (-not $tag) {
+            $tag = "v$version"
+          }
+
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Version: $version"
+          Write-Host "Release tag: $tag"
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: Download Go modules
+        run: go mod download
+
+      - name: Build Windows app
+        env:
+          GOPROXY: https://proxy.golang.org,direct
+        run: wails build
+
+      - name: Verify runtime binaries
+        run: |
+          $manifest = Get-Content -LiteralPath "publish/runtime-manifest.json" -Raw | ConvertFrom-Json
+          $entries = @($manifest.files | Where-Object { $_.targets -contains "windows-amd64" })
+          if ($entries.Count -eq 0) {
+            throw "No windows-amd64 runtime entries found in publish/runtime-manifest.json"
+          }
+
+          foreach ($entry in $entries) {
+            $path = [string]$entry.path
+            $expected = ([string]$entry.sha256).ToLowerInvariant()
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+              throw "Missing runtime file: $path"
+            }
+            $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash.ToLowerInvariant()
+            if ($actual -ne $expected) {
+              throw "Runtime hash mismatch: $path expected=$expected actual=$actual"
+            }
+          }
+
+      - name: Create staging directory
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $staging = Join-Path $PWD "publish/staging"
+          $output = Join-Path $PWD "publish/output"
+          Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Path $staging -Force | Out-Null
+          New-Item -ItemType Directory -Path $output -Force | Out-Null
+
+          $exe = "build/bin/trace-browser.exe"
+          if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
+            throw "Missing built executable: $exe"
+          }
+          Copy-Item -LiteralPath $exe -Destination (Join-Path $staging "trace-browser.exe") -Force
+
+          Copy-Item -LiteralPath "publish/config.init.yaml" -Destination (Join-Path $staging "config.yaml") -Force
+
+          New-Item -ItemType Directory -Path (Join-Path $staging "bin") -Force | Out-Null
+          Copy-Item -LiteralPath "bin/xray.exe" -Destination (Join-Path $staging "bin/xray.exe") -Force
+          Copy-Item -LiteralPath "bin/sing-box.exe" -Destination (Join-Path $staging "bin/sing-box.exe") -Force
+
+          if (Test-Path -LiteralPath "chrome" -PathType Container) {
+            New-Item -ItemType Directory -Path (Join-Path $staging "chrome") -Force | Out-Null
+            Copy-Item -Path "chrome/*" -Destination (Join-Path $staging "chrome") -Recurse -Force -ErrorAction SilentlyContinue
+          }
+
+          New-Item -ItemType Directory -Path (Join-Path $staging "data") -Force | Out-Null
+          Write-Host "Staging created: $staging"
+
+      - name: Build portable package
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $portable = "publish/output/TraceBrowser-Portable-$env:VERSION-win-x64.zip"
+          Remove-Item -LiteralPath $portable -Force -ErrorAction SilentlyContinue
+          Compress-Archive -Path "publish/staging/*" -DestinationPath $portable -CompressionLevel Optimal
+          if (-not (Test-Path -LiteralPath $portable -PathType Leaf)) {
+            throw "Portable package was not created: $portable"
+          }
+          Write-Host "Portable package: $portable"
+
+      - name: Build installer package
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $makensis = (Get-Command makensis.exe).Source
+          $staging = (Resolve-Path "publish/staging").Path
+          & $makensis /NOCONFIG "/DVERSION=$env:VERSION" "/DSTAGINGDIR=$staging" "publish/installer.nsi"
+          if ($LASTEXITCODE -ne 0) {
+            throw "makensis failed with exit code $LASTEXITCODE"
+          }
+
+          $installer = "publish/output/TraceBrowser-Setup-$env:VERSION.exe"
+          if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) {
+            throw "Installer package was not created: $installer"
+          }
+          Write-Host "Installer package: $installer"
+
+      - name: Upload Windows packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: trace-browser-windows-${{ steps.version.outputs.version }}
+          if-no-files-found: error
+          path: |
+            publish/output/TraceBrowser-Setup-*.exe
+            publish/output/TraceBrowser-Portable-*-win-x64.zip
+
+      - name: Upload packages to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Trace Browser ${{ steps.version.outputs.version }}
+          fail_on_unmatched_files: true
+          files: |
+            publish/output/TraceBrowser-Setup-*.exe
+            publish/output/TraceBrowser-Portable-*-win-x64.zip
