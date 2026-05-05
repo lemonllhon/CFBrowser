@@ -13,6 +13,9 @@ export function getSystemTimezone(): string {
 }
 
 export interface FingerprintConfig {
+  // 自动硬件画像：保存策略，启动时由后端为留空项重新生成
+  autoHardware?: boolean  // --fingerprint-auto-hardware=true
+
   // 指纹种子（核心）
   seed?: string            // --fingerprint=<seed>  控制所有随机噪声的根种子
 
@@ -57,6 +60,7 @@ export const PRESET_RESOLUTIONS = ['1920,1080', '1440,900', '1366,768', '2560,14
 
 // CLI 参数前缀 → FingerprintConfig 字段映射
 export const KEY_MAP: Record<string, keyof FingerprintConfig> = {
+  '--fingerprint-auto-hardware': 'autoHardware',
   '--fingerprint': 'seed',
   '--fingerprint-brand': 'brand',
   '--fingerprint-platform': 'platform',
@@ -80,6 +84,7 @@ export const KEY_MAP: Record<string, keyof FingerprintConfig> = {
 // FingerprintConfig → string[]
 export function serialize(config: FingerprintConfig): string[] {
   const args: string[] = []
+  if (config.autoHardware) args.push('--fingerprint-auto-hardware=true')
   if (config.seed) args.push(`--fingerprint=${config.seed}`)
   if (config.brand) args.push(`--fingerprint-brand=${config.brand}`)
   if (config.platform) args.push(`--fingerprint-platform=${config.platform}`)
@@ -131,7 +136,7 @@ export function deserialize(args: string[]): FingerprintConfig {
       continue
     }
 
-    if (field === 'canvasNoise' || field === 'audioNoise' || field === 'doNotTrack') {
+    if (field === 'autoHardware' || field === 'canvasNoise' || field === 'audioNoise' || field === 'doNotTrack') {
       (config as Record<string, unknown>)[field] = val === 'true'
     } else if (field === 'resolution') {
       if (PRESET_RESOLUTIONS.includes(val)) {

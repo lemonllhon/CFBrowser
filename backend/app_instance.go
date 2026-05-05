@@ -222,8 +222,9 @@ func (a *App) browserInstanceStartInternal(profileId string, extraLaunchArgs []s
 		"--disable-session-crashed-bubble",
 	}
 
+	effectiveFingerprintArgs := resolveFingerprintArgsForLaunch(profile.FingerprintArgs)
 	hasFingerprint := false
-	for _, arg := range profile.FingerprintArgs {
+	for _, arg := range effectiveFingerprintArgs {
 		if strings.HasPrefix(arg, "--fingerprint=") {
 			hasFingerprint = true
 			break
@@ -249,7 +250,7 @@ func (a *App) browserInstanceStartInternal(profileId string, extraLaunchArgs []s
 	if autoSwitchProxy && !hasLaunchArgValue(sanitizedProfileLaunchArgs, "--disable-quic") && !hasLaunchArgValue(sanitizedExtraLaunchArgs, "--disable-quic") {
 		args = append(args, "--disable-quic")
 	}
-	args = append(args, profile.FingerprintArgs...)
+	args = append(args, effectiveFingerprintArgs...)
 	args = append(args, sanitizedProfileLaunchArgs...)
 	args = append(args, sanitizedExtraLaunchArgs...)
 	args = appendLaunchTargets(args, profile, normalizedStartURLs, skipDefaultStartURLs)

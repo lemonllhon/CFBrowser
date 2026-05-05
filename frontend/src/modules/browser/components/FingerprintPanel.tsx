@@ -204,6 +204,27 @@ const COMMON_FONTS: Record<string, string[]> = {
   ],
 }
 
+const AUTO_HARDWARE_CONFIG: Partial<FingerprintConfig> = {
+  autoHardware: true,
+  seed: undefined,
+  brand: undefined,
+  platform: undefined,
+  resolution: undefined,
+  customResolution: undefined,
+  colorDepth: undefined,
+  hardwareConcurrency: undefined,
+  deviceMemory: undefined,
+  touchPoints: undefined,
+  webglVendor: undefined,
+  webglRenderer: undefined,
+  canvasNoise: undefined,
+  audioNoise: undefined,
+  webrtcPolicy: undefined,
+  doNotTrack: undefined,
+  mediaDevices: undefined,
+  fonts: undefined,
+}
+
 function randomHardwareFingerprint(base: FingerprintConfig): FingerprintConfig {
   const platform = pick(['windows', 'windows', 'windows', 'mac', 'linux'])
   const brand = platform === 'mac' ? pick(['Chrome', 'Safari']) : pick(['Chrome', 'Chrome', 'Edge'])
@@ -238,60 +259,29 @@ function randomHardwareFingerprint(base: FingerprintConfig): FingerprintConfig {
 }
 
 function withAutoFingerprintDefaults(base: FingerprintConfig): FingerprintConfig {
-  const next = { ...base }
-  const needsHardware = !next.brand ||
-    !next.platform ||
-    !next.resolution ||
-    !next.colorDepth ||
-    !next.hardwareConcurrency ||
-    !next.deviceMemory ||
-    !next.webglVendor ||
-    !next.webglRenderer ||
-    next.canvasNoise === undefined ||
-    next.audioNoise === undefined ||
-    !next.webrtcPolicy ||
-    next.doNotTrack === undefined ||
-    !next.touchPoints ||
-    !next.mediaDevices ||
-    !next.fonts
+  const hasHardwareConfig = !!base.seed ||
+    !!base.brand ||
+    !!base.platform ||
+    !!base.resolution ||
+    !!base.colorDepth ||
+    !!base.hardwareConcurrency ||
+    !!base.deviceMemory ||
+    !!base.webglVendor ||
+    !!base.webglRenderer ||
+    base.canvasNoise !== undefined ||
+    base.audioNoise !== undefined ||
+    !!base.webrtcPolicy ||
+    base.doNotTrack !== undefined ||
+    !!base.touchPoints ||
+    !!base.mediaDevices ||
+    !!base.fonts
 
-  if (needsHardware) {
-    const randomized = randomHardwareFingerprint(next)
-    const resolvedVendor = base.webglVendor || randomized.webglVendor
-    const resolvedRenderer = base.webglRenderer || randomRendererForVendor(resolvedVendor || 'Intel')
-    return {
-      ...randomized,
-      lang: base.lang,
-      timezone: base.timezone,
-      unknownArgs: base.unknownArgs,
-      seed: base.seed || randomized.seed,
-      brand: base.brand || randomized.brand,
-      platform: base.platform || randomized.platform,
-      resolution: base.resolution || randomized.resolution,
-      customResolution: base.resolution === 'custom' ? base.customResolution : randomized.customResolution,
-      colorDepth: base.colorDepth || randomized.colorDepth,
-      hardwareConcurrency: base.hardwareConcurrency || randomized.hardwareConcurrency,
-      deviceMemory: base.deviceMemory || randomized.deviceMemory,
-      webglVendor: resolvedVendor,
-      webglRenderer: resolvedRenderer,
-      canvasNoise: base.canvasNoise ?? randomized.canvasNoise,
-      audioNoise: base.audioNoise ?? randomized.audioNoise,
-      webrtcPolicy: base.webrtcPolicy || randomized.webrtcPolicy,
-      doNotTrack: base.doNotTrack ?? randomized.doNotTrack,
-      touchPoints: base.touchPoints || randomized.touchPoints,
-      mediaDevices: base.mediaDevices || randomized.mediaDevices,
-      fonts: base.fonts || randomized.fonts,
-    }
-  }
-
-  if (!next.seed) {
-    next.seed = randomFingerprintSeed()
-  }
-  return next
+  return { ...base, autoHardware: base.autoHardware ?? !hasHardwareConfig }
 }
 
 const PRESET_OPTIONS = [
   { value: '', label: '选择预设...' },
+  { value: '__auto_hardware__', label: '自动随机硬件画像（每次启动变化）' },
   ...FINGERPRINT_PRESETS.map(p => ({ value: p.id, label: p.name })),
 ]
 
@@ -319,12 +309,25 @@ export function FingerprintPanel({ value, onChange }: FingerprintPanelProps) {
 
   const handlePresetChange = (presetId: string) => {
     if (!presetId) return
+    if (presetId === '__auto_hardware__') {
+      const next: FingerprintConfig = {
+        ...config,
+        ...AUTO_HARDWARE_CONFIG,
+        lang: config.lang,
+        timezone: config.timezone,
+        unknownArgs: config.unknownArgs,
+      }
+      setConfig(next)
+      onChange(serialize(next))
+      return
+    }
     const preset = FINGERPRINT_PRESETS.find(p => p.id === presetId)
     if (!preset) return
     // 应用预设时自动生成新种子，保留未知参数
     const next: FingerprintConfig = {
       ...preset.config,
       seed: randomFingerprintSeed(),
+      autoHardware: false,
       unknownArgs: config.unknownArgs,
     }
     setConfig(next)
@@ -339,7 +342,25 @@ export function FingerprintPanel({ value, onChange }: FingerprintPanelProps) {
   }
 
   const handleRandomHardware = () => {
-    const next = randomHardwareFingerprint(config)
+    const next = {
+      ...randomHardwareFingerprint(config),
+      autoHardware: false,
+      lang: config.lang,
+      timezone: config.timezone,
+      unknownArgs: config.unknownArgs,
+    }
+    setConfig(next)
+    onChange(serialize(next))
+  }
+
+  const handleAutoHardware = () => {
+    const next: FingerprintConfig = {
+      ...config,
+      ...AUTO_HARDWARE_CONFIG,
+      lang: config.lang,
+      timezone: config.timezone,
+      unknownArgs: config.unknownArgs,
+    }
     setConfig(next)
     onChange(serialize(next))
   }
@@ -413,27 +434,43 @@ export function FingerprintPanel({ value, onChange }: FingerprintPanelProps) {
       <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-lg bg-[var(--color-bg-hover)] border border-[var(--color-border)]">
         <div>
           <p className="text-sm font-medium text-[var(--color-text-primary)]">硬件画像一键随机</p>
-          <p className="text-xs text-[var(--color-text-muted)] mt-1">随机浏览器品牌、系统、屏幕、CPU、内存、WebGL、噪声、WebRTC 和媒体设备；不会改变地区国家联动的语言和时区。</p>
+          <p className="text-xs text-[var(--color-text-muted)] mt-1">一键随机会立即生成并保存一套设备识别；启用自动随机后，每次浏览器重新启动都会换一套设备识别。语言和时区不参与硬件随机。</p>
         </div>
-        <button
-          type="button"
-          onClick={handleRandomHardware}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs bg-[var(--color-primary)] text-white hover:opacity-90 transition-opacity shrink-0"
-        >
-          <Wand2 className="w-3.5 h-3.5" />
-          一键随机
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={handleRandomHardware}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs bg-[var(--color-primary)] text-white hover:opacity-90 transition-opacity shrink-0"
+          >
+            <Wand2 className="w-3.5 h-3.5" />
+            一键随机
+          </button>
+          <button
+            type="button"
+            onClick={handleAutoHardware}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs transition-opacity shrink-0 ${config.autoHardware ? 'bg-emerald-600 text-white' : 'bg-[var(--color-bg-secondary)] text-[var(--color-text-secondary)] border border-[var(--color-border)] hover:bg-[var(--color-bg-hover)]'}`}
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            {config.autoHardware ? '已启用自动随机' : '启用自动随机'}
+          </button>
+        </div>
       </div>
+
+      {config.autoHardware && (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+          当前使用自动随机硬件画像预设：保存后，浏览器每次重新启动都会重新生成指纹种子、浏览器品牌、系统、屏幕、CPU、内存、WebGL、噪声、WebRTC、媒体设备和字体。语言与时区保持当前设置。
+        </div>
+      )}
 
       {/* 基础身份 */}
       <div>
         <p className="text-xs font-medium text-[var(--color-text-muted)] mb-2 uppercase tracking-wide">基础身份</p>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <FormItem label="浏览器品牌">
-            <Select value={config.brand ?? ''} onChange={e => update({ brand: e.target.value || undefined })} options={BRAND_OPTIONS} />
+            <Select value={config.brand ?? ''} onChange={e => update({ brand: e.target.value || undefined, autoHardware: e.target.value ? false : true })} options={BRAND_OPTIONS} />
           </FormItem>
           <FormItem label="操作系统">
-            <Select value={config.platform ?? ''} onChange={e => update({ platform: e.target.value || undefined })} options={PLATFORM_OPTIONS} />
+            <Select value={config.platform ?? ''} onChange={e => update({ platform: e.target.value || undefined, autoHardware: e.target.value ? false : true })} options={PLATFORM_OPTIONS} />
           </FormItem>
           <FormItem label="语言">
             <Select value={config.lang ?? ''} onChange={e => update({ lang: e.target.value || undefined })} options={ALL_LANG_OPTIONS} />
@@ -455,7 +492,7 @@ export function FingerprintPanel({ value, onChange }: FingerprintPanelProps) {
           <FormItem label="分辨率">
             <Select
               value={config.resolution ?? ''}
-              onChange={e => update({ resolution: e.target.value || undefined, customResolution: undefined })}
+              onChange={e => update({ resolution: e.target.value || undefined, customResolution: undefined, autoHardware: e.target.value ? false : true })}
               options={RESOLUTION_OPTIONS}
             />
           </FormItem>
@@ -465,16 +502,16 @@ export function FingerprintPanel({ value, onChange }: FingerprintPanelProps) {
             </FormItem>
           )}
           <FormItem label="色深">
-            <Select value={config.colorDepth ?? ''} onChange={e => update({ colorDepth: e.target.value || undefined })} options={COLOR_DEPTH_OPTIONS} />
+            <Select value={config.colorDepth ?? ''} onChange={e => update({ colorDepth: e.target.value || undefined, autoHardware: e.target.value ? false : true })} options={COLOR_DEPTH_OPTIONS} />
           </FormItem>
           <FormItem label="CPU 核心数">
-            <Select value={config.hardwareConcurrency ?? ''} onChange={e => update({ hardwareConcurrency: e.target.value || undefined })} options={HARDWARE_CONCURRENCY_OPTIONS} />
+            <Select value={config.hardwareConcurrency ?? ''} onChange={e => update({ hardwareConcurrency: e.target.value || undefined, autoHardware: e.target.value ? false : true })} options={HARDWARE_CONCURRENCY_OPTIONS} />
           </FormItem>
           <FormItem label="设备内存">
-            <Select value={config.deviceMemory ?? ''} onChange={e => update({ deviceMemory: e.target.value || undefined })} options={DEVICE_MEMORY_OPTIONS} />
+            <Select value={config.deviceMemory ?? ''} onChange={e => update({ deviceMemory: e.target.value || undefined, autoHardware: e.target.value ? false : true })} options={DEVICE_MEMORY_OPTIONS} />
           </FormItem>
           <FormItem label="触摸点数">
-            <Select value={config.touchPoints ?? ''} onChange={e => update({ touchPoints: e.target.value || undefined })} options={TOUCH_POINTS_OPTIONS} />
+            <Select value={config.touchPoints ?? ''} onChange={e => update({ touchPoints: e.target.value || undefined, autoHardware: e.target.value ? false : true })} options={TOUCH_POINTS_OPTIONS} />
           </FormItem>
         </div>
       </div>
@@ -489,7 +526,7 @@ export function FingerprintPanel({ value, onChange }: FingerprintPanelProps) {
               onChange={e => {
                 const vendor = e.target.value || undefined
                 const renderer = vendor ? randomRendererForVendor(vendor) : undefined
-                update({ webglVendor: vendor, webglRenderer: renderer })
+                update({ webglVendor: vendor, webglRenderer: renderer, autoHardware: vendor ? false : true })
               }}
               options={WEBGL_VENDOR_OPTIONS}
             />
@@ -520,14 +557,14 @@ export function FingerprintPanel({ value, onChange }: FingerprintPanelProps) {
           <FormItem label="Canvas 噪声">
             <Select
               value={config.canvasNoise === undefined ? '' : String(config.canvasNoise)}
-              onChange={e => { const v = e.target.value; update({ canvasNoise: v === '' ? undefined : v === 'true' }) }}
+              onChange={e => { const v = e.target.value; update({ canvasNoise: v === '' ? undefined : v === 'true', autoHardware: v ? false : true }) }}
               options={BOOL_OPTIONS}
             />
           </FormItem>
           <FormItem label="Audio 噪声">
             <Select
               value={config.audioNoise === undefined ? '' : String(config.audioNoise)}
-              onChange={e => { const v = e.target.value; update({ audioNoise: v === '' ? undefined : v === 'true' }) }}
+              onChange={e => { const v = e.target.value; update({ audioNoise: v === '' ? undefined : v === 'true', autoHardware: v ? false : true }) }}
               options={BOOL_OPTIONS}
             />
           </FormItem>
@@ -539,19 +576,19 @@ export function FingerprintPanel({ value, onChange }: FingerprintPanelProps) {
         <p className="text-xs font-medium text-[var(--color-text-muted)] mb-2 uppercase tracking-wide">网络与隐私</p>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <FormItem label="WebRTC 策略">
-            <Select value={config.webrtcPolicy ?? ''} onChange={e => update({ webrtcPolicy: e.target.value || undefined })} options={WEBRTC_OPTIONS} />
+            <Select value={config.webrtcPolicy ?? ''} onChange={e => update({ webrtcPolicy: e.target.value || undefined, autoHardware: e.target.value ? false : true })} options={WEBRTC_OPTIONS} />
           </FormItem>
           <FormItem label="Do Not Track">
             <Select
               value={config.doNotTrack === undefined ? '' : String(config.doNotTrack)}
-              onChange={e => { const v = e.target.value; update({ doNotTrack: v === '' ? undefined : v === 'true' }) }}
+              onChange={e => { const v = e.target.value; update({ doNotTrack: v === '' ? undefined : v === 'true', autoHardware: v ? false : true }) }}
               options={BOOL_OPTIONS}
             />
           </FormItem>
           <FormItem label="媒体设备 (摄像头,麦克风,扬声器)">
             <Input
               value={config.mediaDevices ?? ''}
-              onChange={e => update({ mediaDevices: e.target.value || undefined })}
+              onChange={e => update({ mediaDevices: e.target.value || undefined, autoHardware: e.target.value ? false : true })}
               placeholder="2,1,1"
             />
           </FormItem>
@@ -564,7 +601,7 @@ export function FingerprintPanel({ value, onChange }: FingerprintPanelProps) {
         <FormItem label="字体列表">
           <Input
             value={config.fonts ?? ''}
-            onChange={e => update({ fonts: e.target.value || undefined })}
+            onChange={e => update({ fonts: e.target.value || undefined, autoHardware: e.target.value ? false : true })}
             placeholder="Arial,Helvetica,Times New Roman（逗号分隔）"
           />
         </FormItem>
