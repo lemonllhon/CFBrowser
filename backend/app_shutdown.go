@@ -20,6 +20,7 @@ func (a *App) stopRuntimeServices() {
 
 		a.stopAllBrowserProcessesForExit(log)
 		a.clearProfileSwitchBridges()
+		a.clearProfileAuthProxyBridges()
 
 		if a.xrayMgr != nil {
 			a.xrayMgr.StopAll()

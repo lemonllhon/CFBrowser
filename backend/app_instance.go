@@ -108,12 +108,16 @@ func (a *App) browserInstanceStartInternal(profileId string, extraLaunchArgs []s
 	acquiredXrayBridgeKey := ""
 	releaseXrayBridge := false
 	releaseSwitchBridge := false
+	releaseAuthProxyBridge := false
 	defer func() {
 		if releaseXrayBridge && acquiredXrayBridgeKey != "" && a.xrayMgr != nil {
 			a.xrayMgr.ReleaseBridge(acquiredXrayBridgeKey)
 		}
 		if releaseSwitchBridge {
 			a.releaseProfileSwitchBridge(profileId)
+		}
+		if releaseAuthProxyBridge {
+			a.releaseProfileAuthProxyBridge(profileId)
 		}
 	}()
 
@@ -129,6 +133,7 @@ func (a *App) browserInstanceStartInternal(profileId string, extraLaunchArgs []s
 	}
 	effectiveProxy := resolvedProxyConfig
 	autoSwitchProxy := false
+	authProxyBridgeActive := false
 	if profile.AutoProxySwitchEnabled {
 		switchProxyURL, switchErr := a.startProfileSwitchBridge(profile)
 		if switchErr != nil {
@@ -148,12 +153,32 @@ func (a *App) browserInstanceStartInternal(profileId string, extraLaunchArgs []s
 		autoSwitchProxy = true
 		releaseSwitchBridge = true
 	}
+	if !autoSwitchProxy {
+		bridgedProxy, bridged, bridgeErr := a.startProfileAuthProxyBridge(profileId, effectiveProxy)
+		if bridgeErr != nil {
+			startErr := fmt.Errorf("实例启动失败：代理认证中转启动失败。原因：%v。请检查代理地址、账号密码以及本地端口权限。", bridgeErr)
+			profile.LastError = startErr.Error()
+			log.Error("代理认证中转启动失败",
+				logger.F("profile_id", profileId),
+				logger.F("proxy_id", profile.ProxyId),
+				logger.F("error", bridgeErr.Error()),
+			)
+			return profile, startErr
+		}
+		if bridged {
+			effectiveProxy = bridgedProxy
+			authProxyBridgeActive = true
+			releaseAuthProxyBridge = true
+		}
+	}
 	log.Info("代理配置检查",
 		logger.F("profile_id", profileId),
 		logger.F("proxy_id", profile.ProxyId),
 		logger.F("profile_proxy_config", profile.ProxyConfig),
 		logger.F("resolved_proxy_config", resolvedProxyConfig),
+		logger.F("effective_proxy", effectiveProxy),
 		logger.F("auto_switch", autoSwitchProxy),
+		logger.F("auth_bridge", authProxyBridgeActive),
 	)
 	if !autoSwitchProxy {
 		if supported, errorMsg := proxy.ValidateProxyConfig(resolvedProxyConfig, proxies, profile.ProxyId); !supported {
@@ -281,6 +306,7 @@ func (a *App) browserInstanceStartInternal(profileId string, extraLaunchArgs []s
 				releaseXrayBridge = false
 			}
 			releaseSwitchBridge = false
+			releaseAuthProxyBridge = false
 
 			log.Info("实例启动",
 				logger.F("profile_id", profileId),
@@ -334,6 +360,7 @@ func (a *App) browserInstanceStartInternal(profileId string, extraLaunchArgs []s
 			releaseXrayBridge = false
 		}
 		releaseSwitchBridge = false
+		releaseAuthProxyBridge = false
 
 		log.Warn("浏览器窗口已启动，但调试接口在等待窗口内未就绪，转入后台附着",
 			logger.F("profile_id", profileId),
@@ -759,6 +786,7 @@ func (a *App) markProfileStoppedLocked(profileId string, profile *BrowserProfile
 	delete(a.browserMgr.BrowserProcesses, profileId)
 	a.releaseProfileXrayBridge(profileId)
 	a.releaseProfileSwitchBridge(profileId)
+	a.releaseProfileAuthProxyBridge(profileId)
 	if a.launchServer != nil {
 		a.launchServer.ClearActiveProfile(profileId)
 	}

@@ -992,7 +992,7 @@ export function ProxyPoolPage() {
   const getLatencySortTuple = (proxyId: string): [number, number] => {
     const v = latencyMap[proxyId]
     if (v === undefined) return [4, Number.MAX_SAFE_INTEGER]
-    if (v === -1) return [1, Number.MAX_SAFE_INTEGER] // 测试中
+    if (v === -1) return [1, Number.MAX_SAFE_INTEGER] // 测速中
     if (v === -2) return [2, Number.MAX_SAFE_INTEGER] // 超时
     if (v === -3) return [3, Number.MAX_SAFE_INTEGER] // 不支持
     return [0, v] // 正常延迟
@@ -1239,7 +1239,7 @@ export function ProxyPoolPage() {
     }
     const val = latencyMap[record.proxyId]
     if (val === undefined) return <span className="text-[var(--color-text-muted)] text-xs">-</span>
-    if (val === -1) return <span className="text-[var(--color-text-muted)] text-xs animate-pulse">测试中...</span>
+    if (val === -1) return <span className="text-[var(--color-text-muted)] text-xs animate-pulse">测速中...</span>
     if (val === -2) return <span className="text-red-500 text-xs">超时</span>
     if (val === -3) return <span className="text-gray-400 text-xs">不支持</span>
     const color = val < 200 ? 'text-green-500' : val < 500 ? 'text-yellow-500' : 'text-red-500'
@@ -1725,13 +1725,13 @@ export function ProxyPoolPage() {
               variant={importMode === 'direct' ? undefined : 'secondary'}
               onClick={() => handleImportModeChange('direct')}
             >
-              HTTP / SOCKS5（测试中）
+              HTTP / HTTPS / SOCKS5
             </Button>
           </div>
           <p className="text-sm text-[var(--color-text-muted)]">
             {importMode === 'clash'
               ? '支持粘贴 Clash YAML，或通过订阅 URL 自动拉取并解析（含 proxies、dns、proxy-groups）'
-              : '支持单条录入 HTTP / HTTPS / SOCKS5 代理，账号和密码均可留空，导入后直接生效，不走 Clash 桥接'}
+              : '支持单条录入 HTTP / HTTPS / SOCKS5 代理，账号和密码均可留空；带认证的代理会在浏览器启动时自动走本地认证中转'}
           </p>
           {importMode === 'clash' && (
             <>

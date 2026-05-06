@@ -53,6 +53,7 @@ type App struct {
 	bridgeMu         sync.Mutex
 	xrayBridgeRefs   map[string]string
 	switchBridgeRefs map[string]*switchingProxyBridge
+	authProxyBridgeRefs map[string]*authenticatedProxyBridge
 	stopServicesOnce sync.Once
 	finalizeOnce     sync.Once
 }
@@ -68,6 +69,7 @@ func NewApp(appRoot string, appVersion ...string) *App {
 		version:        version,
 		xrayBridgeRefs: make(map[string]string),
 		switchBridgeRefs: make(map[string]*switchingProxyBridge),
+		authProxyBridgeRefs: make(map[string]*authenticatedProxyBridge),
 	}
 }
 
@@ -437,6 +439,42 @@ func (a *App) releaseProfileSwitchBridge(profileId string) {
 	}
 }
 
+func (a *App) startProfileAuthProxyBridge(profileId string, proxyURL string) (string, bool, error) {
+	if !proxyNeedsBrowserAuthBridge(proxyURL) {
+		return proxyURL, false, nil
+	}
+	a.releaseProfileAuthProxyBridge(profileId)
+	bridge := newAuthenticatedProxyBridge(proxyURL)
+	localProxyURL, err := bridge.start()
+	if err != nil {
+		return "", false, err
+	}
+	a.bridgeMu.Lock()
+	if a.authProxyBridgeRefs == nil {
+		a.authProxyBridgeRefs = make(map[string]*authenticatedProxyBridge)
+	}
+	a.authProxyBridgeRefs[profileId] = bridge
+	a.bridgeMu.Unlock()
+	return localProxyURL, true, nil
+}
+
+func (a *App) releaseProfileAuthProxyBridge(profileId string) {
+	profileId = strings.TrimSpace(profileId)
+	if profileId == "" {
+		return
+	}
+	a.bridgeMu.Lock()
+	if a.authProxyBridgeRefs == nil {
+		a.authProxyBridgeRefs = make(map[string]*authenticatedProxyBridge)
+	}
+	bridge := a.authProxyBridgeRefs[profileId]
+	delete(a.authProxyBridgeRefs, profileId)
+	a.bridgeMu.Unlock()
+	if bridge != nil {
+		bridge.stop()
+	}
+}
+
 func (a *App) BrowserProfileSwitchProxyNow(profileId string) (*BrowserProfile, error) {
 	profileId = strings.TrimSpace(profileId)
 	if profileId == "" {
@@ -505,6 +543,21 @@ func (a *App) clearProfileSwitchBridges() {
 		bridges = append(bridges, bridge)
 	}
 	a.switchBridgeRefs = make(map[string]*switchingProxyBridge)
+	a.bridgeMu.Unlock()
+	for _, bridge := range bridges {
+		if bridge != nil {
+			bridge.stop()
+		}
+	}
+}
+
+func (a *App) clearProfileAuthProxyBridges() {
+	a.bridgeMu.Lock()
+	bridges := make([]*authenticatedProxyBridge, 0, len(a.authProxyBridgeRefs))
+	for _, bridge := range a.authProxyBridgeRefs {
+		bridges = append(bridges, bridge)
+	}
+	a.authProxyBridgeRefs = make(map[string]*authenticatedProxyBridge)
 	a.bridgeMu.Unlock()
 	for _, bridge := range bridges {
 		if bridge != nil {
