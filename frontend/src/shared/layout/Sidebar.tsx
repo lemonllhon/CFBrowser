@@ -16,6 +16,7 @@ import {
   Cpu,
   Globe,
   Tag,
+  FolderTree,
   type LucideIcon
 } from 'lucide-react'
 import clsx from 'clsx'
@@ -40,6 +41,7 @@ const iconMap: Record<string, LucideIcon> = {
   Bookmark,
   BookOpen,
   Tag,
+  FolderTree,
 }
 
 function getIcon(iconName: string): LucideIcon {

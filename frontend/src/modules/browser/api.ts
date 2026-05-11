@@ -35,6 +35,8 @@ let mockCores: BrowserCore[] = []
 
 let mockProxies: BrowserProxy[] = []
 
+let mockGroups: BrowserGroup[] = []
+
 // ============================================================================
 // Profile API
 // ============================================================================
@@ -792,7 +794,10 @@ export async function fetchGroups(): Promise<BrowserGroupWithCount[]> {
   if (bindings?.ListGroups) {
     return (await bindings.ListGroups()) || []
   }
-  return []
+  return mockGroups.map(group => ({
+    ...group,
+    instanceCount: mockProfiles.filter(profile => profile.groupId === group.groupId).length,
+  }))
 }
 
 export async function createGroup(input: BrowserGroupInput): Promise<BrowserGroup | null> {
@@ -800,7 +805,23 @@ export async function createGroup(input: BrowserGroupInput): Promise<BrowserGrou
   if (bindings?.CreateGroup) {
     return (await bindings.CreateGroup(input)) || null
   }
-  return null
+  if (!input.groupName.trim()) {
+    throw new Error('分组名称不能为空')
+  }
+  if (input.parentId && !mockGroups.some(group => group.groupId === input.parentId)) {
+    throw new Error('父分组不存在')
+  }
+  const now = new Date().toISOString()
+  const group: BrowserGroup = {
+    groupId: `mock-group-${Date.now()}`,
+    groupName: input.groupName.trim(),
+    parentId: input.parentId || '',
+    sortOrder: input.sortOrder || 0,
+    createdAt: now,
+    updatedAt: now,
+  }
+  mockGroups = [...mockGroups, group]
+  return group
 }
 
 export async function updateGroup(groupId: string, input: BrowserGroupInput): Promise<BrowserGroup | null> {
@@ -808,7 +829,35 @@ export async function updateGroup(groupId: string, input: BrowserGroupInput): Pr
   if (bindings?.UpdateGroup) {
     return (await bindings.UpdateGroup(groupId, input)) || null
   }
-  return null
+  const index = mockGroups.findIndex(group => group.groupId === groupId)
+  if (index === -1) {
+    throw new Error('分组不存在')
+  }
+  if (!input.groupName.trim()) {
+    throw new Error('分组名称不能为空')
+  }
+  if (input.parentId === groupId) {
+    throw new Error('不能将分组设为自己的子分组')
+  }
+  if (input.parentId && !mockGroups.some(group => group.groupId === input.parentId)) {
+    throw new Error('父分组不存在')
+  }
+  let currentParentId = input.parentId
+  while (currentParentId) {
+    if (currentParentId === groupId) {
+      throw new Error('不能将分组设为自己的后代分组')
+    }
+    currentParentId = mockGroups.find(group => group.groupId === currentParentId)?.parentId || ''
+  }
+  const updated = {
+    ...mockGroups[index],
+    groupName: input.groupName.trim(),
+    parentId: input.parentId || '',
+    sortOrder: input.sortOrder || 0,
+    updatedAt: new Date().toISOString(),
+  }
+  mockGroups = mockGroups.map(group => group.groupId === groupId ? updated : group)
+  return updated
 }
 
 export async function deleteGroup(groupId: string): Promise<boolean> {
@@ -817,7 +866,17 @@ export async function deleteGroup(groupId: string): Promise<boolean> {
     await bindings.DeleteGroup(groupId)
     return true
   }
-  return false
+  const group = mockGroups.find(item => item.groupId === groupId)
+  if (!group) {
+    throw new Error('分组不存在')
+  }
+  mockGroups = mockGroups
+    .filter(item => item.groupId !== groupId)
+    .map(item => item.parentId === groupId ? { ...item, parentId: group.parentId, updatedAt: new Date().toISOString() } : item)
+  mockProfiles = mockProfiles.map(profile => (
+    profile.groupId === groupId ? { ...profile, groupId: group.parentId, updatedAt: new Date().toISOString() } : profile
+  ))
+  return true
 }
 
 export async function moveInstancesToGroup(profileIds: string[], groupId: string): Promise<boolean> {
@@ -826,5 +885,12 @@ export async function moveInstancesToGroup(profileIds: string[], groupId: string
     await bindings.MoveInstancesToGroup(profileIds, groupId)
     return true
   }
-  return false
+  if (groupId && !mockGroups.some(group => group.groupId === groupId)) {
+    throw new Error('分组不存在')
+  }
+  const idSet = new Set(profileIds)
+  mockProfiles = mockProfiles.map(profile => (
+    idSet.has(profile.profileId) ? { ...profile, groupId, updatedAt: new Date().toISOString() } : profile
+  ))
+  return true
 }

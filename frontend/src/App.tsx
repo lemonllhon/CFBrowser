@@ -37,6 +37,7 @@ const CoreManagementPage = lazyNamed(() => import('./modules/browser/pages/CoreM
 const BookmarkSettingsPage = lazyNamed(() => import('./modules/browser/pages/BookmarkSettingsPage'), 'BookmarkSettingsPage')
 const LaunchApiDocsPage = lazyNamed(() => import('./modules/browser/pages/LaunchApiDocsPage'), 'LaunchApiDocsPage')
 const TagManagementPage = lazyNamed(() => import('./modules/browser/pages/TagManagementPage'), 'TagManagementPage')
+const GroupManagementPage = lazyNamed(() => import('./modules/browser/pages/GroupManagementPage'), 'GroupManagementPage')
 const AutomationPage = lazyNamed(() => import('./modules/browser/pages/AutomationPage'), 'AutomationPage')
 const UsageTutorialPage = lazyNamed(() => import('./modules/browser/pages/UsageTutorialPage'), 'UsageTutorialPage')
 const QuickLaunchModal = lazyNamed(() => import('./modules/browser/components/QuickLaunchModal'), 'QuickLaunchModal')
@@ -295,6 +296,7 @@ function App() {
               <Route path="/browser/automation" element={<AutomationPage />} />
               <Route path="/browser/launch-api" element={<LaunchApiDocsPage />} />
               <Route path="/browser/tags" element={<TagManagementPage />} />
+              <Route path="/browser/groups" element={<GroupManagementPage />} />
               <Route path="/system/tutorial" element={<UsageTutorialPage />} />
             </Routes>
           </Suspense>
