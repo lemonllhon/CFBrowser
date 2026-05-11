@@ -1,9 +1,13 @@
 package backend
 
 import (
+	"fmt"
+	"time"
+
 	"ant-chrome/backend/internal/browser"
 	"ant-chrome/backend/internal/logger"
-	"fmt"
+
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // ============================================================================
@@ -64,6 +68,7 @@ func (a *App) CreateGroup(input BrowserGroupInput) (*BrowserGroup, error) {
 		return nil, err
 	}
 	log.Info("分组已创建", logger.F("group_id", group.GroupId), logger.F("group_name", group.GroupName))
+	a.emitGroupDataUpdated()
 	return group, nil
 }
 
@@ -80,6 +85,7 @@ func (a *App) UpdateGroup(groupId string, input BrowserGroupInput) (*BrowserGrou
 		return nil, err
 	}
 	log.Info("分组已更新", logger.F("group_id", groupId))
+	a.emitGroupDataUpdated()
 	return group, nil
 }
 
@@ -90,11 +96,20 @@ func (a *App) DeleteGroup(groupId string) error {
 		return fmt.Errorf("GroupDAO 未初始化")
 	}
 
+	group, err := a.browserMgr.GroupDAO.GetById(groupId)
+	if err != nil {
+		log.Error("获取待删除分组失败", logger.F("group_id", groupId), logger.F("error", err))
+		return err
+	}
+
 	if err := a.browserMgr.GroupDAO.Delete(groupId); err != nil {
 		log.Error("删除分组失败", logger.F("group_id", groupId), logger.F("error", err))
 		return err
 	}
+	a.syncProfilesMovedFromDeletedGroup(groupId, group.ParentId)
 	log.Info("分组已删除", logger.F("group_id", groupId))
+	a.emitGroupDataUpdated()
+	a.emitProfileDataUpdated()
 	return nil
 }
 
@@ -110,6 +125,56 @@ func (a *App) MoveInstancesToGroup(profileIds []string, groupId string) error {
 		log.Error("批量移动实例失败", logger.F("count", len(profileIds)), logger.F("error", err))
 		return err
 	}
+	a.syncProfilesMovedToGroup(profileIds, groupId)
 	log.Info("实例已移动到分组", logger.F("count", len(profileIds)), logger.F("group_id", groupId))
+	a.emitGroupDataUpdated()
+	a.emitProfileDataUpdated()
 	return nil
+}
+
+func (a *App) syncProfilesMovedToGroup(profileIds []string, groupId string) {
+	if a == nil || a.browserMgr == nil || len(profileIds) == 0 {
+		return
+	}
+	idSet := make(map[string]struct{}, len(profileIds))
+	for _, profileId := range profileIds {
+		idSet[profileId] = struct{}{}
+	}
+
+	a.browserMgr.Mutex.Lock()
+	defer a.browserMgr.Mutex.Unlock()
+	now := time.Now().Format(time.RFC3339)
+	for profileId := range idSet {
+		if profile, ok := a.browserMgr.Profiles[profileId]; ok {
+			profile.GroupId = groupId
+			profile.UpdatedAt = now
+		}
+	}
+}
+
+func (a *App) syncProfilesMovedFromDeletedGroup(deletedGroupId, parentGroupId string) {
+	if a == nil || a.browserMgr == nil {
+		return
+	}
+	a.browserMgr.Mutex.Lock()
+	defer a.browserMgr.Mutex.Unlock()
+	now := time.Now().Format(time.RFC3339)
+	for _, profile := range a.browserMgr.Profiles {
+		if profile.GroupId == deletedGroupId {
+			profile.GroupId = parentGroupId
+			profile.UpdatedAt = now
+		}
+	}
+}
+
+func (a *App) emitGroupDataUpdated() {
+	if a != nil && a.ctx != nil {
+		runtime.EventsEmit(a.ctx, "browser:groups:updated", nil)
+	}
+}
+
+func (a *App) emitProfileDataUpdated() {
+	if a != nil && a.ctx != nil {
+		runtime.EventsEmit(a.ctx, "browser:profiles:updated", nil)
+	}
 }

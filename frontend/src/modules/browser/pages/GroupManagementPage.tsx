@@ -3,6 +3,7 @@ import { Folder, FolderInput, FolderPlus, Pencil, Plus, Trash2, X } from 'lucide
 import { Badge, Button, Card, FormItem, Input, Select, toast } from '../../../shared/components'
 import type { BrowserGroupInput, BrowserGroupWithCount, BrowserProfile } from '../types'
 import { createGroup, deleteGroup, fetchBrowserProfiles, fetchGroups, moveInstancesToGroup, updateGroup } from '../api'
+import { EventsOn } from '../../../wailsjs/runtime/runtime'
 
 interface TreeGroup extends BrowserGroupWithCount {
   level: number
@@ -301,6 +302,16 @@ export function GroupManagementPage() {
 
   useEffect(() => {
     void load()
+    const offProfilesUpdated = EventsOn('browser:profiles:updated', () => {
+      void load()
+    })
+    const offGroupsUpdated = EventsOn('browser:groups:updated', () => {
+      void load()
+    })
+    return () => {
+      offProfilesUpdated?.()
+      offGroupsUpdated?.()
+    }
   }, [])
 
   useEffect(() => {

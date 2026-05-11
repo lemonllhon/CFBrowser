@@ -213,16 +213,17 @@ func (d *SQLiteProfileDAO) MoveToGroup(profileIds []string, groupId string) erro
 		return nil
 	}
 	inClause := ""
-	args := make([]interface{}, len(profileIds)+1)
+	args := make([]interface{}, len(profileIds)+2)
 	args[0] = groupId
+	args[1] = time.Now().Format(time.RFC3339)
 	for i, id := range profileIds {
 		if i > 0 {
 			inClause += ","
 		}
 		inClause += "?"
-		args[i+1] = id
+		args[i+2] = id
 	}
-	_, err := d.db.Exec(fmt.Sprintf(`UPDATE browser_profiles SET group_id = ? WHERE profile_id IN (%s)`, inClause), args...)
+	_, err := d.db.Exec(fmt.Sprintf(`UPDATE browser_profiles SET group_id = ?, updated_at = ? WHERE profile_id IN (%s)`, inClause), args...)
 	if err != nil {
 		return fmt.Errorf("批量移动实例失败: %w", err)
 	}

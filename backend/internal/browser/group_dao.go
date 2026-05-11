@@ -145,7 +145,8 @@ func (d *SQLiteGroupDAO) Delete(groupId string) error {
 		return err
 	}
 	// 将该分组下的实例移动到父分组
-	_, err = d.db.Exec(`UPDATE browser_profiles SET group_id = ? WHERE group_id = ?`, group.ParentId, groupId)
+	now := time.Now().Format(time.RFC3339)
+	_, err = d.db.Exec(`UPDATE browser_profiles SET group_id = ?, updated_at = ? WHERE group_id = ?`, group.ParentId, now, groupId)
 	if err != nil {
 		return fmt.Errorf("移动实例失败: %w", err)
 	}

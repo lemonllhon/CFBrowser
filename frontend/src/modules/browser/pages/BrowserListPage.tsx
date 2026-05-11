@@ -410,6 +410,12 @@ export function BrowserListPage() {
     const offUpdated = EventsOn('browser:instance:updated', () => {
       void loadProfiles({ silent: true, syncRuntimeState: true })
     })
+    const offProfilesUpdated = EventsOn('browser:profiles:updated', () => {
+      void loadProfiles({ silent: true, syncRuntimeState: true })
+    })
+    const offGroupsUpdated = EventsOn('browser:groups:updated', () => {
+      void loadGroups()
+    })
     const offStopped = EventsOn('browser:instance:stopped', (payload: any) => {
       const profileId = typeof payload === 'string' ? payload : payload?.profileId
       if (profileId) {
@@ -436,6 +442,8 @@ export function BrowserListPage() {
       window.clearInterval(timer)
       offStarted?.()
       offUpdated?.()
+      offProfilesUpdated?.()
+      offGroupsUpdated?.()
       offStopped?.()
       offCrashed?.()
     }
