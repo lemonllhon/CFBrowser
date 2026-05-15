@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { FolderOpen, Settings, Edit2 } from 'lucide-react'
+import { Download, Edit2, FolderOpen, RefreshCw, Settings } from 'lucide-react'
 import { Badge, Button, Card, ConfirmModal, FormItem, Input, Modal, Table, Textarea, toast } from '../../../shared/components'
 import type { TableColumn } from '../../../shared/components/Table'
 import type { BrowserCore, BrowserCoreInput, BrowserCoreValidateResult, BrowserSettings, BrowserCoreExtended, BrowserProxy } from '../types'
@@ -15,6 +15,35 @@ interface CoreDisplayInfo {
   pathMessage: string
   chromeVersion: string
   instanceCount: number
+}
+
+type CoreDownloadSource = 'github' | 'custom'
+
+interface GithubCoreAsset {
+  id: number
+  releaseName: string
+  tagName: string
+  assetName: string
+  url: string
+  size: number
+  updatedAt: string
+}
+
+const FINGERPRINT_CHROMIUM_RELEASES_API = 'https://api.github.com/repos/adryfish/fingerprint-chromium/releases'
+const FINGERPRINT_CHROMIUM_RELEASES_PAGE = 'https://github.com/adryfish/fingerprint-chromium/releases'
+
+const formatAssetSize = (bytes: number) => {
+  if (!bytes || bytes <= 0) return '-'
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+const deriveCoreNameFromAsset = (asset: GithubCoreAsset) => {
+  const base = asset.assetName
+    .replace(/\.(zip|7z|tar\.gz|tgz)$/i, '')
+    .replace(/[^\w.-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+  return base || asset.tagName || 'chrome-core'
 }
 
 export function CoreManagementPage() {
@@ -57,9 +86,12 @@ export function CoreManagementPage() {
 
   // 内核下载
   const [downloadModalOpen, setDownloadModalOpen] = useState(false)
-  const [downloadForm, setDownloadForm] = useState({ name: '', url: '', proxyMode: 'system', proxyId: '' })
+  const [downloadForm, setDownloadForm] = useState({ name: '', url: '', proxyMode: 'system', proxyId: '', source: 'github' as CoreDownloadSource, selectedAssetUrl: '' })
   const [downloadProgress, setDownloadProgress] = useState<{ phase: string; progress: number; message: string } | null>(null)
   const [proxies, setProxies] = useState<BrowserProxy[]>([])
+  const [githubAssets, setGithubAssets] = useState<GithubCoreAsset[]>([])
+  const [githubLoading, setGithubLoading] = useState(false)
+  const [githubError, setGithubError] = useState('')
 
   useEffect(() => {
     loadData()
@@ -151,6 +183,64 @@ export function CoreManagementPage() {
     }, 500)
     return () => clearTimeout(timer)
   }, [editForm.corePath, editModalOpen, validatePath])
+
+  const loadGithubCoreAssets = useCallback(async () => {
+    setGithubLoading(true)
+    setGithubError('')
+    try {
+      const response = await fetch(FINGERPRINT_CHROMIUM_RELEASES_API, {
+        headers: { Accept: 'application/vnd.github+json' },
+      })
+      if (!response.ok) {
+        throw new Error(`GitHub Releases 获取失败：HTTP ${response.status}`)
+      }
+      const releases = await response.json()
+      const assets: GithubCoreAsset[] = []
+      ;(Array.isArray(releases) ? releases : []).forEach((release: any) => {
+        const releaseName = String(release?.name || release?.tag_name || '未命名版本')
+        const tagName = String(release?.tag_name || '')
+        ;(Array.isArray(release?.assets) ? release.assets : []).forEach((asset: any) => {
+          const assetName = String(asset?.name || '')
+          const url = String(asset?.browser_download_url || '')
+          if (!assetName || !url || !/\.(zip|7z|tar\.gz|tgz)$/i.test(assetName)) return
+          assets.push({
+            id: Number(asset?.id || assets.length + 1),
+            releaseName,
+            tagName,
+            assetName,
+            url,
+            size: Number(asset?.size || 0),
+            updatedAt: String(asset?.updated_at || release?.published_at || ''),
+          })
+        })
+      })
+      setGithubAssets(assets)
+      if (assets.length === 0) {
+        setGithubError('未找到可下载的压缩包资产')
+      }
+    } catch (error: any) {
+      setGithubError(error?.message || '获取 GitHub 版本失败')
+      setGithubAssets([])
+    } finally {
+      setGithubLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (downloadModalOpen && downloadForm.source === 'github' && githubAssets.length === 0 && !githubLoading && !githubError) {
+      void loadGithubCoreAssets()
+    }
+  }, [downloadModalOpen, downloadForm.source, githubAssets.length, githubLoading, githubError, loadGithubCoreAssets])
+
+  const handleSelectGithubAsset = (assetUrl: string) => {
+    const asset = githubAssets.find(item => item.url === assetUrl)
+    setDownloadForm(prev => ({
+      ...prev,
+      selectedAssetUrl: assetUrl,
+      url: asset?.url || '',
+      name: asset ? deriveCoreNameFromAsset(asset) : prev.name,
+    }))
+  }
 
   // 表格列定义
   const columns: TableColumn<CoreDisplayInfo>[] = [
@@ -588,7 +678,7 @@ export function CoreManagementPage() {
         }
         setDownloadModalOpen(false)
         setDownloadProgress(null)
-      }} title="下载内核" width="480px"
+      }} title="下载内核" width="720px"
         footer={
           <>
             <Button variant="secondary" onClick={() => {
@@ -599,6 +689,84 @@ export function CoreManagementPage() {
           </>
         }>
         <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              variant={downloadForm.source === 'github' ? undefined : 'secondary'}
+              onClick={() => setDownloadForm(prev => ({ ...prev, source: 'github' }))}
+              disabled={downloadProgress !== null}
+            >
+              <Download className="w-4 h-4" />
+              GitHub 版本
+            </Button>
+            <Button
+              variant={downloadForm.source === 'custom' ? undefined : 'secondary'}
+              onClick={() => setDownloadForm(prev => ({ ...prev, source: 'custom' }))}
+              disabled={downloadProgress !== null}
+            >
+              自定义地址
+            </Button>
+          </div>
+
+          {downloadForm.source === 'github' && (
+            <Card padding="sm">
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <div>
+                  <p className="text-sm font-medium text-[var(--color-text-primary)]">fingerprint-chromium Releases</p>
+                  <p className="text-xs text-[var(--color-text-muted)] mt-0.5">从 GitHub Releases 读取可下载压缩包，选择后会自动回填名称和地址</p>
+                </div>
+                <div className="flex gap-2 shrink-0">
+                  <Button size="sm" variant="ghost" onClick={loadGithubCoreAssets} loading={githubLoading} disabled={downloadProgress !== null}>
+                    {!githubLoading && <RefreshCw className="w-4 h-4" />}
+                    刷新
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => BrowserOpenURL(FINGERPRINT_CHROMIUM_RELEASES_PAGE)}>打开页面</Button>
+                </div>
+              </div>
+
+              {githubError ? (
+                <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
+                  {githubError}
+                </div>
+              ) : githubLoading ? (
+                <div className="rounded-md border border-[var(--color-border-default)] px-3 py-6 text-center text-sm text-[var(--color-text-muted)]">正在获取版本...</div>
+              ) : (
+                <div className="space-y-2 max-h-64 overflow-auto pr-1">
+                  {githubAssets.map(asset => (
+                    <label
+                      key={`${asset.id}-${asset.url}`}
+                      className={`flex items-start gap-3 rounded-lg border p-3 cursor-pointer transition-colors ${
+                        downloadForm.selectedAssetUrl === asset.url
+                          ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/5'
+                          : 'border-[var(--color-border-default)] hover:border-[var(--color-border-strong)]'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="github-core-asset"
+                        className="mt-1 accent-[var(--color-accent)]"
+                        checked={downloadForm.selectedAssetUrl === asset.url}
+                        onChange={() => handleSelectGithubAsset(asset.url)}
+                        disabled={downloadProgress !== null}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-sm font-medium text-[var(--color-text-primary)] truncate">{asset.assetName}</span>
+                          <span className="text-xs text-[var(--color-text-muted)] shrink-0">{formatAssetSize(asset.size)}</span>
+                        </div>
+                        <div className="mt-1 text-xs text-[var(--color-text-muted)] truncate">
+                          {asset.releaseName}{asset.tagName ? ` / ${asset.tagName}` : ''}
+                        </div>
+                      </div>
+                    </label>
+                  ))}
+                  {githubAssets.length === 0 && (
+                    <div className="rounded-md border border-[var(--color-border-default)] px-3 py-6 text-center text-sm text-[var(--color-text-muted)]">暂无可选版本</div>
+                  )}
+                </div>
+              )}
+            </Card>
+          )}
+
           <FormItem label="内核名称" required>
             <Input
               value={downloadForm.name}
@@ -608,23 +776,16 @@ export function CoreManagementPage() {
             />
             <p className="text-xs text-[var(--color-text-muted)] mt-1">该名称将同时作为数据存放的子文件夹名。</p>
           </FormItem>
-          <FormItem label="下载地址 (ZIP)" required>
+          <FormItem label={downloadForm.source === 'github' ? '下载地址（已从版本选择回填，也可手动微调）' : '下载地址（ZIP）'} required>
             <Input
               value={downloadForm.url}
               onChange={e => setDownloadForm(prev => ({ ...prev, url: e.target.value }))}
               placeholder="https://github.com/.../release.zip"
               disabled={downloadProgress !== null}
             />
-            <div className="text-xs text-[var(--color-text-muted)] mt-2 flex items-center justify-between bg-[var(--color-bg-muted)] p-2 rounded">
-              <span>推荐指纹内核: fingerprint-chromium</span>
-              <button
-                type="button"
-                onClick={() => BrowserOpenURL('https://github.com/adryfish/fingerprint-chromium/releases')}
-                className="text-[var(--color-accent)] hover:underline cursor-pointer font-medium"
-              >
-                前往 Releases 页面获取链接
-              </button>
-            </div>
+            {downloadForm.source === 'custom' && (
+              <p className="text-xs text-[var(--color-text-muted)] mt-1">可填写你自己构建、内部镜像或其他来源的 ZIP 内核压缩包下载地址。</p>
+            )}
           </FormItem>
 
           <FormItem label="下载代理设置">
