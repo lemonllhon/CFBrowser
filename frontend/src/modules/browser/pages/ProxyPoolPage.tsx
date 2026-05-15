@@ -616,6 +616,16 @@ function buildRefreshedSourceProxies(
   return refreshed
 }
 
+function renameSourceProxyName(proxyName: string, oldPrefix: string, newPrefix: string): string {
+  const currentName = proxyName.trim()
+  const old = oldPrefix.trim()
+  const next = newPrefix.trim()
+  const baseName = old && currentName.startsWith(`${old}-`)
+    ? currentName.slice(old.length + 1)
+    : currentName
+  return next ? `${next}-${baseName}` : baseName
+}
+
 function readSourceIgnoredProxyNames(): Record<string, string[]> {
   try {
     const raw = localStorage.getItem(PROXY_SOURCE_IGNORED_NAMES_KEY)
@@ -830,6 +840,11 @@ export function ProxyPoolPage() {
   const [refreshingSourceIds, setRefreshingSourceIds] = useState<Set<string>>(new Set())
   const [globalAutoRefreshEnabled, setGlobalAutoRefreshEnabled] = useState(false)
   const [globalRefreshIntervalM, setGlobalRefreshIntervalM] = useState('60')
+  const [sourceEditModalOpen, setSourceEditModalOpen] = useState(false)
+  const [editingSource, setEditingSource] = useState<URLImportSourceMeta | null>(null)
+  const [sourceEditForm, setSourceEditForm] = useState({ sourceUrl: '', groupName: '', namePrefix: '', dnsServers: '' })
+  const [sourceDeleteConfirmOpen, setSourceDeleteConfirmOpen] = useState(false)
+  const [deletingSource, setDeletingSource] = useState<URLImportSourceMeta | null>(null)
 
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [editingProxy, setEditingProxy] = useState<BrowserProxy | null>(null)
@@ -1571,6 +1586,77 @@ export function ProxyPoolPage() {
     setImportModalOpen(true)
   }
 
+  const handleEditSource = (source: URLImportSourceMeta) => {
+    setEditingSource(source)
+    setSourceEditForm({
+      sourceUrl: source.sourceUrl,
+      groupName: source.sourceGroupName,
+      namePrefix: source.sourceNamePrefix,
+      dnsServers: source.sourceDnsServers,
+    })
+    setSourceEditModalOpen(true)
+  }
+
+  const handleSaveSource = async () => {
+    if (!editingSource) return
+    const nextURL = sourceEditForm.sourceUrl.trim()
+    if (!nextURL) {
+      toast.error('订阅 URL 不能为空')
+      return
+    }
+    try {
+      const parsed = new URL(nextURL)
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        toast.error('订阅 URL 仅支持 HTTP / HTTPS')
+        return
+      }
+    } catch {
+      toast.error('订阅 URL 格式无效')
+      return
+    }
+
+    const nextGroup = sourceEditForm.groupName.trim()
+    const nextPrefix = sourceEditForm.namePrefix.trim()
+    const nextDNS = sourceEditForm.dnsServers.trim()
+    const updated = proxies.map(item => {
+      if ((item.sourceId || '').trim() !== editingSource.sourceId) return item
+      return {
+        ...item,
+        proxyName: renameSourceProxyName(item.proxyName, editingSource.sourceNamePrefix, nextPrefix),
+        groupName: nextGroup || undefined,
+        dnsServers: nextDNS || undefined,
+        sourceUrl: nextURL,
+        sourceNamePrefix: nextPrefix || undefined,
+      }
+    })
+
+    try {
+      await saveProxies(updated)
+      setSourceEditModalOpen(false)
+      setEditingSource(null)
+      toast.success('订阅已更新')
+    } catch (error: any) {
+      toast.error(error?.message || '订阅保存失败')
+    }
+  }
+
+  const handleDeleteSourceClick = (source: URLImportSourceMeta) => {
+    setDeletingSource(source)
+    setSourceDeleteConfirmOpen(true)
+  }
+
+  const handleDeleteSourceConfirm = async () => {
+    if (!deletingSource) return
+    try {
+      const updated = proxies.filter(item => (item.sourceId || '').trim() !== deletingSource.sourceId)
+      await saveProxies(updated)
+      setDeletingSource(null)
+      toast.success('订阅已删除')
+    } catch (error: any) {
+      toast.error(error?.message || '订阅删除失败')
+    }
+  }
+
   const handleFetchImportURL = async () => {
     const targetURL = importUrl.trim()
     if (!targetURL) {
@@ -1723,7 +1809,7 @@ export function ProxyPoolPage() {
     {
       key: 'actions',
       title: '操作',
-      width: '220px',
+      width: '320px',
       render: (_, record) => (
         <div className="flex gap-2">
           <Button
@@ -1745,6 +1831,20 @@ export function ProxyPoolPage() {
             }}
           >
             查看节点
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => handleEditSource(record)}
+          >
+            编辑
+          </Button>
+          <Button
+            size="sm"
+            variant="danger"
+            onClick={() => handleDeleteSourceClick(record)}
+          >
+            删除
           </Button>
         </div>
       ),
@@ -1779,7 +1879,7 @@ export function ProxyPoolPage() {
           >
             删除超时节点{timeoutProxyIds.length > 0 ? ` (${timeoutProxyIds.length})` : ''}
           </Button>
-          <Button size="sm" onClick={() => handleOpenImportCenter('clash')}>订阅与导入</Button>
+          <Button size="sm" onClick={() => handleOpenImportCenter('clash')}>添加资源</Button>
         </div>
       </div>
 
@@ -1811,7 +1911,7 @@ export function ProxyPoolPage() {
           <Button
             size="sm"
             variant="ghost"
-            onClick={() => handleOpenImportCenter(resourceView === 'sources' ? 'clash' : 'direct')}
+            onClick={() => handleOpenImportCenter('clash')}
           >
             添加资源
           </Button>
@@ -2107,6 +2207,48 @@ export function ProxyPoolPage() {
         </div>
       </Modal>
 
+      <Modal open={sourceEditModalOpen} onClose={() => setSourceEditModalOpen(false)} title="编辑订阅" width="560px"
+        footer={<><Button variant="secondary" onClick={() => setSourceEditModalOpen(false)}>取消</Button><Button onClick={handleSaveSource}>保存</Button></>}>
+        <div className="space-y-4">
+          <FormItem label="订阅 URL" required>
+            <Input
+              value={sourceEditForm.sourceUrl}
+              onChange={e => setSourceEditForm(prev => ({ ...prev, sourceUrl: e.target.value }))}
+              placeholder="https://example.com/clash/subscription"
+            />
+          </FormItem>
+          <FormItem label="分组名称（可选）">
+            <Input
+              value={sourceEditForm.groupName}
+              onChange={e => setSourceEditForm(prev => ({ ...prev, groupName: e.target.value }))}
+              placeholder="例如：香港、美国、机场A"
+              list="edit-source-groups-datalist"
+            />
+            <datalist id="edit-source-groups-datalist">
+              {groups.map(g => <option key={g} value={g} />)}
+            </datalist>
+          </FormItem>
+          <FormItem label="名称前缀（可选）">
+            <Input
+              value={sourceEditForm.namePrefix}
+              onChange={e => setSourceEditForm(prev => ({ ...prev, namePrefix: e.target.value }))}
+              placeholder="例如：HK、US、机场A"
+            />
+          </FormItem>
+          <FormItem label="批量 DNS 配置（可选）">
+            <Textarea
+              value={sourceEditForm.dnsServers}
+              onChange={e => setSourceEditForm(prev => ({ ...prev, dnsServers: e.target.value }))}
+              rows={5}
+              placeholder={`dns:\n  enable: true\n  nameserver:\n    - 119.29.29.29\n    - 223.5.5.5`}
+            />
+          </FormItem>
+          <p className="text-xs text-[var(--color-text-muted)]">
+            保存后会同步更新该订阅下的全部节点；下次刷新订阅会继续使用这些来源配置。
+          </p>
+        </div>
+      </Modal>
+
       <Modal
         open={ipHealthDetailOpen}
         onClose={() => setIPHealthDetailOpen(false)}
@@ -2139,6 +2281,9 @@ export function ProxyPoolPage() {
 
       <ConfirmModal open={deleteTimeoutConfirmOpen} onClose={() => setDeleteTimeoutConfirmOpen(false)} onConfirm={handleDeleteTimeoutConfirm}
         title="删除测试超时节点" content={`确定要删除 ${timeoutProxyIds.length} 个测试超时节点吗？直连和本地代理会保留，此操作不可恢复。`} confirmText="删除超时节点" danger />
+
+      <ConfirmModal open={sourceDeleteConfirmOpen} onClose={() => setSourceDeleteConfirmOpen(false)} onConfirm={handleDeleteSourceConfirm}
+        title="删除订阅" content={`确定删除订阅「${deletingSource ? sourceHostLabel(deletingSource.sourceUrl) : ''}」及其 ${deletingSource?.proxyCount || 0} 个节点吗？此操作不可恢复。`} confirmText="删除订阅" danger />
     </div>
   )
 }
