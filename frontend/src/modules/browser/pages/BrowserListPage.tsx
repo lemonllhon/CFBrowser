@@ -643,8 +643,11 @@ export function BrowserListPage() {
   }
 
   const handleDelete = async (profileId: string) => {
+    const profile = profiles.find(item => item.profileId === profileId)
+    const name = profile?.profileName || profileId
+    if (!confirm(`确定删除实例「${name}」？\n该操作会同时删除这个实例的用户数据目录，无法恢复。`)) return
     await deleteBrowserProfile(profileId)
-    toast.success('配置已删除')
+    toast.success('实例和用户数据目录已删除')
     loadProfiles()
   }
 
@@ -740,7 +743,7 @@ export function BrowserListPage() {
   const handleBatchDelete = async () => {
     const ids = Array.from(selectedIds)
     if (ids.length === 0) return
-    if (!confirm(`确定删除选中的 ${ids.length} 个实例？`)) return
+    if (!confirm(`确定删除选中的 ${ids.length} 个实例？\n该操作会同时删除这些实例的用户数据目录，无法恢复。`)) return
     setBatchLoading(true)
     for (const id of ids) {
       await deleteBrowserProfile(id)

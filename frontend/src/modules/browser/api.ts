@@ -518,6 +518,20 @@ export async function openUserDataDir(userDataDir: string): Promise<boolean> {
   return false
 }
 
+export async function openProfileUserDataDir(profileId: string): Promise<boolean> {
+  const bindings: any = await getBindings()
+  if (bindings?.OpenProfileUserDataDir) {
+    await bindings.OpenProfileUserDataDir(profileId)
+    return true
+  }
+  const goApp = (window as any).go?.main?.App
+  if (goApp?.OpenProfileUserDataDir) {
+    await goApp.OpenProfileUserDataDir(profileId)
+    return true
+  }
+  return false
+}
+
 export async function openCorePath(corePath: string): Promise<boolean> {
   const bindings: any = await getBindings()
   if (bindings?.OpenCorePath) {

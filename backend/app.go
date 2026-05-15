@@ -686,7 +686,7 @@ func (a *App) BrowserProfileUpdate(profileId string, input BrowserProfileInput) 
 	return a.browserMgr.Update(profileId, input)
 }
 
-func (a *App) BrowserProfileDelete(profileId string) error { return a.browserMgr.Delete(profileId) }
+func (a *App) BrowserProfileDelete(profileId string) error { return a.deleteProfileWithData(profileId) }
 
 // BrowserProfileCopy 复制实例配置（除指纹参数外全部复制）
 func (a *App) BrowserProfileCopy(profileId string, newName string) (*BrowserProfile, error) {

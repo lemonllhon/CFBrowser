@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { FolderOpen, Layers } from 'lucide-react'
 import { Button, Card, ConfirmModal, FormItem, Input, Modal, Select, Textarea, toast } from '../../../shared/components'
 import type { BrowserCore, BrowserProfileInput, BrowserProxy, BrowserGroup } from '../types'
-import { createBrowserProfile, fetchAllTags, fetchBrowserCores, fetchBrowserProfiles, fetchBrowserProxies, fetchBrowserSettings, fetchGroups, openUserDataDir, updateBrowserProfile } from '../api'
+import { createBrowserProfile, fetchAllTags, fetchBrowserCores, fetchBrowserProfiles, fetchBrowserProxies, fetchBrowserSettings, fetchGroups, openProfileUserDataDir, openUserDataDir, updateBrowserProfile } from '../api'
 import { FingerprintPanel } from '../components/FingerprintPanel'
 import { TagInput } from '../components/TagInput'
 import { GroupSelector } from '../components/GroupSelector'
@@ -186,6 +186,14 @@ export function BrowserEditPage() {
   const selectedRegionCode = findRegionPresetByLocale(currentFingerprint.lang, currentFingerprint.timezone)?.code || ''
 
   const handleOpenUserDataDir = async () => {
+    if (!isCreate && id) {
+      try {
+        await openProfileUserDataDir(id)
+      } catch (error: unknown) {
+        toast.error((error as Error)?.message || '打开目录失败')
+      }
+      return
+    }
     if (!formData.userDataDir.trim()) {
       toast.error('请先输入用户数据目录')
       return

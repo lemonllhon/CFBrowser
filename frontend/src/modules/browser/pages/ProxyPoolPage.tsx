@@ -1783,9 +1783,9 @@ export function ProxyPoolPage() {
     {
       key: 'sourceUrl',
       title: '订阅',
-      width: '260px',
+      width: '300px',
       render: (_, record) => (
-        <div className="text-xs leading-5 min-w-0">
+        <div className="text-xs leading-5 min-w-0 max-w-[280px] overflow-hidden">
           <div className="text-[var(--color-text-primary)] truncate" title={record.sourceUrl}>{sourceHostLabel(record.sourceUrl)}</div>
           <div className="text-[var(--color-text-muted)] truncate" title={record.sourceUrl}>{record.sourceUrl}</div>
         </div>
@@ -1879,7 +1879,6 @@ export function ProxyPoolPage() {
           >
             删除超时节点{timeoutProxyIds.length > 0 ? ` (${timeoutProxyIds.length})` : ''}
           </Button>
-          <Button size="sm" onClick={() => handleOpenImportCenter('clash')}>添加资源</Button>
         </div>
       </div>
 
@@ -1922,7 +1921,9 @@ export function ProxyPoolPage() {
             data={sourceMetas}
             rowKey="sourceId"
             loading={loading}
-            emptyText="暂无订阅来源，点击「订阅与导入」添加 Clash 订阅 URL"
+            emptyText="暂无订阅来源，点击「添加资源」添加 Clash 订阅 URL"
+            tableLayout="fixed"
+            tableMinWidth="1280px"
           />
         )}
         {resourceView === 'proxies' && (

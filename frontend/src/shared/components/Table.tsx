@@ -31,6 +31,8 @@ interface TableProps<T> {
   onSort?: (sorterResult: SorterResult) => void // 排序变化回调
   sortColumn?: string // 当前排序的列
   sortOrder?: SortOrder // 当前排序方式
+  tableLayout?: 'auto' | 'fixed'
+  tableMinWidth?: string
 }
 
 export function Table<T extends Record<string, any>>({
@@ -46,6 +48,8 @@ export function Table<T extends Record<string, any>>({
   onSort,
   sortColumn,
   sortOrder,
+  tableLayout = 'auto',
+  tableMinWidth,
 }: TableProps<T>) {
   const getRowKey = (record: T, index: number): string => {
     if (typeof rowKey === 'function') {
@@ -103,7 +107,7 @@ export function Table<T extends Record<string, any>>({
       className={clsx('overflow-auto', className)}
       style={{ maxHeight }}
     >
-      <table className="min-w-full">
+      <table className="min-w-full" style={{ tableLayout, minWidth: tableMinWidth }}>
         <thead className={clsx(stickyHeader && 'sticky top-0 z-10')}>
           <tr>
             {columns.map((col) => (
