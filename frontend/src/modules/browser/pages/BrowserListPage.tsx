@@ -330,6 +330,7 @@ export function BrowserListPage() {
   const [copyName, setCopyName] = useState('')
   const [copying, setCopying] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<BrowserProfile | null>(null)
+  const [batchDeleteConfirmOpen, setBatchDeleteConfirmOpen] = useState(false)
 
   const openCopyModal = (profile: BrowserProfile) => {
     setCopyName(profile.profileName + ' (副本)')
@@ -812,15 +813,24 @@ export function BrowserListPage() {
   const handleBatchDelete = async () => {
     const ids = Array.from(selectedIds)
     if (ids.length === 0) return
-    if (!confirm(`确定删除选中的 ${ids.length} 个实例？\n该操作会同时删除这些实例的用户数据目录，无法恢复。`)) return
+    setBatchDeleteConfirmOpen(true)
+  }
+
+  const handleConfirmBatchDelete = async () => {
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) return
+    setBatchDeleteConfirmOpen(false)
     setBatchLoading(true)
-    for (const id of ids) {
-      await deleteBrowserProfile(id)
+    try {
+      for (const id of ids) {
+        await deleteBrowserProfile(id)
+      }
+      setSelectedIds(new Set())
+      toast.success(`已删除 ${ids.length} 个实例`)
+      await loadProfiles()
+    } finally {
+      setBatchLoading(false)
     }
-    setBatchLoading(false)
-    setSelectedIds(new Set())
-    toast.success(`已删除 ${ids.length} 个实例`)
-    loadProfiles()
   }
 
   const handleCopy = async (profileId: string) => {
@@ -1502,6 +1512,21 @@ export function BrowserListPage() {
           </div>
         }
         confirmText="删除实例"
+        danger
+      />
+
+      <ConfirmModal
+        open={batchDeleteConfirmOpen}
+        onClose={() => setBatchDeleteConfirmOpen(false)}
+        onConfirm={handleConfirmBatchDelete}
+        title="批量删除实例"
+        content={
+          <div className="space-y-2">
+            <p>确定删除选中的 {selectedIds.size} 个实例？</p>
+            <p className="text-sm text-red-500">该操作会同时删除这些实例的用户数据目录，无法恢复。</p>
+          </div>
+        }
+        confirmText="删除所选"
         danger
       />
     </div>
