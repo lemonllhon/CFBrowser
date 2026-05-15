@@ -9,10 +9,16 @@
   margin: 0;
   padding: 0;
   box-sizing: border-box;
+  user-select: none;
+  -webkit-user-select: none;
+  -ms-user-select: none;
 }
 
 html {
   font-size: 16px;
+  user-select: none;
+  -webkit-user-select: none;
+  -ms-user-select: none;
 }
 
 body {
@@ -25,16 +31,37 @@ body {
   transition: background-color 0.2s ease, color 0.2s ease;
   user-select: none;
   -webkit-user-select: none;
+  -ms-user-select: none;
+}
+
+#root {
+  user-select: none;
+  -webkit-user-select: none;
+  -ms-user-select: none;
 }
 
 input,
 textarea,
+select,
 pre,
 code,
 [contenteditable="true"],
 .selectable-text {
   user-select: text;
   -webkit-user-select: text;
+  -ms-user-select: text;
+}
+
+input *,
+textarea *,
+select *,
+pre *,
+code *,
+[contenteditable="true"] *,
+.selectable-text * {
+  user-select: text;
+  -webkit-user-select: text;
+  -ms-user-select: text;
 }
 
 /* 选中文本样式 */
