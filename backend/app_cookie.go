@@ -27,6 +27,11 @@ type CookieInfo struct {
 	SameSite string  `json:"sameSite"`
 }
 
+type CookieImportResult struct {
+	Imported int `json:"imported"`
+	Skipped  int `json:"skipped"`
+}
+
 // cdpTarget 表示 /json 接口返回的调试目标
 type cdpTarget struct {
 	Id                   string `json:"id"`
@@ -208,6 +213,90 @@ func (a *App) BrowserClearCookies(profileId string) error {
 	}
 	_, err = cdpCall(debugPort, "Network.clearBrowserCookies", nil)
 	return err
+}
+
+func parseNetscapeCookies(text string) ([]CookieInfo, int, error) {
+	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	cookies := make([]CookieInfo, 0)
+	skipped := 0
+	for idx, raw := range lines {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.Split(raw, "\t")
+		if len(parts) < 7 {
+			parts = strings.Fields(raw)
+		}
+		if len(parts) < 7 {
+			skipped++
+			continue
+		}
+
+		expires := float64(0)
+		if parts[4] != "" {
+			var parsed int64
+			if _, err := fmt.Sscanf(parts[4], "%d", &parsed); err != nil {
+				return nil, skipped, fmt.Errorf("第 %d 行过期时间无效", idx+1)
+			}
+			expires = float64(parsed)
+		}
+
+		domain := strings.TrimSpace(parts[0])
+		path := strings.TrimSpace(parts[2])
+		name := strings.TrimSpace(parts[5])
+		value := strings.Join(parts[6:], "\t")
+		if domain == "" || path == "" || name == "" {
+			skipped++
+			continue
+		}
+
+		cookies = append(cookies, CookieInfo{
+			Name:    name,
+			Value:   value,
+			Domain:  domain,
+			Path:    path,
+			Expires: expires,
+			Secure:  strings.EqualFold(parts[3], "TRUE"),
+		})
+	}
+	return cookies, skipped, nil
+}
+
+// BrowserImportCookies 导入 Netscape 格式 Cookie 文本
+func (a *App) BrowserImportCookies(profileId string, content string) (CookieImportResult, error) {
+	debugPort, err := a.getDebugPort(profileId)
+	if err != nil {
+		return CookieImportResult{}, err
+	}
+	cookies, skipped, err := parseNetscapeCookies(content)
+	if err != nil {
+		return CookieImportResult{}, err
+	}
+	if len(cookies) == 0 {
+		return CookieImportResult{Skipped: skipped}, fmt.Errorf("未解析到可导入的 Cookie")
+	}
+
+	payload := make([]map[string]any, 0, len(cookies))
+	now := float64(time.Now().Unix())
+	for _, c := range cookies {
+		item := map[string]any{
+			"name":   c.Name,
+			"value":  c.Value,
+			"domain": c.Domain,
+			"path":   c.Path,
+			"secure": c.Secure,
+		}
+		if c.Expires > now {
+			item["expires"] = c.Expires
+		}
+		payload = append(payload, item)
+	}
+
+	if _, err := cdpCall(debugPort, "Network.setCookies", map[string]any{"cookies": payload}); err != nil {
+		return CookieImportResult{}, err
+	}
+	return CookieImportResult{Imported: len(payload), Skipped: skipped}, nil
 }
 
 // BrowserExportCookies 导出 Netscape 格式 Cookie 字符串

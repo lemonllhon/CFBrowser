@@ -141,6 +141,11 @@ export interface CookieInfo {
   sameSite: string
 }
 
+export interface CookieImportResult {
+  imported: number
+  skipped: number
+}
+
 export interface SnapshotInfo {
   snapshotId: string
   profileId: string

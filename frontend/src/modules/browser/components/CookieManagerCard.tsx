@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Download, RefreshCw, Trash2 } from 'lucide-react'
-import { Badge, Button, Card, Input, Table, toast } from '../../../shared/components'
+import { Download, RefreshCw, Trash2, Upload } from 'lucide-react'
+import { Badge, Button, Card, Input, Modal, Table, Textarea, toast } from '../../../shared/components'
 import type { TableColumn } from '../../../shared/components/Table'
 import type { CookieInfo } from '../types'
-import { clearBrowserCookies, exportBrowserCookies, fetchBrowserCookies } from '../api'
+import { clearBrowserCookies, exportBrowserCookies, fetchBrowserCookies, importBrowserCookies } from '../api'
 
 interface Props {
   profileId: string
@@ -23,6 +23,9 @@ export function CookieManagerCard({ profileId, profileName, running, ready }: Pr
   const [loading, setLoading] = useState(false)
   const [clearing, setClearing] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+  const [importText, setImportText] = useState('')
+  const [importing, setImporting] = useState(false)
 
   const loadCookies = async () => {
     if (!ready) return
@@ -77,6 +80,26 @@ export function CookieManagerCard({ profileId, profileName, running, ready }: Pr
       toast.success('Cookie 已导出')
     } catch {
       toast.error('导出 Cookie 失败')
+    }
+  }
+
+  const handleImport = async () => {
+    const content = importText.trim()
+    if (!content) {
+      toast.error('请粘贴 Netscape Cookie 内容')
+      return
+    }
+    setImporting(true)
+    try {
+      const result = await importBrowserCookies(profileId, content)
+      toast.success(`Cookie 已导入：成功 ${result.imported}${result.skipped ? `，跳过 ${result.skipped}` : ''}`)
+      setImportOpen(false)
+      setImportText('')
+      await loadCookies()
+    } catch (error: any) {
+      toast.error(error?.message || '导入 Cookie 失败')
+    } finally {
+      setImporting(false)
     }
   }
 
@@ -137,6 +160,10 @@ export function CookieManagerCard({ profileId, profileName, running, ready }: Pr
                 <Download className="w-4 h-4" />
                 导出 Netscape
               </Button>
+              <Button size="sm" variant="ghost" onClick={() => setImportOpen(true)}>
+                <Upload className="w-4 h-4" />
+                导入
+              </Button>
               <Button size="sm" variant="secondary" onClick={() => setShowConfirm(true)} disabled={clearing}>
                 <Trash2 className="w-4 h-4" />
                 清除全部
@@ -157,6 +184,29 @@ export function CookieManagerCard({ profileId, profileName, running, ready }: Pr
           )}
 
           <Table columns={columns} data={filteredCookies} rowKey="name" />
+
+          <Modal
+            open={importOpen}
+            onClose={() => setImportOpen(false)}
+            title="导入 Cookie"
+            width="640px"
+            footer={
+              <>
+                <Button variant="secondary" onClick={() => setImportOpen(false)} disabled={importing}>取消</Button>
+                <Button onClick={handleImport} loading={importing}>导入</Button>
+              </>
+            }
+          >
+            <div className="space-y-3">
+              <p className="text-sm text-[var(--color-text-muted)]">粘贴 Netscape 格式 Cookie 文本，每行包含 domain、flag、path、secure、expires、name、value。</p>
+              <Textarea
+                value={importText}
+                onChange={e => setImportText(e.target.value)}
+                rows={12}
+                placeholder={'# Netscape HTTP Cookie File\n.example.com\tTRUE\t/\tFALSE\t0\tsession\tabc123'}
+              />
+            </div>
+          </Modal>
         </div>
       )}
     </Card>

@@ -94,6 +94,10 @@ export function BrowserGetCookies(arg1) {
   return window['go']['main']['App']['BrowserGetCookies'](arg1);
 }
 
+export function BrowserImportCookies(arg1, arg2) {
+  return window['go']['main']['App']['BrowserImportCookies'](arg1, arg2);
+}
+
 export function BrowserInstanceGetTabs(arg1) {
   return window['go']['main']['App']['BrowserInstanceGetTabs'](arg1);
 }

@@ -53,6 +53,8 @@ export function BrowserGetAllTags():Promise<Array<string>>;
 
 export function BrowserGetCookies(arg1:string):Promise<Array<backend.CookieInfo>>;
 
+export function BrowserImportCookies(arg1:string,arg2:string):Promise<backend.CookieImportResult>;
+
 export function BrowserInstanceGetTabs(arg1:string):Promise<Array<browser.Tab>>;
 
 export function BrowserInstanceOpenUrl(arg1:string,arg2:string):Promise<boolean>;

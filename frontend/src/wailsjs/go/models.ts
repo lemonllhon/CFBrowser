@@ -26,6 +26,20 @@ export namespace backend {
 	        this.sameSite = source["sameSite"];
 	    }
 	}
+	export class CookieImportResult {
+	    imported: number;
+	    skipped: number;
+
+	    static createFrom(source: any = {}) {
+	        return new CookieImportResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.imported = source["imported"];
+	        this.skipped = source["skipped"];
+	    }
+	}
 	export class LicenseStatus {
 	    maxLimit: number;
 	    usedCount: number;
