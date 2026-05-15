@@ -92,7 +92,7 @@ func (a *App) OpenProfileUserDataDir(profileId string) error {
 		return err
 	}
 	if err := openPathInFileManager(absPath); err != nil {
-		return err
+		return fmt.Errorf("打开目录失败 %s: %w", absPath, err)
 	}
 	logger.New("Browser").Info("已打开实例用户数据目录", logger.F("profile_id", profileId), logger.F("path", absPath))
 	return nil

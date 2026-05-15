@@ -1327,7 +1327,7 @@ func openPathInFileManager(absPath string) error {
 	switch goruntime.GOOS {
 	case "windows":
 		if info.IsDir() {
-			return exec.Command("explorer.exe", absPath).Start()
+			return exec.Command("explorer.exe", "/root,"+absPath).Start()
 		}
 		return exec.Command("explorer.exe", "/select,", absPath).Start()
 	case "darwin":

@@ -515,6 +515,11 @@ export async function openUserDataDir(userDataDir: string): Promise<boolean> {
     await bindings.OpenUserDataDir(userDataDir)
     return true
   }
+  const goApp = (window as any).go?.main?.App
+  if (goApp?.OpenUserDataDir) {
+    await goApp.OpenUserDataDir(userDataDir)
+    return true
+  }
   return false
 }
 

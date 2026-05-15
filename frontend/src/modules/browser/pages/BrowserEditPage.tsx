@@ -33,6 +33,14 @@ function hasLaunchArg(argsText: string, targetArg: string): boolean {
   return normalizeLaunchArgs(argsText.split('\n')).some(arg => arg.toLowerCase() === targetArg.toLowerCase())
 }
 
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (typeof error === 'string') return error
+  if (error && typeof error === 'object' && 'message' in error) {
+    return String((error as { message?: unknown }).message || fallback)
+  }
+  return fallback
+}
+
 export function BrowserEditPage() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -186,22 +194,26 @@ export function BrowserEditPage() {
   const selectedRegionCode = findRegionPresetByLocale(currentFingerprint.lang, currentFingerprint.timezone)?.code || ''
 
   const handleOpenUserDataDir = async () => {
-    if (!isCreate && id) {
-      try {
-        await openProfileUserDataDir(id)
-      } catch (error: unknown) {
-        toast.error((error as Error)?.message || '打开目录失败')
-      }
-      return
-    }
-    if (!formData.userDataDir.trim()) {
+    const fallbackDir = !isCreate && id ? id : ''
+    const targetDir = formData.userDataDir.trim() || fallbackDir
+    if (!targetDir) {
       toast.error('请先输入用户数据目录')
       return
     }
+
+    if (!isCreate && id && !formData.userDataDir.trim()) {
+      try {
+        const opened = await openProfileUserDataDir(id)
+        if (opened) return
+      } catch {
+        // 新绑定不可用或后端未刷新时，回退到旧接口按 data/<实例ID> 打开。
+      }
+    }
+
     try {
-      await openUserDataDir(formData.userDataDir)
+      await openUserDataDir(targetDir)
     } catch (error: unknown) {
-      toast.error((error as Error)?.message || '打开目录失败')
+      toast.error(getErrorMessage(error, '打开目录失败'))
     }
   }
 
