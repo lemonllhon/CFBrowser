@@ -316,6 +316,9 @@ func (a *App) ForceQuit() {
 	a.setQuitMode(quitModeFull)
 	a.stopRuntimeServices()
 	if a.ctx != nil {
+		if err := a.saveCurrentWindowState(a.ctx); err != nil {
+			logger.New("App").Warn("保存窗口尺寸失败", logger.F("error", err.Error()))
+		}
 		runtime.Quit(a.ctx)
 	}
 }
@@ -324,6 +327,9 @@ func (a *App) ForceQuit() {
 func (a *App) QuitAppOnly() {
 	a.setQuitMode(quitModeAppOnly)
 	if a.ctx != nil {
+		if err := a.saveCurrentWindowState(a.ctx); err != nil {
+			logger.New("App").Warn("保存窗口尺寸失败", logger.F("error", err.Error()))
+		}
 		runtime.Quit(a.ctx)
 	}
 }
@@ -1272,7 +1278,7 @@ func (a *App) OpenUserDataDir(userDataDir string) error {
 
 	if err := openPathInFileManager(absPath); err != nil {
 		log.Error("打开资源管理器失败", logger.F("path", absPath), logger.F("error", err))
-		return err
+		return fmt.Errorf("打开目录失败 %s: %w", absPath, err)
 	}
 
 	log.Info("已打开用户数据目录", logger.F("path", absPath))
@@ -1309,7 +1315,7 @@ func (a *App) OpenCorePath(corePath string) error {
 
 	if err := openPathInFileManager(absPath); err != nil {
 		log.Error("打开资源管理器失败", logger.F("path", absPath), logger.F("error", err))
-		return err
+		return fmt.Errorf("打开路径失败 %s: %w", absPath, err)
 	}
 
 	log.Info("已打开内核路径", logger.F("path", absPath))
@@ -1327,9 +1333,9 @@ func openPathInFileManager(absPath string) error {
 	switch goruntime.GOOS {
 	case "windows":
 		if info.IsDir() {
-			return exec.Command("explorer.exe", "/root,"+absPath).Start()
+			return startWindowsExplorer(absPath)
 		}
-		return exec.Command("explorer.exe", "/select,", absPath).Start()
+		return startWindowsExplorer("/select," + absPath)
 	case "darwin":
 		if info.IsDir() {
 			return exec.Command("open", absPath).Start()
@@ -1342,6 +1348,38 @@ func openPathInFileManager(absPath string) error {
 		}
 		return exec.Command("xdg-open", target).Start()
 	}
+}
+
+func startWindowsExplorer(args ...string) error {
+	explorerPath := windowsExplorerPath()
+	if err := exec.Command(explorerPath, args...).Start(); err != nil {
+		if explorerPath != "explorer.exe" {
+			if fallbackErr := exec.Command("explorer.exe", args...).Start(); fallbackErr == nil {
+				return nil
+			}
+		}
+		return err
+	}
+	return nil
+}
+
+func windowsExplorerPath() string {
+	for _, envName := range []string{"WINDIR", "SystemRoot"} {
+		root := strings.TrimSpace(os.Getenv(envName))
+		if root == "" {
+			continue
+		}
+		candidate := filepath.Join(root, "explorer.exe")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+
+	const defaultExplorer = `C:\Windows\explorer.exe`
+	if _, err := os.Stat(defaultExplorer); err == nil {
+		return defaultExplorer
+	}
+	return "explorer.exe"
 }
 
 // ============================================================================

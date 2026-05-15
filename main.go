@@ -50,14 +50,40 @@ func normalizeStartupWindowSize(width int, height int) (int, int) {
 	const (
 		defaultWidth  = 1180
 		defaultHeight = 720
-		maxWidth      = 1360
-		maxHeight     = 860
 	)
-	if width <= 0 || width > maxWidth {
+	if width <= 0 {
 		width = defaultWidth
 	}
-	if height <= 0 || height > maxHeight {
+	if height <= 0 {
 		height = defaultHeight
+	}
+	return width, height
+}
+
+func clampStartupWindowSize(width int, height int, minWidth int, minHeight int) (int, int) {
+	const (
+		fallbackMinWidth  = 900
+		fallbackMinHeight = 560
+		maxWidth          = 1360
+		maxHeight         = 860
+	)
+	if minWidth <= 0 {
+		minWidth = fallbackMinWidth
+	}
+	if minHeight <= 0 {
+		minHeight = fallbackMinHeight
+	}
+	if width < minWidth {
+		width = minWidth
+	}
+	if height < minHeight {
+		height = minHeight
+	}
+	if width > maxWidth {
+		width = maxWidth
+	}
+	if height > maxHeight {
+		height = maxHeight
 	}
 	return width, height
 }
@@ -183,6 +209,10 @@ func main() {
 	// 创建应用实例
 	app := NewApp(appRoot, buildVersion)
 	windowWidth, windowHeight := normalizeStartupWindowSize(cfg.App.Window.Width, cfg.App.Window.Height)
+	if state, err := backend.LoadWindowState(appRoot); err == nil {
+		windowWidth, windowHeight = normalizeStartupWindowSize(state.Width, state.Height)
+	}
+	windowWidth, windowHeight = clampStartupWindowSize(windowWidth, windowHeight, cfg.App.Window.MinWidth, cfg.App.Window.MinHeight)
 
 	var wailsCtx context.Context
 	startupReached := make(chan struct{})

@@ -7,8 +7,8 @@ import { ToastContainer, Modal, Button, Loading } from './shared/components'
 import { AlertCircle } from 'lucide-react'
 import { useNotificationStore } from './store/notificationStore'
 import { useBackupStore } from './store/backupStore'
-import { ForceQuit as ForceQuitApp, QuitAppOnly as QuitAppOnlyApp } from './wailsjs/go/main/App'
-import { Environment, Quit, WindowHide, WindowMinimise } from './wailsjs/runtime/runtime'
+import { ForceQuit as ForceQuitApp, QuitAppOnly as QuitAppOnlyApp, SaveWindowState } from './wailsjs/go/main/App'
+import { Environment, Quit, WindowGetSize, WindowHide, WindowIsMaximised, WindowIsMinimised, WindowIsNormal, WindowMinimise } from './wailsjs/runtime/runtime'
 
 function lazyNamed<TModule extends Record<string, ComponentType<any>>>(
   loader: () => Promise<TModule>,
@@ -41,6 +41,25 @@ const GroupManagementPage = lazyNamed(() => import('./modules/browser/pages/Grou
 const AutomationPage = lazyNamed(() => import('./modules/browser/pages/AutomationPage'), 'AutomationPage')
 const UsageTutorialPage = lazyNamed(() => import('./modules/browser/pages/UsageTutorialPage'), 'UsageTutorialPage')
 const QuickLaunchModal = lazyNamed(() => import('./modules/browser/components/QuickLaunchModal'), 'QuickLaunchModal')
+
+async function saveNormalWindowSize() {
+  try {
+    const [isNormal, isMaximised, isMinimised] = await Promise.all([
+      WindowIsNormal().catch(() => false),
+      WindowIsMaximised().catch(() => false),
+      WindowIsMinimised().catch(() => false),
+    ])
+    if (!isNormal || isMaximised || isMinimised) return
+
+    const size = await WindowGetSize()
+    const width = Math.round(Number(size?.w || 0))
+    const height = Math.round(Number(size?.h || 0))
+    if (width <= 0 || height <= 0) return
+    await SaveWindowState(width, height)
+  } catch {
+    // 窗口状态保存失败不影响主流程。
+  }
+}
 
 function useWailsNotifications() {
   const addNotification = useNotificationStore((s) => s.addNotification)
@@ -147,6 +166,7 @@ function CloseConfirmModal() {
   const handleQuitAppOnly = async () => {
     setQuittingAction('app-only')
     try {
+      await saveNormalWindowSize()
       await QuitAppOnlyApp()
     } catch (error) {
       console.error('QuitAppOnly failed', error)
@@ -157,6 +177,7 @@ function CloseConfirmModal() {
   const handleQuitAppAndBrowsers = async () => {
     setQuittingAction('app-and-browser')
     try {
+      await saveNormalWindowSize()
       await Promise.race([
         ForceQuitApp(),
         new Promise((resolve) => setTimeout(resolve, 1200)),
@@ -270,6 +291,24 @@ function App() {
     window.addEventListener('keydown', onKeyDown)
     return () => {
       window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [])
+
+  useEffect(() => {
+    let timer: number | undefined
+
+    const scheduleSave = () => {
+      if (timer) window.clearTimeout(timer)
+      timer = window.setTimeout(() => {
+        void saveNormalWindowSize()
+      }, 600)
+    }
+
+    window.addEventListener('resize', scheduleSave)
+    scheduleSave()
+    return () => {
+      if (timer) window.clearTimeout(timer)
+      window.removeEventListener('resize', scheduleSave)
     }
   }, [])
 

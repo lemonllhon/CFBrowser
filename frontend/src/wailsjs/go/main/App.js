@@ -326,6 +326,10 @@ export function SaveBrowserSettings(arg1) {
   return window['go']['main']['App']['SaveBrowserSettings'](arg1);
 }
 
+export function SaveWindowState(arg1, arg2) {
+  return window['go']['main']['App']['SaveWindowState'](arg1, arg2);
+}
+
 export function SetLogLevel(arg1) {
   return window['go']['main']['App']['SetLogLevel'](arg1);
 }

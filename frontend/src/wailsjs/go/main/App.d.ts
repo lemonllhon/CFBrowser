@@ -169,6 +169,8 @@ export function SaveBrowserProxies(arg1:Array<config.BrowserProxy>):Promise<void
 
 export function SaveBrowserSettings(arg1:browser.Settings):Promise<void>;
 
+export function SaveWindowState(arg1:number,arg2:number):Promise<void>;
+
 export function SetLogLevel(arg1:string):Promise<void>;
 
 export function StartInstance(arg1:string):Promise<browser.Profile>;
