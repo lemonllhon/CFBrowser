@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Activity, CheckCircle, ChevronDown, ChevronRight, ChevronUp, Copy, Edit2, FileText, Focus, Key, Pencil, Play, Plus, RefreshCw, RotateCcw, Settings, Shuffle, Sliders, Square, Star, Trash2, XCircle, LayoutGrid, List } from 'lucide-react'
-import { Badge, Button, Card, FormItem, Input, Modal, StatCard, Table, Textarea, toast } from '../../../shared/components'
+import { Badge, Button, Card, ConfirmModal, FormItem, Input, Modal, StatCard, Table, Textarea, toast } from '../../../shared/components'
 import type { TableColumn } from '../../../shared/components/Table'
 import type { BrowserCore, BrowserCoreInput, BrowserProfile, BrowserProxy, BrowserSettings, BrowserGroupWithCount } from '../types'
 import { InstanceFilterBar, EMPTY_FILTERS } from '../components/InstanceFilterBar'
@@ -185,6 +185,26 @@ function LaunchCodeCell({ profileId, code, onRefresh }: { profileId: string; cod
   )
 }
 
+function CopyProfileNameButton({ name }: { name: string }) {
+  const handleCopy = (event: React.MouseEvent) => {
+    event.preventDefault()
+    event.stopPropagation()
+    if (!name) return
+    navigator.clipboard.writeText(name).then(() => toast.success('已复制实例名称'))
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      className="p-0.5 rounded text-[var(--color-text-muted)] hover:text-[var(--color-accent)] hover:bg-[var(--color-bg-secondary)] transition-colors shrink-0"
+      title="复制实例名称"
+    >
+      <Copy className="w-3 h-3" />
+    </button>
+  )
+}
+
 function KeywordInlineRow({ keywords }: { keywords: string[] }) {
   const [expanded, setExpanded] = useState(false)
   const cRef = (useMemo(() => ({ current: null as HTMLDivElement | null }), []) as unknown) as React.MutableRefObject<HTMLDivElement | null>
@@ -309,6 +329,7 @@ export function BrowserListPage() {
   const [copyModal, setCopyModal] = useState<{ open: boolean; profile: BrowserProfile | null }>({ open: false, profile: null })
   const [copyName, setCopyName] = useState('')
   const [copying, setCopying] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<BrowserProfile | null>(null)
 
   const openCopyModal = (profile: BrowserProfile) => {
     setCopyName(profile.profileName + ' (副本)')
@@ -684,11 +705,19 @@ export function BrowserListPage() {
 
   const handleDelete = async (profileId: string) => {
     const profile = profiles.find(item => item.profileId === profileId)
-    const name = profile?.profileName || profileId
-    if (!confirm(`确定删除实例「${name}」？\n该操作会同时删除这个实例的用户数据目录，无法恢复。`)) return
-    await deleteBrowserProfile(profileId)
+    if (!profile) {
+      toast.error('实例不存在或已被删除')
+      return
+    }
+    setDeleteTarget(profile)
+  }
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return
+    await deleteBrowserProfile(deleteTarget.profileId)
     toast.success('实例和用户数据目录已删除')
-    loadProfiles()
+    setDeleteTarget(null)
+    await loadProfiles()
   }
 
   // 批量操作
@@ -926,9 +955,12 @@ export function BrowserListPage() {
       title: '实例名称',
       render: (value, record) => (
         <div className="flex flex-col gap-1">
-          <Link className="text-[var(--color-accent)] text-sm font-medium hover:underline" to={`/browser/detail/${record.profileId}`}>
-            {value}
-          </Link>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <Link className="text-[var(--color-accent)] text-sm font-medium hover:underline truncate" to={`/browser/detail/${record.profileId}`}>
+              {value}
+            </Link>
+            <CopyProfileNameButton name={record.profileName} />
+          </div>
           {record.tags && record.tags.length > 0 && (
             <div className="flex gap-1 flex-wrap">
               {record.tags.map(tag => <Badge variant="default" key={tag}>{tag}</Badge>)}
@@ -1019,7 +1051,9 @@ export function BrowserListPage() {
     },
   ]
 
-  const columns = allColumns.filter(column => visibleColumnKeys.includes(column.key))
+  const columns = allColumns
+    .filter(column => visibleColumnKeys.includes(column.key))
+    .map(column => ({ ...column, headerAlign: 'center' as const }))
 
 
   const coreColumns: TableColumn<BrowserCore>[] = [
@@ -1180,9 +1214,12 @@ export function BrowserListPage() {
                             checked={isSelected}
                             onChange={() => toggleSelect(record.profileId)}
                           />
-                          <Link className="text-[var(--color-accent)] font-medium text-sm hover:text-[var(--color-accent)] transition-colors truncate max-w-[200px]" to={`/browser/detail/${record.profileId}`}>
-                            {record.profileName}
-                          </Link>
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <Link className="text-[var(--color-accent)] font-medium text-sm hover:text-[var(--color-accent)] transition-colors truncate max-w-[200px]" to={`/browser/detail/${record.profileId}`}>
+                              {record.profileName}
+                            </Link>
+                            <CopyProfileNameButton name={record.profileName} />
+                          </div>
                           {record.tags && record.tags.length > 0 && (
                             <div className="flex gap-1 ml-1">
                               {record.tags.map(tag => <Badge variant="default" key={tag}>{tag}</Badge>)}
@@ -1452,6 +1489,21 @@ export function BrowserListPage() {
       >
         <div className="text-[var(--color-text-secondary)] whitespace-pre-line">{opError}</div>
       </Modal>
+
+      <ConfirmModal
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={handleConfirmDelete}
+        title="删除实例"
+        content={
+          <div className="space-y-2">
+            <p>确定删除实例「{deleteTarget?.profileName || ''}」？</p>
+            <p className="text-sm text-red-500">该操作会同时删除这个实例的用户数据目录，无法恢复。</p>
+          </div>
+        }
+        confirmText="删除实例"
+        danger
+      />
     </div>
   )
 }

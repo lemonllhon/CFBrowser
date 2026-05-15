@@ -14,6 +14,7 @@ export interface TableColumn<T> {
   title: ReactNode
   width?: string | number
   align?: 'left' | 'center' | 'right'
+  headerAlign?: 'left' | 'center' | 'right'
   render?: (value: any, record: T, index: number) => ReactNode
   sortable?: boolean // 是否可排序
 }
@@ -115,15 +116,21 @@ export function Table<T extends Record<string, any>>({
                 key={col.key}
                 className={clsx(
                   'px-4 py-3 text-xs font-semibold text-[var(--color-text-muted)] uppercase tracking-wider bg-[var(--color-bg-muted)]',
-                  col.align === 'center' && 'text-center',
-                  col.align === 'right' && 'text-right',
-                  !col.align && 'text-left',
+                  (col.headerAlign || col.align) === 'center' && 'text-center',
+                  (col.headerAlign || col.align) === 'right' && 'text-right',
+                  !(col.headerAlign || col.align) && 'text-left',
                   col.sortable && 'cursor-pointer group hover:text-[var(--color-text-primary)]'
                 )}
                 style={{ width: col.width }}
                 onClick={() => col.sortable && handleSortClick(col)}
               >
-                <span className="flex items-center">
+                <span
+                  className={clsx(
+                    'flex items-center',
+                    (col.headerAlign || col.align) === 'center' && 'justify-center',
+                    (col.headerAlign || col.align) === 'right' && 'justify-end'
+                  )}
+                >
                   {col.title}
                   {renderSortIcon(col)}
                 </span>
