@@ -46,6 +46,22 @@ type wailsBuildConfig struct {
 	} `json:"info"`
 }
 
+func normalizeStartupWindowSize(width int, height int) (int, int) {
+	const (
+		defaultWidth  = 1180
+		defaultHeight = 720
+		maxWidth      = 1360
+		maxHeight     = 860
+	)
+	if width <= 0 || width > maxWidth {
+		width = defaultWidth
+	}
+	if height <= 0 || height > maxHeight {
+		height = defaultHeight
+	}
+	return width, height
+}
+
 func envFlagEnabled(name string) bool {
 	value := strings.TrimSpace(strings.ToLower(os.Getenv(name)))
 	switch value {
@@ -166,6 +182,7 @@ func main() {
 
 	// 创建应用实例
 	app := NewApp(appRoot, buildVersion)
+	windowWidth, windowHeight := normalizeStartupWindowSize(cfg.App.Window.Width, cfg.App.Window.Height)
 
 	var wailsCtx context.Context
 	startupReached := make(chan struct{})
@@ -187,8 +204,8 @@ func main() {
 	}
 	err = wails.Run(&options.App{
 		Title:     cfg.App.Name,
-		Width:     cfg.App.Window.Width,
-		Height:    cfg.App.Window.Height,
+		Width:     windowWidth,
+		Height:    windowHeight,
 		MinWidth:  cfg.App.Window.MinWidth,
 		MinHeight: cfg.App.Window.MinHeight,
 		AssetServer: &assetserver.Options{
@@ -201,6 +218,7 @@ func main() {
 				log.Printf("Wails OnStartup 已触发，GUI 宿主已创建")
 			}
 			wailsCtx = ctx
+			runtime.WindowCenter(ctx)
 			// 启动系统托盘（非阻塞）
 			go backend.RunTray(backend.TrayCallbacks{
 				OnShow: func() {

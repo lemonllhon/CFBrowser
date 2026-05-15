@@ -380,10 +380,10 @@ func DefaultConfig() *Config {
 		App: AppConfig{
 			Name: "Trace Browser",
 			Window: WindowConfig{
-				Width:     1750,
-				Height:    1000,
-				MinWidth:  1200,
-				MinHeight: 700,
+				Width:     1180,
+				Height:    720,
+				MinWidth:  900,
+				MinHeight: 560,
 			},
 			MaxProfileLimit: DefaultMaxProfileLimit,
 			UsedCDKeys:      []string{},

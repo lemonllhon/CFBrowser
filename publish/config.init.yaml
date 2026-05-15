@@ -5,10 +5,10 @@ database:
 app:
   name: Trace Browser
   window:
-    width: 1750
-    height: 1000
-    min_width: 1200
-    min_height: 700
+    width: 1180
+    height: 720
+    min_width: 900
+    min_height: 560
   max_profile_limit: 0
   used_cd_keys: []
 runtime:
