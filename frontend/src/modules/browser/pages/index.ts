@@ -1,5 +1,6 @@
 export { TagManagementPage } from './TagManagementPage'
 export { GroupManagementPage } from './GroupManagementPage'
+export { OrganizationManagementPage } from './OrganizationManagementPage'
 export { BrowserListPage } from './BrowserListPage'
 export { BrowserDetailPage } from './BrowserDetailPage'
 export { BrowserEditPage } from './BrowserEditPage'

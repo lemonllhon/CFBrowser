@@ -35,10 +35,8 @@ const BrowserLogsPage = lazyNamed(() => import('./modules/browser/pages/BrowserL
 const ProxyPoolPage = lazyNamed(() => import('./modules/browser/pages/ProxyPoolPage'), 'ProxyPoolPage')
 const CoreManagementPage = lazyNamed(() => import('./modules/browser/pages/CoreManagementPage'), 'CoreManagementPage')
 const BookmarkSettingsPage = lazyNamed(() => import('./modules/browser/pages/BookmarkSettingsPage'), 'BookmarkSettingsPage')
-const DefaultStartURLPage = lazyNamed(() => import('./modules/browser/pages/DefaultStartURLPage'), 'DefaultStartURLPage')
 const LaunchApiDocsPage = lazyNamed(() => import('./modules/browser/pages/LaunchApiDocsPage'), 'LaunchApiDocsPage')
-const TagManagementPage = lazyNamed(() => import('./modules/browser/pages/TagManagementPage'), 'TagManagementPage')
-const GroupManagementPage = lazyNamed(() => import('./modules/browser/pages/GroupManagementPage'), 'GroupManagementPage')
+const OrganizationManagementPage = lazyNamed(() => import('./modules/browser/pages/OrganizationManagementPage'), 'OrganizationManagementPage')
 const AutomationPage = lazyNamed(() => import('./modules/browser/pages/AutomationPage'), 'AutomationPage')
 const UsageTutorialPage = lazyNamed(() => import('./modules/browser/pages/UsageTutorialPage'), 'UsageTutorialPage')
 const QuickLaunchModal = lazyNamed(() => import('./modules/browser/components/QuickLaunchModal'), 'QuickLaunchModal')
@@ -333,11 +331,12 @@ function App() {
               <Route path="/browser/proxy-pool" element={<ProxyPoolPage />} />
               <Route path="/browser/cores" element={<CoreManagementPage />} />
               <Route path="/browser/bookmarks" element={<BookmarkSettingsPage />} />
-              <Route path="/browser/start-urls" element={<DefaultStartURLPage />} />
+              <Route path="/browser/start-urls" element={<Navigate to="/browser/bookmarks" replace />} />
               <Route path="/browser/automation" element={<AutomationPage />} />
               <Route path="/browser/launch-api" element={<LaunchApiDocsPage />} />
-              <Route path="/browser/tags" element={<TagManagementPage />} />
-              <Route path="/browser/groups" element={<GroupManagementPage />} />
+              <Route path="/browser/organization" element={<OrganizationManagementPage />} />
+              <Route path="/browser/tags" element={<Navigate to="/browser/organization" replace />} />
+              <Route path="/browser/groups" element={<Navigate to="/browser/organization?tab=groups" replace />} />
               <Route path="/system/tutorial" element={<UsageTutorialPage />} />
             </Routes>
           </Suspense>

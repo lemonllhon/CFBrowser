@@ -38,10 +38,8 @@ export const navigationConfig: NavSection[] = [
       { name: '自动化接口（实验）', path: '/browser/automation', icon: 'Bot' },
       { name: '内核管理', path: '/browser/cores', icon: 'Cpu' },
       { name: '代理池配置', path: '/browser/proxy-pool', icon: 'Globe' },
-      { name: '默认书签', path: '/browser/bookmarks', icon: 'Bookmark' },
-      { name: '默认打开页', path: '/browser/start-urls', icon: 'ExternalLink' },
-      { name: '标签管理', path: '/browser/tags', icon: 'Tag' },
-      { name: '分组管理', path: '/browser/groups', icon: 'FolderTree' },
+      { name: '默认内容', path: '/browser/bookmarks', icon: 'Bookmark' },
+      { name: '组织管理', path: '/browser/organization', icon: 'FolderTree' },
     ]
   },
   {

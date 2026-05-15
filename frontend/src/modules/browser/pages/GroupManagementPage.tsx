@@ -274,7 +274,7 @@ function GroupEditor({ groups, editingGroup, defaultParentId, onCancel, onSaved 
   )
 }
 
-export function GroupManagementPage() {
+export function GroupManagementPage({ embedded = false }: { embedded?: boolean }) {
   const [groups, setGroups] = useState<BrowserGroupWithCount[]>([])
   const [profiles, setProfiles] = useState<BrowserProfile[]>([])
   const [loading, setLoading] = useState(true)
@@ -439,12 +439,18 @@ export function GroupManagementPage() {
 
       <div className="flex-1 flex flex-col overflow-hidden p-5 gap-4">
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-semibold text-[var(--color-text-primary)]">分组管理</h1>
-            <p className="text-sm text-[var(--color-text-muted)] mt-0.5">
+          {!embedded ? (
+            <div>
+              <h1 className="text-xl font-semibold text-[var(--color-text-primary)]">分组管理</h1>
+              <p className="text-sm text-[var(--color-text-muted)] mt-0.5">
+                {selectedGroupLabel}，共 {displayProfiles.length} 个实例
+              </p>
+            </div>
+          ) : (
+            <p className="text-sm text-[var(--color-text-muted)]">
               {selectedGroupLabel}，共 {displayProfiles.length} 个实例
             </p>
-          </div>
+          )}
           <Button size="sm" onClick={openCreateRoot}>
             <Plus className="w-4 h-4" />新建分组
           </Button>

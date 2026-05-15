@@ -200,7 +200,7 @@ function ActionBar({ selectedCount, allTags, onAddTags, onRemoveTags, onClear }:
 
 // ─── 主页面 ───────────────────────────────────────────────────────────────────
 
-export function TagManagementPage() {
+export function TagManagementPage({ embedded = false }: { embedded?: boolean }) {
   const [profiles, setProfiles] = useState<BrowserProfile[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedTag, setSelectedTag] = useState<string | null>(null)
@@ -330,19 +330,20 @@ export function TagManagementPage() {
 
       {/* 右侧内容区 */}
       <div className="flex-1 flex flex-col overflow-hidden p-5 gap-4">
-        {/* 页头 */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-semibold text-[var(--color-text-primary)]">标签管理</h1>
-            <p className="text-sm text-[var(--color-text-muted)] mt-0.5">
-              {selectedTag ? (
-                <>标签 <span className="text-[var(--color-primary)]">「{selectedTag}」</span> 下共 {displayProfiles.length} 个实例</>
-              ) : (
-                <>全部实例，共 {profiles.length} 个</>
-              )}
-            </p>
+        {!embedded && (
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-xl font-semibold text-[var(--color-text-primary)]">标签管理</h1>
+              <p className="text-sm text-[var(--color-text-muted)] mt-0.5">
+                {selectedTag ? (
+                  <>标签 <span className="text-[var(--color-primary)]">「{selectedTag}」</span> 下共 {displayProfiles.length} 个实例</>
+                ) : (
+                  <>全部实例，共 {profiles.length} 个</>
+                )}
+              </p>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* 批量操作栏 */}
         <ActionBar
