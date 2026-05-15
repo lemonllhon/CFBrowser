@@ -32,6 +32,38 @@ import {
   validateProxyConfig,
 } from '../api'
 
+type ColumnOption = {
+  key: string
+  label: string
+  locked?: boolean
+}
+
+const PROFILE_COLUMN_OPTIONS: ColumnOption[] = [
+  { key: 'selection', label: '选择', locked: true },
+  { key: 'profileName', label: '实例名称' },
+  { key: 'running', label: '状态' },
+  { key: 'coreId', label: '核心' },
+  { key: 'proxyId', label: '代理' },
+  { key: 'launchCode', label: '快捷打开码' },
+  { key: 'keywords', label: '关键字' },
+  { key: 'updatedAt', label: '上次更新' },
+  { key: 'actions', label: '操作', locked: true },
+]
+
+const DEFAULT_PROFILE_COLUMN_KEYS = ['selection', 'profileName', 'running', 'coreId', 'proxyId', 'launchCode', 'actions']
+const PROFILE_COLUMNS_STORAGE_KEY = 'browser:profileTableColumns:v1'
+
+function readStoredColumnKeys(storageKey: string, defaults: string[], allowedKeys: readonly string[]) {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(storageKey) || '[]')
+    if (Array.isArray(parsed)) {
+      const valid = parsed.filter((key): key is string => typeof key === 'string' && allowedKeys.includes(key))
+      if (valid.length > 0) return valid
+    }
+  } catch { /* ignore */ }
+  return defaults
+}
+
 // 批量操作工具栏
 function BatchToolbar({
   selectedCount,
@@ -213,6 +245,9 @@ export function BrowserListPage() {
   const [viewMode, setViewMode] = useState<'card' | 'table'>(() => {
     return (localStorage.getItem('browser:viewMode') as 'card' | 'table') || 'table'
   })
+  const [visibleColumnKeys, setVisibleColumnKeys] = useState<string[]>(() => (
+    readStoredColumnKeys(PROFILE_COLUMNS_STORAGE_KEY, DEFAULT_PROFILE_COLUMN_KEYS, PROFILE_COLUMN_OPTIONS.map(item => item.key))
+  ))
 
   // 勾选状态
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -242,6 +277,11 @@ export function BrowserListPage() {
   useEffect(() => {
     localStorage.setItem('browser:viewMode', viewMode)
   }, [viewMode])
+
+  useEffect(() => {
+    const lockedKeys = PROFILE_COLUMN_OPTIONS.filter(item => item.locked).map(item => item.key)
+    localStorage.setItem(PROFILE_COLUMNS_STORAGE_KEY, JSON.stringify(Array.from(new Set([...lockedKeys, ...visibleColumnKeys]))))
+  }, [visibleColumnKeys])
 
   useEffect(() => {
     localStorage.setItem('browser:headerCollapsed', String(headerCollapsed))
@@ -846,7 +886,17 @@ export function BrowserListPage() {
     loadCores()
   }
 
-  const columns: TableColumn<BrowserProfile>[] = [
+  const toggleVisibleColumn = (key: string) => {
+    const option = PROFILE_COLUMN_OPTIONS.find(item => item.key === key)
+    if (option?.locked) return
+    setVisibleColumnKeys(prev => {
+      const next = prev.includes(key) ? prev.filter(item => item !== key) : [...prev, key]
+      const lockedKeys = PROFILE_COLUMN_OPTIONS.filter(item => item.locked).map(item => item.key)
+      return Array.from(new Set([...lockedKeys, ...next]))
+    })
+  }
+
+  const allColumns: TableColumn<BrowserProfile>[] = [
     {
       key: 'selection',
       title: (
@@ -969,6 +1019,8 @@ export function BrowserListPage() {
     },
   ]
 
+  const columns = allColumns.filter(column => visibleColumnKeys.includes(column.key))
+
 
   const coreColumns: TableColumn<BrowserCore>[] = [
     { key: 'coreName', title: '名称' },
@@ -1028,6 +1080,26 @@ export function BrowserListPage() {
               <List className="w-4 h-4" />
             </button>
           </div>
+          <details className="relative">
+            <summary className="list-none p-1.5 rounded text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-secondary)] cursor-pointer" title="选择显示列">
+              <Sliders className="w-4 h-4" />
+            </summary>
+            <div className="absolute right-0 top-9 z-20 w-56 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] shadow-lg p-2">
+              <div className="text-xs font-medium text-[var(--color-text-muted)] px-2 py-1">显示列</div>
+              {PROFILE_COLUMN_OPTIONS.map(option => (
+                <label key={option.key} className="flex items-center gap-2 px-2 py-1.5 text-sm text-[var(--color-text-primary)] rounded hover:bg-[var(--color-bg-secondary)] cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="w-4 h-4 accent-[var(--color-accent)]"
+                    checked={visibleColumnKeys.includes(option.key)}
+                    disabled={option.locked}
+                    onChange={() => toggleVisibleColumn(option.key)}
+                  />
+                  <span>{option.label}</span>
+                </label>
+              ))}
+            </div>
+          </details>
           <span className="w-px h-4 bg-[var(--color-border-muted)] mx-1 self-center"></span>
           <Link to="/browser/edit/new"><Button size="sm"><Play className="w-4 h-4" />新建配置</Button></Link>
         </div>

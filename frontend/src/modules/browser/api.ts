@@ -1,4 +1,4 @@
-import type { BrowserProfile, BrowserProfileInput, BrowserTab, BrowserSettings, BrowserCore, BrowserCoreInput, BrowserCoreValidateResult, BrowserProxy, BrowserCoreExtended, CookieInfo, SnapshotInfo, BrowserBookmark, BrowserGroup, BrowserGroupInput, BrowserGroupWithCount, ProxyIPHealthResult } from './types'
+import type { BrowserProfile, BrowserProfileInput, BrowserTab, BrowserSettings, BrowserCore, BrowserCoreInput, BrowserCoreValidateResult, BrowserProxy, BrowserCoreExtended, CookieInfo, SnapshotInfo, BrowserBookmark, BrowserStartURL, BrowserGroup, BrowserGroupInput, BrowserGroupWithCount, ProxyIPHealthResult } from './types'
 
 const getBindings = async () => {
   try {
@@ -817,6 +817,36 @@ export async function fetchGroups(): Promise<BrowserGroupWithCount[]> {
     ...group,
     instanceCount: mockProfiles.filter(profile => profile.groupId === group.groupId).length,
   }))
+}
+
+export async function fetchDefaultStartURLs(): Promise<BrowserStartURL[]> {
+  const bindings: any = await getBindings()
+  if (bindings?.DefaultStartURLList) {
+    return (await bindings.DefaultStartURLList()) || []
+  }
+  return [
+    { name: 'IPPure', url: 'https://ippure.com/' },
+    { name: 'IPLark', url: 'https://iplark.com/' },
+    { name: 'Ping0', url: 'https://ping0.cc/' },
+  ]
+}
+
+export async function saveDefaultStartURLs(items: BrowserStartURL[]): Promise<boolean> {
+  const bindings: any = await getBindings()
+  if (bindings?.DefaultStartURLSave) {
+    await bindings.DefaultStartURLSave(items)
+    return true
+  }
+  return true
+}
+
+export async function resetDefaultStartURLs(): Promise<boolean> {
+  const bindings: any = await getBindings()
+  if (bindings?.DefaultStartURLReset) {
+    await bindings.DefaultStartURLReset()
+    return true
+  }
+  return true
 }
 
 export async function createGroup(input: BrowserGroupInput): Promise<BrowserGroup | null> {

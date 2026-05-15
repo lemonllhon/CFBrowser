@@ -34,6 +34,18 @@ export function BookmarkSave(arg1) {
   return window['go']['main']['App']['BookmarkSave'](arg1);
 }
 
+export function DefaultStartURLList() {
+  return window['go']['main']['App']['DefaultStartURLList']();
+}
+
+export function DefaultStartURLReset() {
+  return window['go']['main']['App']['DefaultStartURLReset']();
+}
+
+export function DefaultStartURLSave(arg1) {
+  return window['go']['main']['App']['DefaultStartURLSave'](arg1);
+}
+
 export function BrowserClearCookies(arg1) {
   return window['go']['main']['App']['BrowserClearCookies'](arg1);
 }

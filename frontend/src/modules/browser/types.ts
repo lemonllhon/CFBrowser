@@ -65,6 +65,11 @@ export interface BrowserSettings {
   startStableWindowMs: number
 }
 
+export interface BrowserStartURL {
+  name: string
+  url: string
+}
+
 export interface BrowserCore {
   coreId: string
   coreName: string

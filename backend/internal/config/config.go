@@ -99,6 +99,11 @@ type BrowserBookmark struct {
 	URL  string `yaml:"url" json:"url"`
 }
 
+type BrowserStartURL struct {
+	Name string `yaml:"name" json:"name"`
+	URL  string `yaml:"url" json:"url"`
+}
+
 type BrowserConfig struct {
 	UserDataRoot           string                 `yaml:"user_data_root"`
 	DefaultFingerprintArgs []string               `yaml:"default_fingerprint_args"`
@@ -106,6 +111,8 @@ type BrowserConfig struct {
 	DefaultProxy           string                 `yaml:"default_proxy"`
 	StartReadyTimeoutMs    int                    `yaml:"start_ready_timeout_ms,omitempty"`
 	StartStableWindowMs    int                    `yaml:"start_stable_window_ms,omitempty"`
+	DefaultStartURLs       []BrowserStartURL      `yaml:"default_start_urls,omitempty"`
+	DefaultStartURLsSet    bool                   `yaml:"default_start_urls_set,omitempty"`
 	DefaultBookmarks       []BrowserBookmark      `yaml:"default_bookmarks,omitempty"`
 	Cores                  []BrowserCore          `yaml:"cores,omitempty"`
 	Proxies                []BrowserProxy         `yaml:"proxies,omitempty"`
@@ -338,6 +345,9 @@ func normalizeConfig(config *Config) {
 	}
 	if config.Browser.DefaultBookmarks == nil {
 		config.Browser.DefaultBookmarks = []BrowserBookmark{}
+	}
+	if config.Browser.DefaultStartURLs == nil {
+		config.Browser.DefaultStartURLs = []BrowserStartURL{}
 	}
 	if config.Browser.Cores == nil {
 		config.Browser.Cores = []BrowserCore{}

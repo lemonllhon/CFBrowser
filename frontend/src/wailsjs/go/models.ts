@@ -543,6 +543,20 @@ export namespace config {
 	        this.url = source["url"];
 	    }
 	}
+	export class BrowserStartURL {
+	    name: string;
+	    url: string;
+
+	    static createFrom(source: any = {}) {
+	        return new BrowserStartURL(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.url = source["url"];
+	    }
+	}
 	export class BrowserCore {
 	    coreId: string;
 	    coreName: string;

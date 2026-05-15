@@ -23,6 +23,12 @@ export function BookmarkReset():Promise<void>;
 
 export function BookmarkSave(arg1:Array<config.BrowserBookmark>):Promise<void>;
 
+export function DefaultStartURLList():Promise<Array<config.BrowserStartURL>>;
+
+export function DefaultStartURLReset():Promise<void>;
+
+export function DefaultStartURLSave(arg1:Array<config.BrowserStartURL>):Promise<void>;
+
 export function BrowserClearCookies(arg1:string):Promise<void>;
 
 export function BrowserCoreDelete(arg1:string):Promise<void>;

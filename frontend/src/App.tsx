@@ -35,6 +35,7 @@ const BrowserLogsPage = lazyNamed(() => import('./modules/browser/pages/BrowserL
 const ProxyPoolPage = lazyNamed(() => import('./modules/browser/pages/ProxyPoolPage'), 'ProxyPoolPage')
 const CoreManagementPage = lazyNamed(() => import('./modules/browser/pages/CoreManagementPage'), 'CoreManagementPage')
 const BookmarkSettingsPage = lazyNamed(() => import('./modules/browser/pages/BookmarkSettingsPage'), 'BookmarkSettingsPage')
+const DefaultStartURLPage = lazyNamed(() => import('./modules/browser/pages/DefaultStartURLPage'), 'DefaultStartURLPage')
 const LaunchApiDocsPage = lazyNamed(() => import('./modules/browser/pages/LaunchApiDocsPage'), 'LaunchApiDocsPage')
 const TagManagementPage = lazyNamed(() => import('./modules/browser/pages/TagManagementPage'), 'TagManagementPage')
 const GroupManagementPage = lazyNamed(() => import('./modules/browser/pages/GroupManagementPage'), 'GroupManagementPage')
@@ -332,6 +333,7 @@ function App() {
               <Route path="/browser/proxy-pool" element={<ProxyPoolPage />} />
               <Route path="/browser/cores" element={<CoreManagementPage />} />
               <Route path="/browser/bookmarks" element={<BookmarkSettingsPage />} />
+              <Route path="/browser/start-urls" element={<DefaultStartURLPage />} />
               <Route path="/browser/automation" element={<AutomationPage />} />
               <Route path="/browser/launch-api" element={<LaunchApiDocsPage />} />
               <Route path="/browser/tags" element={<TagManagementPage />} />

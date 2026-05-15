@@ -278,7 +278,7 @@ func (a *App) browserInstanceStartInternal(profileId string, extraLaunchArgs []s
 	args = append(args, effectiveFingerprintArgs...)
 	args = append(args, sanitizedProfileLaunchArgs...)
 	args = append(args, sanitizedExtraLaunchArgs...)
-	args = appendLaunchTargets(args, profile, normalizedStartURLs, skipDefaultStartURLs)
+	args = appendLaunchTargets(args, profile, normalizedStartURLs, skipDefaultStartURLs, a.DefaultStartURLValues())
 
 	cmd := exec.Command(chromeBinaryPath, args...)
 	cmd.Dir = filepath.Dir(chromeBinaryPath)
@@ -763,12 +763,12 @@ func hasLaunchArgValue(args []string, target string) bool {
 	return false
 }
 
-func appendLaunchTargets(args []string, profile *BrowserProfile, startURLs []string, skipDefaultStartURLs bool) []string {
+func appendLaunchTargets(args []string, profile *BrowserProfile, startURLs []string, skipDefaultStartURLs bool, defaultStartURLs []string) []string {
 	if len(startURLs) > 0 {
 		return append(args, startURLs...)
 	}
 	if !skipDefaultStartURLs {
-		return browser.BuildLaunchArgs(args, profile)
+		return browser.BuildLaunchArgs(args, profile, defaultStartURLs)
 	}
 	return args
 }

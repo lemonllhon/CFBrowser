@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Sliders } from 'lucide-react'
 import { Button, Card, ConfirmModal, FormItem, Input, Modal, Select, Switch, Table, Textarea, toast } from '../../../shared/components'
 import type { SortOrder, TableColumn } from '../../../shared/components/Table'
 import type { BrowserProxy, ProxyIPHealthResult } from '../types'
@@ -15,6 +16,38 @@ const PROXY_GLOBAL_AUTO_REFRESH_KEY = 'browser:proxyPool:globalAutoRefreshEnable
 const PROXY_GLOBAL_REFRESH_INTERVAL_KEY = 'browser:proxyPool:globalRefreshIntervalM:v1'
 const PROXY_LATENCY_CACHE_TTL_MS = 12 * 60 * 60 * 1000
 const PROXY_IP_HEALTH_CACHE_TTL_MS = 12 * 60 * 60 * 1000
+const PROXY_COLUMNS_STORAGE_KEY = 'browser:proxyPoolColumns:v1'
+const DEFAULT_PROXY_COLUMN_KEYS = ['checkbox', 'proxyName', 'type', 'server', 'port', 'latency', 'ipHealth', 'actions']
+type ColumnOption = {
+  key: string
+  label: string
+  locked?: boolean
+}
+
+const PROXY_COLUMN_OPTIONS: ColumnOption[] = [
+  { key: 'checkbox', label: '选择', locked: true },
+  { key: 'proxyName', label: '代理名称' },
+  { key: 'groupName', label: '分组' },
+  { key: 'source', label: '来源' },
+  { key: 'type', label: '类型' },
+  { key: 'server', label: '服务器' },
+  { key: 'port', label: '端口' },
+  { key: 'latency', label: '延迟' },
+  { key: 'ipHealth', label: 'IP健康' },
+  { key: 'actions', label: '操作', locked: true },
+]
+
+function readStoredProxyColumnKeys() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PROXY_COLUMNS_STORAGE_KEY) || '[]')
+    if (Array.isArray(parsed)) {
+      const allowed = PROXY_COLUMN_OPTIONS.map(item => item.key)
+      const valid = parsed.filter((key): key is string => typeof key === 'string' && allowed.includes(key))
+      if (valid.length > 0) return valid
+    }
+  } catch { /* ignore */ }
+  return DEFAULT_PROXY_COLUMN_KEYS
+}
 
 const BUILTIN_PROXIES: BrowserProxy[] = [
   { proxyId: '__direct__', proxyName: '直连（不走代理）', proxyConfig: 'direct://' },
@@ -807,6 +840,7 @@ export function ProxyPoolPage() {
   const [filterProtocol, setFilterProtocol] = useState<string>('all')
   const [filterKeyword, setFilterKeyword] = useState('')
   const [filterGroup, setFilterGroup] = useState<string>('all')
+  const [visibleColumnKeys, setVisibleColumnKeys] = useState<string[]>(readStoredProxyColumnKeys)
   const [resourceView, setResourceView] = useState<ProxyResourceView>('proxies')
   const [sortColumn, setSortColumn] = useState<string>('') // 默认不排序
   const [sortOrder, setSortOrder] = useState<SortOrder>(undefined)
@@ -879,6 +913,11 @@ export function ProxyPoolPage() {
   useEffect(() => {
     writeIPHealthCache(ipHealthMap)
   }, [ipHealthMap])
+
+  useEffect(() => {
+    const lockedKeys = PROXY_COLUMN_OPTIONS.filter(item => item.locked).map(item => item.key)
+    localStorage.setItem(PROXY_COLUMNS_STORAGE_KEY, JSON.stringify(Array.from(new Set([...lockedKeys, ...visibleColumnKeys]))))
+  }, [visibleColumnKeys])
 
   useEffect(() => {
     writeGlobalRefreshConfig(globalAutoRefreshEnabled, globalRefreshInterval)
@@ -1397,7 +1436,17 @@ export function ProxyPoolPage() {
     )
   }
 
-  const columns: TableColumn<ProxyDisplayInfo>[] = [
+  const toggleVisibleColumn = (key: string) => {
+    const option = PROXY_COLUMN_OPTIONS.find(item => item.key === key)
+    if (option?.locked) return
+    setVisibleColumnKeys(prev => {
+      const next = prev.includes(key) ? prev.filter(item => item !== key) : [...prev, key]
+      const lockedKeys = PROXY_COLUMN_OPTIONS.filter(item => item.locked).map(item => item.key)
+      return Array.from(new Set([...lockedKeys, ...next]))
+    })
+  }
+
+  const allColumns: TableColumn<ProxyDisplayInfo>[] = [
     {
       key: 'checkbox',
       title: '',
@@ -1851,6 +1900,8 @@ export function ProxyPoolPage() {
     },
   ]
 
+  const columns = allColumns.filter(column => visibleColumnKeys.includes(column.key))
+
   return (
     <div className="space-y-5 animate-fade-in">
       <div className="flex items-center justify-between">
@@ -1879,6 +1930,26 @@ export function ProxyPoolPage() {
           >
             删除超时节点{timeoutProxyIds.length > 0 ? ` (${timeoutProxyIds.length})` : ''}
           </Button>
+          <details className="relative">
+            <summary className="list-none inline-flex items-center justify-center h-8 w-8 rounded-md border border-[var(--color-border-default)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-secondary)] cursor-pointer" title="选择显示列">
+              <Sliders className="w-4 h-4" />
+            </summary>
+            <div className="absolute right-0 top-9 z-20 w-56 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] shadow-lg p-2">
+              <div className="text-xs font-medium text-[var(--color-text-muted)] px-2 py-1">显示列</div>
+              {PROXY_COLUMN_OPTIONS.map(option => (
+                <label key={option.key} className="flex items-center gap-2 px-2 py-1.5 text-sm text-[var(--color-text-primary)] rounded hover:bg-[var(--color-bg-secondary)] cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="w-4 h-4 accent-[var(--color-primary)]"
+                    checked={visibleColumnKeys.includes(option.key)}
+                    disabled={option.locked}
+                    onChange={() => toggleVisibleColumn(option.key)}
+                  />
+                  <span>{option.label}</span>
+                </label>
+              ))}
+            </div>
+          </details>
         </div>
       </div>
 

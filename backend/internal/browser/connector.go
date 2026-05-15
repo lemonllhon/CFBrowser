@@ -1,13 +1,7 @@
 package browser
 
-var defaultVerificationURLs = []string{
-	"https://ippure.com/",
-	"https://iplark.com/",
-	"https://ping0.cc/",
-}
-
 // BuildLaunchArgs 构建启动参数
-func BuildLaunchArgs(args []string, profile *Profile) []string {
-	args = append(args, defaultVerificationURLs...)
+func BuildLaunchArgs(args []string, profile *Profile, defaultStartURLs []string) []string {
+	args = append(args, defaultStartURLs...)
 	return args
 }
