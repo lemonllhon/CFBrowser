@@ -203,9 +203,23 @@ jobs:
             publish/output/TraceBrowser-Setup-*.exe
             publish/output/TraceBrowser-Portable-*-win-x64.zip
 
-      - name: Upload packages to GitHub Release
+      - name: Upload packages to current repository release
+        if: ${{ vars.PUBLIC_RELEASE_REPOSITORY == '' }}
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Trace Browser ${{ steps.version.outputs.version }}
+          fail_on_unmatched_files: true
+          files: |
+            publish/output/TraceBrowser-Setup-*.exe
+            publish/output/TraceBrowser-Portable-*-win-x64.zip
+
+      - name: Upload packages to public release repository
+        if: ${{ vars.PUBLIC_RELEASE_REPOSITORY != '' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          repository: ${{ vars.PUBLIC_RELEASE_REPOSITORY }}
+          token: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
           tag_name: ${{ steps.version.outputs.tag }}
           name: Trace Browser ${{ steps.version.outputs.version }}
           fail_on_unmatched_files: true
