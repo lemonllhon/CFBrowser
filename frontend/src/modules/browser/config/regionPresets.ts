@@ -3,16 +3,17 @@ export interface RegionPreset {
   name: string
   lang: string
   timezone: string
+  timezones?: string[]
 }
 
 export const REGION_PRESETS: RegionPreset[] = [
   { code: 'CN', name: '中国', lang: 'zh-CN', timezone: 'Asia/Shanghai' },
-  { code: 'US', name: '美国', lang: 'en-US', timezone: 'America/New_York' },
+  { code: 'US', name: '美国', lang: 'en-US', timezone: 'America/New_York', timezones: ['America/Chicago', 'America/Denver', 'America/Los_Angeles', 'America/Phoenix', 'America/Anchorage', 'Pacific/Honolulu'] },
   { code: 'JP', name: '日本', lang: 'ja-JP', timezone: 'Asia/Tokyo' },
-  { code: 'AU', name: '澳大利亚', lang: 'en-AU', timezone: 'Australia/Sydney' },
+  { code: 'AU', name: '澳大利亚', lang: 'en-AU', timezone: 'Australia/Sydney', timezones: ['Australia/Melbourne', 'Australia/Brisbane', 'Australia/Perth', 'Australia/Adelaide', 'Australia/Darwin'] },
   { code: 'SG', name: '新加坡', lang: 'en-SG', timezone: 'Asia/Singapore' },
   { code: 'GB', name: '英国', lang: 'en-GB', timezone: 'Europe/London' },
-  { code: 'CA', name: '加拿大', lang: 'en-CA', timezone: 'America/Toronto' },
+  { code: 'CA', name: '加拿大', lang: 'en-CA', timezone: 'America/Toronto', timezones: ['America/Vancouver', 'America/Winnipeg', 'America/Edmonton', 'America/Halifax', 'America/St_Johns'] },
   { code: 'KR', name: '韩国', lang: 'ko-KR', timezone: 'Asia/Seoul' },
   { code: 'DE', name: '德国', lang: 'de-DE', timezone: 'Europe/Berlin' },
   { code: 'FR', name: '法国', lang: 'fr-FR', timezone: 'Europe/Paris' },
@@ -23,16 +24,16 @@ export const REGION_PRESETS: RegionPreset[] = [
   { code: 'NO', name: '挪威', lang: 'nb-NO', timezone: 'Europe/Oslo' },
   { code: 'DK', name: '丹麦', lang: 'da-DK', timezone: 'Europe/Copenhagen' },
   { code: 'FI', name: '芬兰', lang: 'fi-FI', timezone: 'Europe/Helsinki' },
-  { code: 'RU', name: '俄罗斯', lang: 'ru-RU', timezone: 'Europe/Moscow' },
+  { code: 'RU', name: '俄罗斯', lang: 'ru-RU', timezone: 'Europe/Moscow', timezones: ['Asia/Yekaterinburg', 'Asia/Novosibirsk', 'Asia/Krasnoyarsk', 'Asia/Irkutsk', 'Asia/Vladivostok', 'Asia/Kamchatka'] },
   { code: 'IN', name: '印度', lang: 'hi-IN', timezone: 'Asia/Kolkata' },
-  { code: 'ID', name: '印度尼西亚', lang: 'id-ID', timezone: 'Asia/Jakarta' },
+  { code: 'ID', name: '印度尼西亚', lang: 'id-ID', timezone: 'Asia/Jakarta', timezones: ['Asia/Makassar', 'Asia/Jayapura'] },
   { code: 'MY', name: '马来西亚', lang: 'ms-MY', timezone: 'Asia/Kuala_Lumpur' },
   { code: 'TH', name: '泰国', lang: 'th-TH', timezone: 'Asia/Bangkok' },
   { code: 'VN', name: '越南', lang: 'vi-VN', timezone: 'Asia/Ho_Chi_Minh' },
   { code: 'PH', name: '菲律宾', lang: 'en-PH', timezone: 'Asia/Manila' },
-  { code: 'NZ', name: '新西兰', lang: 'en-NZ', timezone: 'Pacific/Auckland' },
-  { code: 'BR', name: '巴西', lang: 'pt-BR', timezone: 'America/Sao_Paulo' },
-  { code: 'MX', name: '墨西哥', lang: 'es-MX', timezone: 'America/Mexico_City' },
+  { code: 'NZ', name: '新西兰', lang: 'en-NZ', timezone: 'Pacific/Auckland', timezones: ['Pacific/Chatham'] },
+  { code: 'BR', name: '巴西', lang: 'pt-BR', timezone: 'America/Sao_Paulo', timezones: ['America/Manaus', 'America/Fortaleza', 'America/Recife', 'America/Cuiaba'] },
+  { code: 'MX', name: '墨西哥', lang: 'es-MX', timezone: 'America/Mexico_City', timezones: ['America/Tijuana', 'America/Monterrey', 'America/Mazatlan'] },
   { code: 'AR', name: '阿根廷', lang: 'es-AR', timezone: 'America/Argentina/Buenos_Aires' },
   { code: 'CL', name: '智利', lang: 'es-CL', timezone: 'America/Santiago' },
   { code: 'CO', name: '哥伦比亚', lang: 'es-CO', timezone: 'America/Bogota' },
@@ -208,7 +209,7 @@ export const REGION_OPTIONS = [
   { value: '', label: '自动/手动设置语言和时区' },
   ...REGION_PRESETS.map(item => ({
     value: item.code,
-    label: `${item.name} (${item.lang}, ${item.timezone})`,
+    label: `${item.name} (${item.lang}, ${regionTimezoneLabel(item)})`,
   })),
 ]
 
@@ -216,7 +217,23 @@ export function findRegionPreset(code: string) {
   return REGION_PRESETS.find(item => item.code === code)
 }
 
+export function regionTimezones(preset: RegionPreset): string[] {
+  return Array.from(new Set([preset.timezone, ...(preset.timezones ?? [])].map(item => item.trim()).filter(Boolean)))
+}
+
+export function regionTimezoneLabel(preset: RegionPreset): string {
+  const timezones = regionTimezones(preset)
+  return timezones.length > 1 ? `${preset.timezone} 等 ${timezones.length} 个时区` : preset.timezone
+}
+
+export function pickRegionTimezone(code: string): string | undefined {
+  const preset = findRegionPreset(code)
+  if (!preset) return undefined
+  const timezones = regionTimezones(preset)
+  return timezones[Math.floor(Math.random() * timezones.length)] || preset.timezone
+}
+
 export function findRegionPresetByLocale(lang?: string, timezone?: string) {
   if (!lang || !timezone) return undefined
-  return REGION_PRESETS.find(item => item.lang === lang && item.timezone === timezone)
+  return REGION_PRESETS.find(item => item.lang === lang && regionTimezones(item).includes(timezone))
 }

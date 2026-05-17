@@ -8,7 +8,7 @@ import { FingerprintPanel } from '../components/FingerprintPanel'
 import { TagInput } from '../components/TagInput'
 import { GroupSelector } from '../components/GroupSelector'
 import { ProxyPickerModal } from '../components/ProxyPickerModal'
-import { REGION_OPTIONS, findRegionPreset, findRegionPresetByLocale } from '../config/regionPresets'
+import { REGION_OPTIONS, findRegionPreset, findRegionPresetByLocale, pickRegionTimezone, regionTimezones } from '../config/regionPresets'
 import { deserialize as deserializeFingerprint, serialize as serializeFingerprint } from '../utils/fingerprintSerializer'
 
 const fallbackLowLaunchArgs = ['--disable-sync', '--no-first-run']
@@ -139,12 +139,23 @@ export function BrowserEditPage() {
   }
 
   const handleRegionChange = (code: string) => {
+    const current = deserializeFingerprint(formData.fingerprintArgs)
+    if (!code) {
+      const nextFingerprint = {
+        ...current,
+        lang: undefined,
+        timezone: undefined,
+      }
+      setIsDirty(true)
+      setFormData(prev => ({ ...prev, fingerprintArgs: serializeFingerprint(nextFingerprint) }))
+      return
+    }
     const preset = findRegionPreset(code)
     if (!preset) return
     const nextFingerprint = {
-      ...deserializeFingerprint(formData.fingerprintArgs),
+      ...current,
       lang: preset.lang,
-      timezone: preset.timezone,
+      timezone: pickRegionTimezone(code) || preset.timezone,
     }
     setIsDirty(true)
     setFormData(prev => ({ ...prev, fingerprintArgs: serializeFingerprint(nextFingerprint) }))
@@ -192,6 +203,8 @@ export function BrowserEditPage() {
   const autoProxySwitchEnabled = !!formData.autoProxySwitchEnabled
   const currentFingerprint = deserializeFingerprint(formData.fingerprintArgs)
   const selectedRegionCode = findRegionPresetByLocale(currentFingerprint.lang, currentFingerprint.timezone)?.code || ''
+  const selectedRegion = selectedRegionCode ? findRegionPreset(selectedRegionCode) : undefined
+  const selectedRegionTimezones = selectedRegion ? regionTimezones(selectedRegion) : []
 
   const handleOpenUserDataDir = async () => {
     const fallbackDir = !isCreate && id ? id : ''
@@ -385,16 +398,24 @@ export function BrowserEditPage() {
 
       <Card title="指纹配置" subtitle="配置浏览器指纹参数">
         <div className="mb-4 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-4">
-          <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto] gap-3 items-end">
-            <FormItem label="地区国家" hint="选择后自动写入语言和时区">
+          <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto_auto] gap-3 items-end">
+            <FormItem label="地区国家" hint="选择后自动写入语言和时区；多时区国家会随机选择候选时区">
               <Select
                 value={selectedRegionCode}
                 onChange={e => handleRegionChange(e.target.value)}
                 options={REGION_OPTIONS}
               />
             </FormItem>
+            {selectedRegionTimezones.length > 1 && (
+              <Button type="button" variant="secondary" size="sm" onClick={() => handleRegionChange(selectedRegionCode)}>
+                随机时区
+              </Button>
+            )}
             <div className="text-xs text-[var(--color-text-muted)] md:pb-2">
               会自动更新 <span className="font-mono">--lang</span> 与 <span className="font-mono">--timezone</span>
+              {selectedRegionTimezones.length > 1 && (
+                <span>，当前国家含 {selectedRegionTimezones.length} 个候选时区</span>
+              )}
             </div>
           </div>
         </div>

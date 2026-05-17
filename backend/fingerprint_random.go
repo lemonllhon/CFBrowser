@@ -18,6 +18,7 @@ type fingerprintArg struct {
 func resolveFingerprintArgsForLaunch(args []string) []string {
 	parsed := parseFingerprintArgs(args)
 	autoHardware := false
+	lang := ""
 	out := make([]string, 0, len(args)+16)
 	existing := make(map[string]struct{})
 
@@ -25,6 +26,9 @@ func resolveFingerprintArgsForLaunch(args []string) []string {
 		if item.key == autoHardwareFingerprintArg {
 			autoHardware = strings.EqualFold(strings.TrimSpace(item.val), "true")
 			continue
+		}
+		if item.key == "--lang" {
+			lang = strings.TrimSpace(item.val)
 		}
 		out = append(out, item.raw)
 		if item.key != "" {
@@ -36,7 +40,7 @@ func resolveFingerprintArgsForLaunch(args []string) []string {
 		return out
 	}
 
-	randomized := randomHardwareFingerprintArgs()
+	randomized := randomHardwareFingerprintArgs(lang)
 	for _, arg := range randomized {
 		key := fingerprintArgKey(arg)
 		if key == "" {
@@ -80,7 +84,7 @@ func fingerprintArgKey(arg string) string {
 	return strings.TrimSpace(arg[:eq])
 }
 
-func randomHardwareFingerprintArgs() []string {
+func randomHardwareFingerprintArgs(lang string) []string {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	platform := pickString(r, []string{"windows", "windows", "windows", "mac", "linux"})
 	brand := pickString(r, []string{"Chrome", "Chrome", "Edge"})
@@ -121,7 +125,7 @@ func randomHardwareFingerprintArgs() []string {
 		fmt.Sprintf("--fingerprint-webgl-vendor=%s", vendor),
 		fmt.Sprintf("--fingerprint-webgl-renderer=%s", renderer),
 		"--fingerprint-audio-noise=true",
-		fmt.Sprintf("--fingerprint-fonts=%s", pickString(r, commonFonts(platform))),
+		fmt.Sprintf("--fingerprint-fonts=%s", pickString(r, commonFonts(platform, lang))),
 		"--webrtc-ip-handling-policy=disable_non_proxied_udp",
 		"--fingerprint-do-not-track=false",
 		fmt.Sprintf("--fingerprint-media-devices=%s", pickString(r, []string{"1,1,1", "2,1,1", "0,1,1"})),
@@ -153,7 +157,75 @@ func colorDepthOptions(platform string) []string {
 	return []string{"24", "24", "32"}
 }
 
-func commonFonts(platform string) []string {
+func commonFonts(platform string, lang string) []string {
+	normalizedLang := strings.ToLower(strings.TrimSpace(lang))
+	if strings.HasPrefix(normalizedLang, "zh") {
+		switch platform {
+		case "mac":
+			return []string{
+				"Arial,Helvetica,PingFang SC,Hiragino Sans GB,STHeiti,Songti SC,Times New Roman",
+				"Arial,Helvetica,PingFang SC,Heiti SC,Kaiti SC,Times New Roman",
+			}
+		case "linux":
+			return []string{
+				"Arial,Noto Sans CJK SC,WenQuanYi Micro Hei,Noto Sans,DejaVu Sans,Times New Roman",
+				"Arial,Noto Serif CJK SC,Noto Sans CJK SC,Liberation Sans,Times New Roman",
+			}
+		default:
+			return []string{
+				"Arial,Segoe UI,Microsoft YaHei,SimSun,SimHei,Calibri,Times New Roman",
+				"Arial,Microsoft YaHei UI,Microsoft YaHei,SimSun,FangSong,Times New Roman",
+			}
+		}
+	}
+
+	if strings.HasPrefix(normalizedLang, "ja") {
+		switch platform {
+		case "mac":
+			return []string{
+				"Arial,Helvetica,Hiragino Kaku Gothic ProN,Yu Gothic,Hiragino Mincho ProN,Times New Roman",
+				"Arial,Helvetica,Yu Gothic,Hiragino Sans,Osaka,Times New Roman",
+			}
+		case "linux":
+			return []string{
+				"Arial,Noto Sans CJK JP,Noto Serif CJK JP,Noto Sans,DejaVu Sans,Times New Roman",
+				"Arial,Noto Sans JP,Noto Serif JP,Liberation Sans,Times New Roman",
+			}
+		default:
+			return []string{
+				"Arial,Segoe UI,Yu Gothic,Meiryo,MS Gothic,Times New Roman",
+				"Arial,Yu Gothic UI,Meiryo,MS PGothic,Times New Roman",
+			}
+		}
+	}
+
+	if strings.HasPrefix(normalizedLang, "ko") {
+		switch platform {
+		case "mac":
+			return []string{
+				"Arial,Helvetica,Apple SD Gothic Neo,Arial Unicode MS,Times New Roman",
+				"Arial,Helvetica,AppleGothic,Apple SD Gothic Neo,Times New Roman",
+			}
+		case "linux":
+			return []string{
+				"Arial,Noto Sans CJK KR,Noto Serif CJK KR,Noto Sans,DejaVu Sans,Times New Roman",
+				"Arial,Noto Sans KR,Noto Serif KR,Liberation Sans,Times New Roman",
+			}
+		default:
+			return []string{
+				"Arial,Segoe UI,Malgun Gothic,Gulim,Dotum,Times New Roman",
+				"Arial,Malgun Gothic,Microsoft JhengHei,Times New Roman",
+			}
+		}
+	}
+
+	if strings.HasPrefix(normalizedLang, "ar") {
+		return []string{
+			"Arial,Segoe UI,Tahoma,Arial Unicode MS,Times New Roman",
+			"Arial,Tahoma,Noto Naskh Arabic,Noto Sans Arabic,Times New Roman",
+		}
+	}
+
 	switch platform {
 	case "mac":
 		return []string{

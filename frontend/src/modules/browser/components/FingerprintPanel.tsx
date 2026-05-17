@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ChevronDown, ChevronUp, RefreshCw, Wand2 } from 'lucide-react'
-import { ConfirmModal, FormItem, Input, Select, Textarea } from '../../../shared/components'
+import { Alert, ConfirmModal, FormItem, Input, Select, Textarea } from '../../../shared/components'
 import {
   type FingerprintConfig,
   FINGERPRINT_PRESETS,
@@ -10,7 +10,7 @@ import {
   randomFingerprintSeed,
   serialize,
 } from '../utils/fingerprintSerializer'
-import { REGION_PRESETS } from '../config/regionPresets'
+import { REGION_PRESETS, findRegionPresetByLocale, regionTimezones } from '../config/regionPresets'
 
 interface FingerprintPanelProps {
   value: string[]
@@ -76,7 +76,7 @@ const REGION_LANG_OPTIONS = Array.from(new Set(REGION_PRESETS.map(item => item.l
   .sort((a, b) => a.localeCompare(b))
   .map(lang => ({ value: lang, label: lang }))
 
-const REGION_TIMEZONE_OPTIONS = Array.from(new Set(REGION_PRESETS.map(item => item.timezone)))
+const REGION_TIMEZONE_OPTIONS = Array.from(new Set(REGION_PRESETS.flatMap(item => regionTimezones(item))))
   .filter(timezone => !TIMEZONE_OPTIONS.some(opt => opt.value === timezone))
   .sort((a, b) => a.localeCompare(b))
   .map(timezone => ({ value: timezone, label: timezone }))
@@ -204,6 +204,124 @@ const COMMON_FONTS: Record<string, string[]> = {
   ],
 }
 
+function commonFontsForLocale(platform: string, lang?: string): string[] {
+  const normalizedPlatform = COMMON_FONTS[platform] ? platform : 'windows'
+  const normalizedLang = (lang || '').toLowerCase()
+
+  if (normalizedLang.startsWith('zh')) {
+    if (normalizedPlatform === 'mac') {
+      return [
+        'Arial,Helvetica,PingFang SC,Hiragino Sans GB,STHeiti,Songti SC,Times New Roman',
+        'Arial,Helvetica,PingFang SC,Heiti SC,Kaiti SC,Times New Roman',
+      ]
+    }
+    if (normalizedPlatform === 'linux') {
+      return [
+        'Arial,Noto Sans CJK SC,WenQuanYi Micro Hei,Noto Sans,DejaVu Sans,Times New Roman',
+        'Arial,Noto Serif CJK SC,Noto Sans CJK SC,Liberation Sans,Times New Roman',
+      ]
+    }
+    return [
+      'Arial,Segoe UI,Microsoft YaHei,SimSun,SimHei,Calibri,Times New Roman',
+      'Arial,Microsoft YaHei UI,Microsoft YaHei,SimSun,FangSong,Times New Roman',
+    ]
+  }
+
+  if (normalizedLang.startsWith('ja')) {
+    if (normalizedPlatform === 'mac') {
+      return [
+        'Arial,Helvetica,Hiragino Kaku Gothic ProN,Yu Gothic,Hiragino Mincho ProN,Times New Roman',
+        'Arial,Helvetica,Yu Gothic,Hiragino Sans,Osaka,Times New Roman',
+      ]
+    }
+    if (normalizedPlatform === 'linux') {
+      return [
+        'Arial,Noto Sans CJK JP,Noto Serif CJK JP,Noto Sans,DejaVu Sans,Times New Roman',
+        'Arial,Noto Sans JP,Noto Serif JP,Liberation Sans,Times New Roman',
+      ]
+    }
+    return [
+      'Arial,Segoe UI,Yu Gothic,Meiryo,MS Gothic,Times New Roman',
+      'Arial,Yu Gothic UI,Meiryo,MS PGothic,Times New Roman',
+    ]
+  }
+
+  if (normalizedLang.startsWith('ko')) {
+    if (normalizedPlatform === 'mac') {
+      return [
+        'Arial,Helvetica,Apple SD Gothic Neo,Arial Unicode MS,Times New Roman',
+        'Arial,Helvetica,AppleGothic,Apple SD Gothic Neo,Times New Roman',
+      ]
+    }
+    if (normalizedPlatform === 'linux') {
+      return [
+        'Arial,Noto Sans CJK KR,Noto Serif CJK KR,Noto Sans,DejaVu Sans,Times New Roman',
+        'Arial,Noto Sans KR,Noto Serif KR,Liberation Sans,Times New Roman',
+      ]
+    }
+    return [
+      'Arial,Segoe UI,Malgun Gothic,Gulim,Dotum,Times New Roman',
+      'Arial,Malgun Gothic,Microsoft JhengHei,Times New Roman',
+    ]
+  }
+
+  if (normalizedLang.startsWith('ar')) {
+    return [
+      'Arial,Segoe UI,Tahoma,Arial Unicode MS,Times New Roman',
+      'Arial,Tahoma,Noto Naskh Arabic,Noto Sans Arabic,Times New Roman',
+    ]
+  }
+
+  return COMMON_FONTS[normalizedPlatform]
+}
+
+function rendererMatchesVendor(vendor: string, renderer: string): boolean {
+  const normalizedVendor = vendor.toLowerCase()
+  const normalizedRenderer = renderer.toLowerCase()
+  if (normalizedVendor === 'intel') return normalizedRenderer.includes('intel')
+  if (normalizedVendor === 'nvidia') return normalizedRenderer.includes('nvidia') || normalizedRenderer.includes('geforce')
+  if (normalizedVendor === 'amd') return normalizedRenderer.includes('amd') || normalizedRenderer.includes('radeon')
+  if (normalizedVendor === 'apple') return normalizedRenderer.includes('apple')
+  return true
+}
+
+function hasFontToken(fonts: string | undefined, tokens: string[]): boolean {
+  const normalized = (fonts || '').toLowerCase()
+  return tokens.some(token => normalized.includes(token.toLowerCase()))
+}
+
+function buildFingerprintConsistencyWarnings(config: FingerprintConfig): string[] {
+  const warnings: string[] = []
+  const normalizedLang = (config.lang || '').toLowerCase()
+
+  if (config.brand === 'Safari' && config.platform && config.platform !== 'mac') {
+    warnings.push('Safari 与非 macOS 平台组合不自然，建议切换为 macOS 或改用 Chrome/Edge。')
+  }
+  if (config.platform && config.platform !== 'mac' && config.webglVendor === 'Apple') {
+    warnings.push('Apple WebGL 供应商不适合 Windows/Linux 画像，建议换成 Intel/NVIDIA/AMD。')
+  }
+  if (config.webglVendor && config.webglRenderer && !rendererMatchesVendor(config.webglVendor, config.webglRenderer)) {
+    warnings.push('WebGL 供应商与渲染器名称不匹配，建议重新选择渲染器。')
+  }
+  if (config.platform === 'mac' && config.touchPoints && config.touchPoints !== '0') {
+    warnings.push('桌面 macOS 通常没有触摸点，建议触摸点数设为 0。')
+  }
+  if (config.lang && config.timezone && !findRegionPresetByLocale(config.lang, config.timezone)) {
+    warnings.push(`语言 ${config.lang} 与时区 ${config.timezone} 未命中地区预设，建议用“地区国家”重新联动。`)
+  }
+  if (normalizedLang.startsWith('zh') && config.fonts && !hasFontToken(config.fonts, ['Microsoft YaHei', 'SimSun', 'PingFang', 'Noto Sans CJK SC', 'WenQuanYi'])) {
+    warnings.push('中文语言画像缺少常见中文字体，建议重新随机设备或补充中文字体。')
+  }
+  if (normalizedLang.startsWith('ja') && config.fonts && !hasFontToken(config.fonts, ['Yu Gothic', 'Meiryo', 'Hiragino', 'Noto Sans CJK JP', 'Noto Sans JP'])) {
+    warnings.push('日语语言画像缺少常见日文字体，建议重新随机设备或补充日文字体。')
+  }
+  if (normalizedLang.startsWith('ko') && config.fonts && !hasFontToken(config.fonts, ['Malgun Gothic', 'Apple SD Gothic', 'Noto Sans CJK KR', 'Noto Sans KR'])) {
+    warnings.push('韩语语言画像缺少常见韩文字体，建议重新随机设备或补充韩文字体。')
+  }
+
+  return warnings
+}
+
 const AUTO_HARDWARE_CONFIG: Partial<FingerprintConfig> = {
   autoHardware: true,
   seed: undefined,
@@ -254,7 +372,7 @@ function randomHardwareFingerprint(base: FingerprintConfig): FingerprintConfig {
     webrtcPolicy: 'disable_non_proxied_udp',
     doNotTrack: false,
     mediaDevices: pick(['1,1,1', '2,1,1', '0,1,1']),
-    fonts: pick(COMMON_FONTS[platform]),
+    fonts: pick(commonFontsForLocale(platform, base.lang)),
   }
 }
 
@@ -368,6 +486,7 @@ export function FingerprintPanel({ value, onChange }: FingerprintPanelProps) {
   const rendererOptions = config.webglVendor
     ? (WEBGL_RENDERER_OPTIONS[config.webglVendor] ?? AUTO_RENDERER_OPTIONS)
     : AUTO_RENDERER_OPTIONS
+  const consistencyWarnings = buildFingerprintConsistencyWarnings(config)
 
   const isCustomRenderer = config.webglRenderer
     ? !rendererOptions.some(o => o.value === config.webglRenderer && o.value !== 'custom')
@@ -460,6 +579,20 @@ export function FingerprintPanel({ value, onChange }: FingerprintPanelProps) {
         <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
           当前使用自动随机硬件画像预设：保存后，浏览器每次重新启动都会重新生成指纹种子、浏览器品牌、系统、屏幕、CPU、内存、WebGL、噪声、WebRTC、媒体设备和字体。语言与时区保持当前设置。
         </div>
+      )}
+
+      {consistencyWarnings.length > 0 && (
+        <Alert
+          type="warning"
+          title="指纹一致性提示"
+          message={
+            <ul className="list-disc pl-4 space-y-1">
+              {consistencyWarnings.map(item => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          }
+        />
       )}
 
       {/* 基础身份 */}
