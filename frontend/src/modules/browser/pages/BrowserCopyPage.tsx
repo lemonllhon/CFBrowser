@@ -3,6 +3,25 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { Button, Card, FormItem, Input, Select, toast } from '../../../shared/components'
 import type { BrowserProfile } from '../types'
 import { createBrowserProfile, fetchBrowserProfiles } from '../api'
+import { type FingerprintCopyMode, prepareFingerprintArgsForCopy } from '../utils/fingerprintSerializer'
+
+const FINGERPRINT_COPY_OPTIONS: Array<{ value: FingerprintCopyMode; label: string; hint: string }> = [
+  {
+    value: 'regenerateSeed',
+    label: '重新生成指纹种子（推荐）',
+    hint: '保留源配置的设备参数，只替换 --fingerprint，适合快速复制但避免同噪声指纹。',
+  },
+  {
+    value: 'randomHardware',
+    label: '重新随机完整设备画像',
+    hint: '保留语言和时区，重新生成系统、浏览器品牌、屏幕、CPU、内存、WebGL、媒体设备和字体。',
+  },
+  {
+    value: 'keep',
+    label: '完全保留源指纹',
+    hint: '不修改任何指纹参数，副本会与源配置保持相同指纹。',
+  },
+]
 
 export function BrowserCopyPage() {
   const { id } = useParams()
@@ -10,6 +29,7 @@ export function BrowserCopyPage() {
   const [profiles, setProfiles] = useState<BrowserProfile[]>([])
   const [sourceId, setSourceId] = useState(id || '')
   const [targetName, setTargetName] = useState('')
+  const [fingerprintMode, setFingerprintMode] = useState<FingerprintCopyMode>('regenerateSeed')
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
@@ -24,6 +44,7 @@ export function BrowserCopyPage() {
   }, [])
 
   const sourceProfile = profiles.find(item => item.profileId === sourceId)
+  const fingerprintModeHint = FINGERPRINT_COPY_OPTIONS.find(item => item.value === fingerprintMode)?.hint || ''
 
   const handleCopy = async () => {
     if (!sourceProfile || !targetName) {
@@ -36,7 +57,7 @@ export function BrowserCopyPage() {
         profileName: targetName,
         userDataDir: `${sourceProfile.userDataDir}-copy`,
         coreId: sourceProfile.coreId,
-        fingerprintArgs: sourceProfile.fingerprintArgs,
+        fingerprintArgs: prepareFingerprintArgsForCopy(sourceProfile.fingerprintArgs || [], fingerprintMode),
         proxyId: sourceProfile.proxyId,
         proxyConfig: sourceProfile.proxyConfig,
         launchArgs: sourceProfile.launchArgs,
@@ -75,6 +96,18 @@ export function BrowserCopyPage() {
           <FormItem label="新配置名称">
             <Input value={targetName} onChange={e => setTargetName(e.target.value)} placeholder="请输入名称" />
           </FormItem>
+          <FormItem label="指纹处理" hint={fingerprintModeHint}>
+            <Select
+              value={fingerprintMode}
+              onChange={e => setFingerprintMode(e.target.value as FingerprintCopyMode)}
+              options={FINGERPRINT_COPY_OPTIONS.map(item => ({ value: item.value, label: item.label }))}
+            />
+          </FormItem>
+          {sourceProfile && (
+            <div className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] px-3 py-2 text-xs text-[var(--color-text-muted)] md:self-end">
+              源配置当前有 {sourceProfile.fingerprintArgs?.length || 0} 条指纹参数；生成配置时会按上方策略处理后保存。
+            </div>
+          )}
         </div>
       </Card>
     </div>

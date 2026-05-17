@@ -398,7 +398,7 @@ export function BrowserEditPage() {
 
       <Card title="指纹配置" subtitle="配置浏览器指纹参数">
         <div className="mb-4 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-4">
-          <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto_auto] gap-3 items-end">
+          <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto] gap-3 items-end">
             <FormItem label="地区国家" hint="选择后自动写入语言和时区；多时区国家会随机选择候选时区">
               <Select
                 value={selectedRegionCode}
@@ -407,16 +407,18 @@ export function BrowserEditPage() {
               />
             </FormItem>
             {selectedRegionTimezones.length > 1 && (
-              <Button type="button" variant="secondary" size="sm" onClick={() => handleRegionChange(selectedRegionCode)}>
-                随机时区
-              </Button>
+              <div className="md:pb-1">
+                <Button type="button" variant="secondary" size="sm" onClick={() => handleRegionChange(selectedRegionCode)}>
+                  随机时区
+                </Button>
+              </div>
             )}
-            <div className="text-xs text-[var(--color-text-muted)] md:pb-2">
-              会自动更新 <span className="font-mono">--lang</span> 与 <span className="font-mono">--timezone</span>
-              {selectedRegionTimezones.length > 1 && (
-                <span>，当前国家含 {selectedRegionTimezones.length} 个候选时区</span>
-              )}
-            </div>
+          </div>
+          <div className="text-xs text-[var(--color-text-muted)] mt-2">
+            会自动更新 <span className="font-mono">--lang</span> 与 <span className="font-mono">--timezone</span>
+            {selectedRegionTimezones.length > 1 && (
+              <span>，当前国家含 {selectedRegionTimezones.length} 个候选时区</span>
+            )}
           </div>
         </div>
         <FingerprintPanel

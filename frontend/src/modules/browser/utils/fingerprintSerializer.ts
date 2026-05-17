@@ -158,6 +158,163 @@ export function randomFingerprintSeed(): string {
   return String(Math.floor(Math.random() * 2147483647) + 1)
 }
 
+export type FingerprintCopyMode = 'regenerateSeed' | 'randomHardware' | 'keep'
+
+export function prepareFingerprintArgsForCopy(args: string[], mode: FingerprintCopyMode): string[] {
+  if (mode === 'keep') {
+    return [...args]
+  }
+
+  const config = deserialize(args)
+  if (mode === 'randomHardware') {
+    return serialize(randomHardwareFingerprintConfig(config))
+  }
+
+  return serialize({
+    ...config,
+    seed: randomFingerprintSeed(),
+  })
+}
+
+export function randomHardwareFingerprintConfig(base: FingerprintConfig): FingerprintConfig {
+  const platform = pick(['windows', 'windows', 'windows', 'mac', 'linux'])
+  const brand = platform === 'mac' ? pick(['Chrome', 'Safari']) : pick(['Chrome', 'Chrome', 'Edge'])
+  const vendor = platform === 'mac' ? 'Apple' : pick(platform === 'linux' ? ['Intel', 'AMD'] : ['Intel', 'Intel', 'NVIDIA', 'AMD'])
+  const renderer = randomRendererForVendor(vendor)
+  const highEnd = ['NVIDIA', 'AMD', 'Apple'].includes(vendor) && Math.random() > 0.35
+  const resolution = pick(highEnd ? ['1920,1080', '2560,1440', '1600,900', '1440,900'] : ['1920,1080', '1366,768', '1440,900', '1600,900', '1280,800'])
+  const hardwareConcurrency = pick(highEnd ? ['8', '10', '12', '16'] : ['4', '6', '8'])
+  const deviceMemory = pick(highEnd ? ['8', '16', '32'] : ['4', '8', '16'])
+  const touchPoints = platform === 'windows' && Math.random() < 0.12 ? pick(['1', '5']) : '0'
+
+  return {
+    ...base,
+    autoHardware: false,
+    seed: randomFingerprintSeed(),
+    brand,
+    platform,
+    resolution,
+    customResolution: undefined,
+    colorDepth: pick(platform === 'mac' ? ['24', '30'] : ['24', '24', '32']),
+    hardwareConcurrency,
+    deviceMemory,
+    touchPoints,
+    webglVendor: vendor,
+    webglRenderer: renderer,
+    canvasNoise: true,
+    audioNoise: true,
+    webrtcPolicy: 'disable_non_proxied_udp',
+    doNotTrack: false,
+    mediaDevices: pick(['1,1,1', '2,1,1', '0,1,1']),
+    fonts: pick(commonFontsForLocale(platform, base.lang)),
+  }
+}
+
+function pick<T>(items: T[]): T {
+  return items[Math.floor(Math.random() * items.length)]
+}
+
+function randomRendererForVendor(vendor: string): string {
+  switch (vendor) {
+    case 'NVIDIA':
+      return pick(['NVIDIA GeForce RTX 3080', 'NVIDIA GeForce RTX 3060', 'NVIDIA GeForce GTX 1660', 'NVIDIA GeForce GTX 1080 Ti'])
+    case 'AMD':
+      return pick(['AMD Radeon RX 6600', 'AMD Radeon RX 580', 'AMD Radeon Vega 8'])
+    case 'Apple':
+      return pick(['Apple M1', 'Apple M2', 'Apple M3'])
+    default:
+      return pick(['Intel(R) UHD Graphics 630', 'Intel(R) UHD Graphics 620', 'Intel(R) HD Graphics 520', 'Intel(R) Iris(R) Xe Graphics'])
+  }
+}
+
+function commonFontsForLocale(platform: string, lang?: string): string[] {
+  const normalizedPlatform = COMMON_FONTS[platform] ? platform : 'windows'
+  const normalizedLang = (lang || '').toLowerCase()
+
+  if (normalizedLang.startsWith('zh')) {
+    if (normalizedPlatform === 'mac') {
+      return [
+        'Arial,Helvetica,PingFang SC,Hiragino Sans GB,STHeiti,Songti SC,Times New Roman',
+        'Arial,Helvetica,PingFang SC,Heiti SC,Kaiti SC,Times New Roman',
+      ]
+    }
+    if (normalizedPlatform === 'linux') {
+      return [
+        'Arial,Noto Sans CJK SC,WenQuanYi Micro Hei,Noto Sans,DejaVu Sans,Times New Roman',
+        'Arial,Noto Serif CJK SC,Noto Sans CJK SC,Liberation Sans,Times New Roman',
+      ]
+    }
+    return [
+      'Arial,Segoe UI,Microsoft YaHei,SimSun,SimHei,Calibri,Times New Roman',
+      'Arial,Microsoft YaHei UI,Microsoft YaHei,SimSun,FangSong,Times New Roman',
+    ]
+  }
+
+  if (normalizedLang.startsWith('ja')) {
+    if (normalizedPlatform === 'mac') {
+      return [
+        'Arial,Helvetica,Hiragino Kaku Gothic ProN,Yu Gothic,Hiragino Mincho ProN,Times New Roman',
+        'Arial,Helvetica,Yu Gothic,Hiragino Sans,Osaka,Times New Roman',
+      ]
+    }
+    if (normalizedPlatform === 'linux') {
+      return [
+        'Arial,Noto Sans CJK JP,Noto Serif CJK JP,Noto Sans,DejaVu Sans,Times New Roman',
+        'Arial,Noto Sans JP,Noto Serif JP,Liberation Sans,Times New Roman',
+      ]
+    }
+    return [
+      'Arial,Segoe UI,Yu Gothic,Meiryo,MS Gothic,Times New Roman',
+      'Arial,Yu Gothic UI,Meiryo,MS PGothic,Times New Roman',
+    ]
+  }
+
+  if (normalizedLang.startsWith('ko')) {
+    if (normalizedPlatform === 'mac') {
+      return [
+        'Arial,Helvetica,Apple SD Gothic Neo,Arial Unicode MS,Times New Roman',
+        'Arial,Helvetica,AppleGothic,Apple SD Gothic Neo,Times New Roman',
+      ]
+    }
+    if (normalizedPlatform === 'linux') {
+      return [
+        'Arial,Noto Sans CJK KR,Noto Serif CJK KR,Noto Sans,DejaVu Sans,Times New Roman',
+        'Arial,Noto Sans KR,Noto Serif KR,Liberation Sans,Times New Roman',
+      ]
+    }
+    return [
+      'Arial,Segoe UI,Malgun Gothic,Gulim,Dotum,Times New Roman',
+      'Arial,Malgun Gothic,Microsoft JhengHei,Times New Roman',
+    ]
+  }
+
+  if (normalizedLang.startsWith('ar')) {
+    return [
+      'Arial,Segoe UI,Tahoma,Arial Unicode MS,Times New Roman',
+      'Arial,Tahoma,Noto Naskh Arabic,Noto Sans Arabic,Times New Roman',
+    ]
+  }
+
+  return COMMON_FONTS[normalizedPlatform]
+}
+
+const COMMON_FONTS: Record<string, string[]> = {
+  windows: [
+    'Arial,Segoe UI,Calibri,Microsoft YaHei,SimSun,Times New Roman,Courier New',
+    'Arial,Helvetica,Verdana,Tahoma,Times New Roman,Courier New,Georgia',
+    'Arial,Segoe UI,Calibri,Verdana,Microsoft YaHei,Times New Roman',
+  ],
+  mac: [
+    'Arial,Helvetica,PingFang SC,Hiragino Sans GB,STHeiti,Times New Roman',
+    'Arial,Helvetica,San Francisco,Menlo,Georgia,Times New Roman',
+    'Arial,Helvetica,Hiragino Kaku Gothic ProN,Yu Gothic,Times New Roman',
+  ],
+  linux: [
+    'Arial,Noto Sans,Ubuntu,DejaVu Sans,Liberation Sans,Times New Roman',
+    'Arial,Noto Sans,Roboto,DejaVu Serif,Liberation Mono,Times New Roman',
+  ],
+}
+
 // ─── 预设指纹配置 ────────────────────────────────────────────────────────────
 
 export interface FingerprintPreset {
