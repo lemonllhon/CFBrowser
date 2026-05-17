@@ -32,6 +32,38 @@ export interface BackupActionResult {
   }>
 }
 
+export interface AppConfigInfo {
+  name: string
+  version: string
+  projectGithubUrl: string
+}
+
+export interface AppUpdateAsset {
+  name: string
+  size: number
+  downloadUrl: string
+}
+
+export interface AppUpdateInfo {
+  currentVersion: string
+  latestVersion: string
+  releaseName: string
+  releaseUrl: string
+  publishedAt: string
+  body: string
+  hasUpdate: boolean
+  asset?: AppUpdateAsset
+  message: string
+}
+
+export interface AppUpdateDownloadResult {
+  cancelled?: boolean
+  message?: string
+  version?: string
+  installerPath?: string
+  installOnRestart?: boolean
+}
+
 // 获取设置
 export async function fetchSettings(): Promise<AppSettings> {
   try {
@@ -92,4 +124,50 @@ export async function importSystemConfig(resetFirst: boolean): Promise<BackupAct
     return { cancelled: false, message: '当前环境不支持后端加载接口' }
   }
   return (await bindings.BackupImportPackage(resetFirst)) || {}
+}
+
+export async function fetchAppConfig(): Promise<AppConfigInfo> {
+  const bindings: any = await getBindings()
+  if (!bindings?.GetAppConfig) {
+    return { name: defaultSettings.appName, version: 'dev', projectGithubUrl: 'https://github.com/lemon-casino/trace-browser-release/releases' }
+  }
+  const data = (await bindings.GetAppConfig()) || {}
+  return {
+    name: String(data.name || defaultSettings.appName),
+    version: String(data.version || 'unknown'),
+    projectGithubUrl: String(data.projectGithubUrl || 'https://github.com/lemon-casino/trace-browser-release/releases'),
+  }
+}
+
+export async function checkAppUpdate(): Promise<AppUpdateInfo> {
+  const bindings: any = await getBindings()
+  if (!bindings?.CheckAppUpdate) {
+    throw new Error('当前环境不支持检查更新')
+  }
+  return await bindings.CheckAppUpdate()
+}
+
+export async function downloadAppUpdate(info: AppUpdateInfo, installOnRestart: boolean): Promise<AppUpdateDownloadResult> {
+  const bindings: any = await getBindings()
+  if (!bindings?.DownloadAppUpdate) {
+    throw new Error('当前环境不支持下载更新')
+  }
+  return (await bindings.DownloadAppUpdate(info, installOnRestart)) || {}
+}
+
+export async function installDownloadedAppUpdate(installerPath?: string): Promise<void> {
+  const bindings: any = await getBindings()
+  if (!bindings?.InstallDownloadedAppUpdate) {
+    throw new Error('当前环境不支持安装更新')
+  }
+  await bindings.InstallDownloadedAppUpdate(installerPath || '')
+}
+
+export async function openAppReleasePage(url?: string): Promise<void> {
+  const bindings: any = await getBindings()
+  if (bindings?.OpenAppReleasePage) {
+    await bindings.OpenAppReleasePage(url || '')
+    return
+  }
+  window.open(url || 'https://github.com/lemon-casino/trace-browser-release/releases/latest', '_blank')
 }

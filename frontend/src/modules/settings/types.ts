@@ -15,6 +15,7 @@ export interface AppSettings {
   enableNotifications: boolean
   enableAutoSave: boolean
   autoSaveInterval: number
+  enableAutoUpdate: boolean
 
   // 高级设置
   maxUploadSize: number
@@ -36,6 +37,7 @@ export const defaultSettings: AppSettings = {
   enableNotifications: true,
   enableAutoSave: true,
   autoSaveInterval: 30,
+  enableAutoUpdate: true,
   maxUploadSize: 10,
   sessionTimeout: 30,
   cacheEnabled: true,

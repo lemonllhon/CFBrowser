@@ -22,6 +22,10 @@ export function BackupInitializeSystem() {
   return window['go']['main']['App']['BackupInitializeSystem']();
 }
 
+export function CheckAppUpdate() {
+  return window['go']['main']['App']['CheckAppUpdate']();
+}
+
 export function BookmarkList() {
   return window['go']['main']['App']['BookmarkList']();
 }
@@ -258,6 +262,10 @@ export function DeleteGroup(arg1) {
   return window['go']['main']['App']['DeleteGroup'](arg1);
 }
 
+export function DownloadAppUpdate(arg1, arg2) {
+  return window['go']['main']['App']['DownloadAppUpdate'](arg1, arg2);
+}
+
 export function FetchRemoteAuthorProfile(arg1, arg2) {
   return window['go']['main']['App']['FetchRemoteAuthorProfile'](arg1, arg2);
 }
@@ -310,6 +318,10 @@ export function GetRunningInstances() {
   return window['go']['main']['App']['GetRunningInstances']();
 }
 
+export function InstallDownloadedAppUpdate(arg1) {
+  return window['go']['main']['App']['InstallDownloadedAppUpdate'](arg1);
+}
+
 export function ListGroups() {
   return window['go']['main']['App']['ListGroups']();
 }
@@ -320,6 +332,10 @@ export function MoveInstancesToGroup(arg1, arg2) {
 
 export function OpenCorePath(arg1) {
   return window['go']['main']['App']['OpenCorePath'](arg1);
+}
+
+export function OpenAppReleasePage(arg1) {
+  return window['go']['main']['App']['OpenAppReleasePage'](arg1);
 }
 
 export function OpenUserDataDir(arg1) {

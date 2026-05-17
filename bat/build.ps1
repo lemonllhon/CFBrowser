@@ -74,7 +74,19 @@ try {
         "wails.json"
     )
 
-    Write-Host "[1/7] Installing frontend dependencies..."
+    Write-Host "[1/8] Syncing build version..."
+    Invoke-NativeCommand -FilePath "powershell" -Arguments @(
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "scripts\sync-wails-version.ps1",
+        "-RepoRoot",
+        $repoRoot
+    )
+
+    Write-Host ""
+    Write-Host "[2/8] Installing frontend dependencies..."
     Push-Location (Join-Path $repoRoot "frontend")
     try {
         Invoke-NativeCommand -FilePath "npm" -Arguments @("install")
@@ -85,12 +97,12 @@ try {
     }
 
     Write-Host ""
-    Write-Host "[2/7] Installing Go dependencies..."
+    Write-Host "[3/8] Installing Go dependencies..."
     Invoke-NativeCommand -FilePath "go" -Arguments @("mod", "download")
     Invoke-NativeCommand -FilePath "go" -Arguments @("mod", "tidy")
 
     Write-Host ""
-    Write-Host "[3/7] Ensuring frontend\dist exists..."
+    Write-Host "[4/8] Ensuring frontend\dist exists..."
     $frontendDist = Join-Path $repoRoot "frontend/dist"
     $tempDistCreated = $false
     if (-not (Test-Path -LiteralPath $frontendDist)) {
@@ -103,13 +115,13 @@ try {
     }
 
     Write-Host ""
-    Write-Host "[4/7] Generating Wails bindings..."
+    Write-Host "[5/8] Generating Wails bindings..."
     Invoke-NativeCommand -FilePath "cmd" -Arguments @("/c", "call bat\generate-bindings.bat --no-pause")
 
     $binaryPath = Join-Path $repoRoot "build/bin/trace-browser.exe"
 
     Write-Host ""
-    Write-Host "[5/7] Building frontend..."
+    Write-Host "[6/8] Building frontend..."
     if ($tempDistCreated -and (Test-Path -LiteralPath $frontendDist)) {
         Remove-Item -LiteralPath $frontendDist -Recurse -Force -ErrorAction SilentlyContinue
     }
@@ -122,7 +134,7 @@ try {
     }
 
     Write-Host ""
-    Write-Host "[6/7] Building app..."
+    Write-Host "[7/8] Building app..."
     Invoke-NativeCommand -FilePath "wails" -Arguments @("build")
 
     if ($tempDistCreated -and (Test-Path -LiteralPath $frontendDist)) {
@@ -130,7 +142,7 @@ try {
     }
 
     Write-Host ""
-    Write-Host "[7/7] Copying runtime dependencies..."
+    Write-Host "[8/8] Copying runtime dependencies..."
     $binDir = Join-Path $repoRoot "bin"
     $targetDir = Join-Path $repoRoot "build/bin/bin"
     if (Test-Path -LiteralPath $binDir -PathType Container) {

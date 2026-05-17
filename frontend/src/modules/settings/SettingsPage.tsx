@@ -1,7 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
-import { Save, RotateCcw, Upload, Download } from 'lucide-react'
+import { Save, RotateCcw, Upload, Download, RefreshCw, ExternalLink } from 'lucide-react'
 import { Card, Button, FormItem, Input, Select, Switch, ThemeSwitcher, toast, Modal, Progress } from '../../shared/components'
-import { fetchSettings, saveSettings, resetSettings, initializeSystemData, exportSystemConfig, importSystemConfig } from './api'
+import {
+  checkAppUpdate,
+  downloadAppUpdate,
+  fetchAppConfig,
+  fetchSettings,
+  initializeSystemData,
+  installDownloadedAppUpdate,
+  openAppReleasePage,
+  resetSettings,
+  saveSettings,
+  exportSystemConfig,
+  importSystemConfig,
+  type AppConfigInfo,
+  type AppUpdateInfo,
+} from './api'
 import type { AppSettings } from './types'
 import { defaultSettings } from './types'
 import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime'
@@ -35,6 +49,11 @@ export function SettingsPage() {
   const [exportProgress, setExportProgress] = useState<BackupExportProgress | null>(null)
   const [importProgress, setImportProgress] = useState<BackupExportProgress | null>(null)
   const [exportLogs, setExportLogs] = useState<BackupExportLogItem[]>([])
+  const [appConfig, setAppConfig] = useState<AppConfigInfo>({ name: defaultSettings.appName, version: 'unknown', projectGithubUrl: 'https://github.com/lemon-casino/trace-browser-release/releases' })
+  const [checkingUpdate, setCheckingUpdate] = useState(false)
+  const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null)
+  const [updateModalOpen, setUpdateModalOpen] = useState(false)
+  const [updateAction, setUpdateAction] = useState<'none' | 'download-now' | 'download-next'>('none')
   const exportLogsRef = useRef<HTMLDivElement | null>(null)
   const setImportState = useBackupStore((s) => s.setImportState)
   const clearImportState = useBackupStore((s) => s.clearImportState)
@@ -160,8 +179,12 @@ export function SettingsPage() {
   const loadSettings = async () => {
     setLoading(true)
     try {
-      const data = await fetchSettings()
+      const [data, configInfo] = await Promise.all([
+        fetchSettings(),
+        fetchAppConfig(),
+      ])
       setSettings(data)
+      setAppConfig(configInfo)
     } finally {
       setLoading(false)
     }
@@ -184,6 +207,46 @@ export function SettingsPage() {
       toast.error(error?.message || '保存失败，请检查配置')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleCheckUpdate = async (silent = false) => {
+    setCheckingUpdate(true)
+    try {
+      const info = await checkAppUpdate()
+      setUpdateInfo(info)
+      if (info.hasUpdate) {
+        setUpdateModalOpen(true)
+        if (!silent) {
+          toast.info(`发现新版本 ${info.latestVersion}`)
+        }
+      } else if (!silent) {
+        toast.success(info.message || '当前已是最新版本')
+      }
+    } catch (error: any) {
+      if (!silent) {
+        toast.error(error?.message || '检查更新失败')
+      }
+    } finally {
+      setCheckingUpdate(false)
+    }
+  }
+
+  const handleDownloadUpdate = async (installOnRestart: boolean) => {
+    if (!updateInfo) return
+    setUpdateAction(installOnRestart ? 'download-next' : 'download-now')
+    try {
+      const res = await downloadAppUpdate(updateInfo, installOnRestart)
+      toast.success(res.message || '更新安装包已下载')
+      if (installOnRestart) {
+        setUpdateModalOpen(false)
+        return
+      }
+      await installDownloadedAppUpdate(res.installerPath)
+    } catch (error: any) {
+      toast.error(error?.message || '更新失败')
+    } finally {
+      setUpdateAction('none')
     }
   }
 
@@ -345,6 +408,21 @@ export function SettingsPage() {
                 title="应用名称为系统内置信息，不能修改"
               />
             </FormItem>
+            <FormItem label="当前版本">
+              <div className="flex gap-2">
+                <Input value={appConfig.version} disabled className="flex-1" />
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => handleCheckUpdate(false)}
+                  loading={checkingUpdate}
+                  className="h-9 shrink-0"
+                >
+                  {!checkingUpdate && <RefreshCw className="w-4 h-4" />}
+                  检查更新
+                </Button>
+              </div>
+            </FormItem>
             <FormItem label="语言">
               <Select
                 value={settings.language}
@@ -380,6 +458,19 @@ export function SettingsPage() {
             />
           </div>
           
+          <div className="h-px bg-[var(--color-border-muted)]" />
+
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-[var(--color-text-primary)]">自动检查更新</p>
+              <p className="text-xs text-[var(--color-text-muted)] mt-0.5">启动后检测新版本，并通过通知和弹窗提示下载更新</p>
+            </div>
+            <Switch
+              checked={settings.enableAutoUpdate}
+              onChange={v => handleChange('enableAutoUpdate', v)}
+            />
+          </div>
+
           <div className="h-px bg-[var(--color-border-muted)]" />
           
           <div className="flex items-center justify-between">
@@ -619,6 +710,62 @@ export function SettingsPage() {
           {importRunning && (
             <p className="text-xs text-[var(--color-warning)]">
               当前正在加载配置，弹窗不可关闭。若需中断，请直接关闭应用。
+            </p>
+          )}
+        </div>
+      </Modal>
+
+      <Modal
+        open={updateModalOpen}
+        onClose={() => {
+          if (updateAction !== 'none') return
+          setUpdateModalOpen(false)
+        }}
+        title="发现新版本"
+        width="560px"
+        closable={updateAction === 'none'}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setUpdateModalOpen(false)} disabled={updateAction !== 'none'}>
+              稍后
+            </Button>
+            <Button variant="secondary" onClick={() => openAppReleasePage(updateInfo?.releaseUrl || appConfig.projectGithubUrl)} disabled={updateAction !== 'none'}>
+              <ExternalLink className="w-4 h-4" />
+              打开下载页
+            </Button>
+            <Button onClick={() => handleDownloadUpdate(true)} loading={updateAction === 'download-next'} disabled={!updateInfo?.asset || (updateAction !== 'none' && updateAction !== 'download-next')}>
+              下载后下次启动安装
+            </Button>
+            <Button variant="danger" onClick={() => handleDownloadUpdate(false)} loading={updateAction === 'download-now'} disabled={!updateInfo?.asset || (updateAction !== 'none' && updateAction !== 'download-now')}>
+              立即更新
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3 text-sm text-[var(--color-text-secondary)]">
+          <div className="rounded-md border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] px-3 py-2">
+            <div className="flex items-center justify-between gap-3">
+              <span>当前版本：{updateInfo?.currentVersion || appConfig.version}</span>
+              <span className="font-medium text-[var(--color-accent)]">最新版本：{updateInfo?.latestVersion || '-'}</span>
+            </div>
+            {updateInfo?.asset && (
+              <p className="text-xs text-[var(--color-text-muted)] mt-2">
+                安装包：{updateInfo.asset.name}
+                {updateInfo.asset.size > 0 ? `（${(updateInfo.asset.size / 1024 / 1024).toFixed(1)} MB）` : ''}
+              </p>
+            )}
+          </div>
+          <p className="text-xs text-[var(--color-text-muted)]">
+            立即更新会下载安装包并启动安装程序，应用随后退出；选择下次启动安装会先下载，待下次打开软件时再提示完成更新。
+          </p>
+          {updateInfo?.body && (
+            <div className="max-h-36 overflow-y-auto rounded border border-[var(--color-border-muted)] bg-[var(--color-bg-primary)] px-3 py-2 text-xs whitespace-pre-wrap">
+              {updateInfo.body}
+            </div>
+          )}
+          {!updateInfo?.asset && (
+            <p className="text-xs text-[var(--color-warning)]">
+              未找到匹配当前系统的安装包，可打开下载页手动选择。
             </p>
           )}
         </div>

@@ -109,7 +109,7 @@ export const profilePageConfig: ProfilePageLocalConfig = {
     actions: [
       {
         label: '下载发布版',
-        href: `${PROJECT_GITHUB_URL}/releases`,
+        href: PROJECT_GITHUB_URL,
         icon: 'globe',
       },
     ],

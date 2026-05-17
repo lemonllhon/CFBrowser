@@ -8,6 +8,12 @@ import { AlertCircle } from 'lucide-react'
 import { useNotificationStore } from './store/notificationStore'
 import { useBackupStore } from './store/backupStore'
 import { ForceQuit as ForceQuitApp, QuitAppOnly as QuitAppOnlyApp, SaveWindowState } from './wailsjs/go/main/App'
+import {
+  CheckAppUpdate,
+  DownloadAppUpdate,
+  InstallDownloadedAppUpdate,
+  OpenAppReleasePage,
+} from './wailsjs/go/main/App'
 import { Environment, Quit, WindowGetSize, WindowHide, WindowIsMaximised, WindowIsMinimised, WindowIsNormal, WindowMinimise } from './wailsjs/runtime/runtime'
 
 function lazyNamed<TModule extends Record<string, ComponentType<any>>>(
@@ -99,12 +105,191 @@ function useWailsNotifications() {
       }
     )
 
+    const offPendingUpdate = runtime.EventsOn(
+      'app:update:pending:notification',
+      (data: { version?: string }) => {
+        addNotification({
+          type: 'info',
+          title: '更新已准备好',
+          message: data?.version ? `版本 ${data.version} 已下载，可在系统设置中完成安装` : '更新安装包已下载，可在系统设置中完成安装',
+        })
+      }
+    )
+
     return () => {
       offCrashed?.()
       offBridgeFailed?.()
       offBridgeDied?.()
+      offPendingUpdate?.()
     }
   }, [addNotification])
+}
+
+type GlobalUpdateInfo = {
+  currentVersion: string
+  latestVersion: string
+  releaseName: string
+  releaseUrl: string
+  publishedAt: string
+  body: string
+  hasUpdate: boolean
+  asset?: { name: string; size: number; downloadUrl: string }
+  message: string
+}
+
+type PendingUpdateInfo = {
+  version?: string
+  installerPath?: string
+  releaseUrl?: string
+}
+
+function useAutoUpdateCheck() {
+  const addNotification = useNotificationStore((s) => s.addNotification)
+  const [updateInfo, setUpdateInfo] = useState<GlobalUpdateInfo | null>(null)
+  const [pendingUpdate, setPendingUpdate] = useState<PendingUpdateInfo | null>(null)
+  const [open, setOpen] = useState(false)
+  const [action, setAction] = useState<'none' | 'download-now' | 'download-next'>('none')
+
+  useEffect(() => {
+    let cancelled = false
+    const timer = window.setTimeout(async () => {
+      try {
+        const raw = localStorage.getItem('app_settings')
+        const settings = raw ? JSON.parse(raw) : {}
+        if (settings.enableAutoUpdate === false) return
+        const info = await CheckAppUpdate()
+        if (cancelled || !info?.hasUpdate) return
+        setUpdateInfo(info as GlobalUpdateInfo)
+        setOpen(true)
+        addNotification({
+          type: 'info',
+          title: '发现新版本',
+          message: `Trace Browser ${info.latestVersion} 已发布，可选择现在更新或下次启动安装`,
+        })
+      } catch (error) {
+        console.warn('Auto update check failed', error)
+      }
+    }, 1800)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [addNotification])
+
+  useEffect(() => {
+    const runtime = (window as any).runtime
+    if (!runtime?.EventsOn) return
+    const off = runtime.EventsOn('app:update:pending', (data: PendingUpdateInfo) => {
+      setPendingUpdate(data || {})
+      setOpen(true)
+      addNotification({
+        type: 'info',
+        title: '更新已准备好',
+        message: data?.version ? `版本 ${data.version} 已下载，可选择现在安装` : '更新安装包已下载，可选择现在安装',
+      })
+    })
+    return () => {
+      off?.()
+    }
+  }, [addNotification])
+
+  const handleDownload = async (installOnRestart: boolean) => {
+    if (!updateInfo) return
+    setAction(installOnRestart ? 'download-next' : 'download-now')
+    try {
+      const res = await DownloadAppUpdate(updateInfo, installOnRestart)
+      addNotification({
+        type: 'success',
+        title: '更新下载完成',
+        message: installOnRestart ? '下次打开软件时会提示完成更新' : '安装程序即将启动',
+      })
+      if (installOnRestart) {
+        setOpen(false)
+        return
+      }
+      await InstallDownloadedAppUpdate(res?.installerPath || '')
+    } catch (error) {
+      addNotification({
+        type: 'error',
+        title: '更新失败',
+        message: error instanceof Error ? error.message : '下载或安装更新失败',
+      })
+    } finally {
+      setAction('none')
+    }
+  }
+
+  const handleInstallPending = async () => {
+    setAction('download-now')
+    try {
+      await InstallDownloadedAppUpdate(pendingUpdate?.installerPath || '')
+    } catch (error) {
+      addNotification({
+        type: 'error',
+        title: '安装更新失败',
+        message: error instanceof Error ? error.message : '启动安装程序失败',
+      })
+      setAction('none')
+    }
+  }
+
+  const modal = (
+    <Modal
+      open={open}
+      onClose={() => {
+        if (action === 'none') setOpen(false)
+      }}
+      title="发现新版本"
+      width="540px"
+      closable={action === 'none'}
+      footer={
+        <>
+          <Button variant="secondary" onClick={() => setOpen(false)} disabled={action !== 'none'}>
+            稍后
+          </Button>
+          <Button variant="secondary" onClick={() => OpenAppReleasePage(updateInfo?.releaseUrl || pendingUpdate?.releaseUrl || '')} disabled={action !== 'none'}>
+            下载页
+          </Button>
+          {pendingUpdate ? (
+            <Button variant="danger" onClick={handleInstallPending} loading={action === 'download-now'} disabled={action !== 'none' && action !== 'download-now'}>
+              立即安装
+            </Button>
+          ) : (
+            <>
+              <Button onClick={() => handleDownload(true)} loading={action === 'download-next'} disabled={!updateInfo?.asset || (action !== 'none' && action !== 'download-next')}>
+                下次启动安装
+              </Button>
+              <Button variant="danger" onClick={() => handleDownload(false)} loading={action === 'download-now'} disabled={!updateInfo?.asset || (action !== 'none' && action !== 'download-now')}>
+                立即更新
+              </Button>
+            </>
+          )}
+        </>
+      }
+    >
+      <div className="space-y-3 text-sm text-[var(--color-text-secondary)]">
+        {pendingUpdate ? (
+          <p>版本 {pendingUpdate.version || '最新版本'} 已下载完成，可以现在启动安装程序。</p>
+        ) : (
+          <>
+            <p>
+              当前版本 {updateInfo?.currentVersion || '-'}，最新版本 {updateInfo?.latestVersion || '-'}。
+            </p>
+            {updateInfo?.asset ? (
+              <p className="text-xs text-[var(--color-text-muted)]">安装包：{updateInfo.asset.name}</p>
+            ) : (
+              <p className="text-xs text-[var(--color-warning)]">未匹配到当前系统安装包，可打开下载页手动下载。</p>
+            )}
+          </>
+        )}
+        <p className="text-xs text-[var(--color-text-muted)]">
+          {pendingUpdate ? '安装程序启动后应用会自动退出，方便更新文件完成替换。' : '你可以立即运行安装程序，也可以先下载并等下次打开软件时再完成更新。'}
+        </p>
+      </div>
+    </Modal>
+  )
+
+  return modal
 }
 
 function CloseConfirmModal() {
@@ -270,6 +455,7 @@ function CloseConfirmModal() {
 
 function App() {
   useWailsNotifications()
+  const autoUpdateModal = useAutoUpdateCheck()
   const [quickLaunchOpen, setQuickLaunchOpen] = useState(false)
   const routeFallback = (
     <div className="flex min-h-[240px] items-center justify-center py-10">
@@ -341,6 +527,7 @@ function App() {
           </Suspense>
         </Layout>
         <ToastContainer />
+        {autoUpdateModal}
         <CloseConfirmModal />
         <Suspense fallback={null}>
           {quickLaunchOpen ? (

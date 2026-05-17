@@ -17,6 +17,8 @@ export function BackupImportPackage(arg1:boolean):Promise<Record<string, any>>;
 
 export function BackupInitializeSystem():Promise<Record<string, any>>;
 
+export function CheckAppUpdate():Promise<Record<string, any>>;
+
 export function BookmarkList():Promise<Array<config.BrowserBookmark>>;
 
 export function BookmarkReset():Promise<void>;
@@ -135,6 +137,8 @@ export function CreateGroup(arg1:browser.GroupInput):Promise<browser.Group>;
 
 export function DeleteGroup(arg1:string):Promise<void>;
 
+export function DownloadAppUpdate(arg1:Record<string, any>,arg2:boolean):Promise<Record<string, any>>;
+
 export function FetchRemoteAuthorProfile(arg1:string,arg2:number):Promise<Record<string, any>>;
 
 export function ForceQuit():Promise<void>;
@@ -161,11 +165,15 @@ export function GetMemoryStats():Promise<Record<string, any>>;
 
 export function GetRunningInstances():Promise<Array<browser.Profile>>;
 
+export function InstallDownloadedAppUpdate(arg1:string):Promise<void>;
+
 export function ListGroups():Promise<Array<browser.GroupWithCount>>;
 
 export function MoveInstancesToGroup(arg1:Array<string>,arg2:string):Promise<void>;
 
 export function OpenCorePath(arg1:string):Promise<void>;
+
+export function OpenAppReleasePage(arg1:string):Promise<void>;
 
 export function OpenUserDataDir(arg1:string):Promise<void>;
 

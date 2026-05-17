@@ -242,6 +242,7 @@ func (a *App) startup(ctx context.Context) {
 	a.speedScheduler.Start()
 
 	log.Info("应用启动成功")
+	a.emitPendingAppUpdateIfNeeded()
 }
 
 // ReloadConfig 开放给前端重新读取配置，用于应对手动修补后的配置重载
@@ -604,8 +605,9 @@ func (a *App) GetDashboardStats() map[string]interface{} {
 
 func (a *App) GetAppConfig() map[string]interface{} {
 	return map[string]interface{}{
-		"name":    a.appName(),
-		"version": a.appVersion(),
+		"name":             a.appName(),
+		"version":          a.appVersion(),
+		"projectGithubUrl": PROJECT_GITHUB_URL,
 	}
 }
 
