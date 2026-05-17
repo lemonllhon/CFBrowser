@@ -216,7 +216,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ steps.version.outputs.tag }}
         run: |
-          $sourceCommitMessage = (git -C $env:GITHUB_WORKSPACE log -1 --format=%B).Trim()
+          $sourceCommitMessage = (git -C $env:GITHUB_WORKSPACE log -1 --format=%B | Out-String).Trim()
           if (-not $sourceCommitMessage) {
             $sourceCommitMessage = "Release $env:RELEASE_TAG"
           }
@@ -227,7 +227,10 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git commit --allow-empty -m $sourceCommitMessage
+          $messageFile = Join-Path $env:RUNNER_TEMP "public-release-commit-message.txt"
+          Set-Content -LiteralPath $messageFile -Value $sourceCommitMessage -Encoding UTF8
+
+          git commit --allow-empty --file $messageFile
           if ($LASTEXITCODE -ne 0) {
             throw "Failed to create public release commit"
           }
