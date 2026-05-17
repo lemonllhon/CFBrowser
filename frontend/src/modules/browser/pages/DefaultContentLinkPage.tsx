@@ -141,6 +141,7 @@ export function DefaultContentLinkPage() {
       bookmarks: [],
       enabled: true,
       applyToChilds: true,
+      includeGlobalDefaults: true,
     }
     setRules(prev => [...prev, rule])
     setSelectedRuleId(rule.ruleId)
@@ -161,6 +162,7 @@ export function DefaultContentLinkPage() {
         targetName: rule.targetName.trim(),
         startUrls: normalizeURLItems(rule.startUrls),
         bookmarks: normalizeURLItems(rule.bookmarks),
+        includeGlobalDefaults: rule.includeGlobalDefaults !== false,
       }))
       .filter(rule => rule.targetName || rule.targetId)
     setSaving(true)
@@ -258,7 +260,7 @@ export function DefaultContentLinkPage() {
         <div className="flex items-center justify-between mb-4">
           <div>
             <h2 className="text-lg font-semibold text-[var(--color-text-primary)]">标签与分组默认内容</h2>
-            <p className="text-sm text-[var(--color-text-muted)] mt-1">启动实例时会合并全局默认、命中标签和所属分组内容，并按 URL 保持同一实例</p>
+            <p className="text-sm text-[var(--color-text-muted)] mt-1">每条规则可选择是否叠加全局默认内容，最终按 URL 保持同一实例</p>
           </div>
           <Button onClick={saveRules} loading={saving}>
             <Save className="w-4 h-4" />保存联动
@@ -306,10 +308,19 @@ export function DefaultContentLinkPage() {
                     <Select value={selectedRule.targetId || ''} onChange={event => updateTarget(event.target.value)} options={resolvedGroupOptions.length ? resolvedGroupOptions : [{ value: '', label: '暂无分组' }]} />
                   )}
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
                   <Badge variant={selectedRule.scope === 'tag' ? 'info' : 'default'}>
                     {selectedRule.scope === 'tag' ? '标签规则' : '分组规则'}
                   </Badge>
+                  <label className="inline-flex items-center gap-2 text-sm text-[var(--color-text-secondary)]">
+                    <input
+                      type="checkbox"
+                      className="w-4 h-4 rounded cursor-pointer accent-[var(--color-accent)]"
+                      checked={selectedRule.includeGlobalDefaults !== false}
+                      onChange={event => upsertRule({ ...selectedRule, includeGlobalDefaults: event.target.checked })}
+                    />
+                    包含全局默认
+                  </label>
                   {selectedRule.scope === 'group' && (
                     <label className="inline-flex items-center gap-2 text-sm text-[var(--color-text-secondary)]">
                       <input
@@ -325,24 +336,30 @@ export function DefaultContentLinkPage() {
               </div>
             </Card>
 
-            <Card title="联动内容" subtitle="同一 URL 在全局、标签、分组中重复时，只会启动或写入一次">
-              <div className="grid grid-cols-2 gap-5">
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2 text-sm font-medium text-[var(--color-text-primary)]">
-                    <Link2 className="w-4 h-4" />默认打开页
+            <Card title="联动内容" subtitle="关闭“包含全局默认”后，命中该规则的实例只使用标签或分组规则内容；同一 URL 会自动去重">
+              <div className="space-y-6">
+                <div className="space-y-3 pb-5 border-b border-[var(--color-border-muted)]">
+                  <div>
+                    <div className="flex items-center gap-2 text-sm font-medium text-[var(--color-text-primary)]">
+                      <Link2 className="w-4 h-4" />默认打开页
+                    </div>
+                    <p className="text-xs text-[var(--color-text-muted)] mt-1">实例启动时按顺序打开</p>
                   </div>
                   <RuleURLList
-                    title="启动时追加打开"
+                    title="启动时打开"
                     items={selectedRule.startUrls}
                     onChange={items => upsertRule({ ...selectedRule, startUrls: items })}
                   />
                 </div>
                 <div className="space-y-3">
-                  <div className="flex items-center gap-2 text-sm font-medium text-[var(--color-text-primary)]">
-                    <Bookmark className="w-4 h-4" />默认书签
+                  <div>
+                    <div className="flex items-center gap-2 text-sm font-medium text-[var(--color-text-primary)]">
+                      <Bookmark className="w-4 h-4" />默认书签
+                    </div>
+                    <p className="text-xs text-[var(--color-text-muted)] mt-1">实例启动时写入书签栏</p>
                   </div>
                   <RuleURLList
-                    title="写入书签栏"
+                    title="写入书签"
                     items={selectedRule.bookmarks}
                     onChange={items => upsertRule({ ...selectedRule, bookmarks: items })}
                   />

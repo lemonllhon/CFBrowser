@@ -60,17 +60,30 @@ func normalizeDefaultContentRules(items []BrowserDefaultContentRule) []BrowserDe
 		}
 		seen[ruleId] = true
 		valid = append(valid, BrowserDefaultContentRule{
-			RuleId:        ruleId,
-			Scope:         scope,
-			TargetId:      targetId,
-			TargetName:    targetName,
-			StartURLs:     normalizeStartURLItems(item.StartURLs),
-			Bookmarks:     normalizeBookmarks(item.Bookmarks),
-			Enabled:       item.Enabled,
-			ApplyToChilds: item.ApplyToChilds,
+			RuleId:                ruleId,
+			Scope:                 scope,
+			TargetId:              targetId,
+			TargetName:            targetName,
+			StartURLs:             normalizeStartURLItems(item.StartURLs),
+			Bookmarks:             normalizeBookmarks(item.Bookmarks),
+			Enabled:               item.Enabled,
+			ApplyToChilds:         item.ApplyToChilds,
+			IncludeGlobalDefaults: normalizeIncludeGlobalDefaults(item.IncludeGlobalDefaults),
 		})
 	}
 	return valid
+}
+
+func normalizeIncludeGlobalDefaults(value *bool) *bool {
+	include := true
+	if value != nil {
+		include = *value
+	}
+	return &include
+}
+
+func ruleIncludesGlobalDefaults(rule BrowserDefaultContentRule) bool {
+	return rule.IncludeGlobalDefaults == nil || *rule.IncludeGlobalDefaults
 }
 
 func mergeStartURLItems(groups ...[]BrowserStartURL) []BrowserStartURL {
@@ -198,16 +211,38 @@ func (a *App) defaultContentRulesForProfile(profile *BrowserProfile) []BrowserDe
 }
 
 func (a *App) BookmarkListForProfile(profile *BrowserProfile) []BrowserBookmark {
-	bookmarks := [][]BrowserBookmark{a.BookmarkList()}
-	for _, rule := range a.defaultContentRulesForProfile(profile) {
+	rules := a.defaultContentRulesForProfile(profile)
+	includeGlobal := len(rules) == 0
+	for _, rule := range rules {
+		if ruleIncludesGlobalDefaults(rule) {
+			includeGlobal = true
+			break
+		}
+	}
+	bookmarks := make([][]BrowserBookmark, 0, len(rules)+1)
+	if includeGlobal {
+		bookmarks = append(bookmarks, a.BookmarkList())
+	}
+	for _, rule := range rules {
 		bookmarks = append(bookmarks, rule.Bookmarks)
 	}
 	return mergeBookmarkItems(bookmarks...)
 }
 
 func (a *App) DefaultStartURLListForProfile(profile *BrowserProfile) []BrowserStartURL {
-	startURLs := [][]BrowserStartURL{a.DefaultStartURLList()}
-	for _, rule := range a.defaultContentRulesForProfile(profile) {
+	rules := a.defaultContentRulesForProfile(profile)
+	includeGlobal := len(rules) == 0
+	for _, rule := range rules {
+		if ruleIncludesGlobalDefaults(rule) {
+			includeGlobal = true
+			break
+		}
+	}
+	startURLs := make([][]BrowserStartURL, 0, len(rules)+1)
+	if includeGlobal {
+		startURLs = append(startURLs, a.DefaultStartURLList())
+	}
+	for _, rule := range rules {
 		startURLs = append(startURLs, rule.StartURLs)
 	}
 	return mergeStartURLItems(startURLs...)

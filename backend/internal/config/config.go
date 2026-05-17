@@ -113,6 +113,7 @@ type BrowserDefaultContentRule struct {
 	Bookmarks     []BrowserBookmark `yaml:"bookmarks,omitempty" json:"bookmarks"`
 	Enabled       bool              `yaml:"enabled" json:"enabled"`
 	ApplyToChilds bool              `yaml:"apply_to_childs,omitempty" json:"applyToChilds,omitempty"`
+	IncludeGlobalDefaults *bool     `yaml:"include_global_defaults,omitempty" json:"includeGlobalDefaults,omitempty"`
 }
 
 type BrowserConfig struct {

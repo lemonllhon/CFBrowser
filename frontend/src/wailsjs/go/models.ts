@@ -580,6 +580,7 @@ export namespace config {
 	    bookmarks: BrowserBookmark[];
 	    enabled: boolean;
 	    applyToChilds?: boolean;
+	    includeGlobalDefaults?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new BrowserDefaultContentRule(source);
@@ -595,6 +596,7 @@ export namespace config {
 	        this.bookmarks = this.convertValues(source["bookmarks"], BrowserBookmark);
 	        this.enabled = source["enabled"];
 	        this.applyToChilds = source["applyToChilds"];
+	        this.includeGlobalDefaults = source["includeGlobalDefaults"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

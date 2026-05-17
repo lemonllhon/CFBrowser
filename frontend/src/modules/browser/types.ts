@@ -170,6 +170,7 @@ export interface DefaultContentRule {
   bookmarks: BrowserBookmark[]
   enabled: boolean
   applyToChilds?: boolean
+  includeGlobalDefaults?: boolean
 }
 
 
