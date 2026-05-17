@@ -266,6 +266,10 @@ export function DownloadAppUpdate(arg1, arg2) {
   return window['go']['main']['App']['DownloadAppUpdate'](arg1, arg2);
 }
 
+export function DownloadAndExtractPortableUpdate(arg1) {
+  return window['go']['main']['App']['DownloadAndExtractPortableUpdate'](arg1);
+}
+
 export function FetchRemoteAuthorProfile(arg1, arg2) {
   return window['go']['main']['App']['FetchRemoteAuthorProfile'](arg1, arg2);
 }
@@ -336,6 +340,10 @@ export function OpenCorePath(arg1) {
 
 export function OpenAppReleasePage(arg1) {
   return window['go']['main']['App']['OpenAppReleasePage'](arg1);
+}
+
+export function OpenPath(arg1) {
+  return window['go']['main']['App']['OpenPath'](arg1);
 }
 
 export function OpenUserDataDir(arg1) {

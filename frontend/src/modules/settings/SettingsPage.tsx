@@ -3,11 +3,13 @@ import { Save, RotateCcw, Upload, Download, RefreshCw, ExternalLink } from 'luci
 import { Card, Button, FormItem, Input, Select, Switch, ThemeSwitcher, toast, Modal, Progress } from '../../shared/components'
 import {
   checkAppUpdate,
+  downloadAndExtractPortableUpdate,
   downloadAppUpdate,
   fetchAppConfig,
   fetchSettings,
   initializeSystemData,
   installDownloadedAppUpdate,
+  openPath,
   openAppReleasePage,
   resetSettings,
   saveSettings,
@@ -39,6 +41,12 @@ interface BackupExportLogItem {
   text: string
 }
 
+interface UpdateDownloadProgress {
+  phase: string
+  progress: number
+  message: string
+}
+
 export function SettingsPage() {
   const [settings, setSettings] = useState<AppSettings>(defaultSettings)
   const [loading, setLoading] = useState(true)
@@ -52,8 +60,10 @@ export function SettingsPage() {
   const [appConfig, setAppConfig] = useState<AppConfigInfo>({ name: defaultSettings.appName, version: 'unknown', projectGithubUrl: 'https://github.com/lemon-casino/trace-browser-release/releases' })
   const [checkingUpdate, setCheckingUpdate] = useState(false)
   const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null)
+  const [updateProgress, setUpdateProgress] = useState<UpdateDownloadProgress | null>(null)
+  const [portablePath, setPortablePath] = useState('')
   const [updateModalOpen, setUpdateModalOpen] = useState(false)
-  const [updateAction, setUpdateAction] = useState<'none' | 'download-now' | 'download-next'>('none')
+  const [updateAction, setUpdateAction] = useState<'none' | 'download-now' | 'download-next' | 'download-portable'>('none')
   const exportLogsRef = useRef<HTMLDivElement | null>(null)
   const setImportState = useBackupStore((s) => s.setImportState)
   const clearImportState = useBackupStore((s) => s.clearImportState)
@@ -151,6 +161,24 @@ export function SettingsPage() {
   }, [])
 
   useEffect(() => {
+    const onUpdateProgress = (payload: UpdateDownloadProgress) => {
+      if (!payload || typeof payload !== 'object') {
+        return
+      }
+      setUpdateProgress({
+        phase: typeof payload.phase === 'string' ? payload.phase : 'downloading',
+        progress: Number.isFinite(payload.progress) ? Math.max(0, Math.min(100, Math.round(payload.progress))) : 0,
+        message: typeof payload.message === 'string' && payload.message.trim() ? payload.message.trim() : '正在下载更新...',
+      })
+    }
+
+    const offUpdateProgress = EventsOn('app:update:download:progress', onUpdateProgress)
+    return () => {
+      offUpdateProgress?.()
+    }
+  }, [])
+
+  useEffect(() => {
     const isImporting = actionLoading === 'import-reset' || actionLoading === 'import-merge'
     if (isImporting) {
       setImportState({
@@ -212,6 +240,8 @@ export function SettingsPage() {
 
   const handleCheckUpdate = async (silent = false) => {
     setCheckingUpdate(true)
+    setUpdateProgress(null)
+    setPortablePath('')
     try {
       const info = await checkAppUpdate()
       setUpdateInfo(info)
@@ -234,17 +264,35 @@ export function SettingsPage() {
 
   const handleDownloadUpdate = async (installOnRestart: boolean) => {
     if (!updateInfo) return
+    setUpdateProgress({ phase: 'starting', progress: 0, message: '准备下载更新安装包...' })
     setUpdateAction(installOnRestart ? 'download-next' : 'download-now')
     try {
       const res = await downloadAppUpdate(updateInfo, installOnRestart)
       toast.success(res.message || '更新安装包已下载')
       if (installOnRestart) {
         setUpdateModalOpen(false)
+        setUpdateProgress(null)
         return
       }
       await installDownloadedAppUpdate(res.installerPath)
     } catch (error: any) {
       toast.error(error?.message || '更新失败')
+    } finally {
+      setUpdateAction('none')
+    }
+  }
+
+  const handleDownloadPortableUpdate = async () => {
+    if (!updateInfo) return
+    setPortablePath('')
+    setUpdateProgress({ phase: 'starting', progress: 0, message: '准备下载 ZIP 便携包...' })
+    setUpdateAction('download-portable')
+    try {
+      const res = await downloadAndExtractPortableUpdate(updateInfo)
+      setPortablePath(res.extractedPath || '')
+      toast.success(res.message || 'ZIP 便携包已下载并解压')
+    } catch (error: any) {
+      toast.error(error?.message || '下载或解压 ZIP 便携包失败')
     } finally {
       setUpdateAction('none')
     }
@@ -733,11 +781,14 @@ export function SettingsPage() {
               <ExternalLink className="w-4 h-4" />
               打开下载页
             </Button>
-            <Button onClick={() => handleDownloadUpdate(true)} loading={updateAction === 'download-next'} disabled={!updateInfo?.asset || (updateAction !== 'none' && updateAction !== 'download-next')}>
+            <Button onClick={handleDownloadPortableUpdate} loading={updateAction === 'download-portable'} disabled={!updateInfo?.portableAsset || (updateAction !== 'none' && updateAction !== 'download-portable')}>
+              下载 ZIP 并解压
+            </Button>
+            <Button onClick={() => handleDownloadUpdate(true)} loading={updateAction === 'download-next'} disabled={!updateInfo?.installerAsset || (updateAction !== 'none' && updateAction !== 'download-next')}>
               下载后下次启动安装
             </Button>
-            <Button variant="danger" onClick={() => handleDownloadUpdate(false)} loading={updateAction === 'download-now'} disabled={!updateInfo?.asset || (updateAction !== 'none' && updateAction !== 'download-now')}>
-              立即更新
+            <Button variant="danger" onClick={() => handleDownloadUpdate(false)} loading={updateAction === 'download-now'} disabled={!updateInfo?.installerAsset || (updateAction !== 'none' && updateAction !== 'download-now')}>
+              下载安装包并安装
             </Button>
           </>
         }
@@ -748,15 +799,23 @@ export function SettingsPage() {
               <span>当前版本：{updateInfo?.currentVersion || appConfig.version}</span>
               <span className="font-medium text-[var(--color-accent)]">最新版本：{updateInfo?.latestVersion || '-'}</span>
             </div>
-            {updateInfo?.asset && (
-              <p className="text-xs text-[var(--color-text-muted)] mt-2">
-                安装包：{updateInfo.asset.name}
-                {updateInfo.asset.size > 0 ? `（${(updateInfo.asset.size / 1024 / 1024).toFixed(1)} MB）` : ''}
-              </p>
-            )}
+            <div className="space-y-1 text-xs text-[var(--color-text-muted)] mt-2">
+              {updateInfo?.installerAsset && (
+                <p>
+                  安装包：{updateInfo.installerAsset.name}
+                  {updateInfo.installerAsset.size > 0 ? `（${(updateInfo.installerAsset.size / 1024 / 1024).toFixed(1)} MB）` : ''}
+                </p>
+              )}
+              {updateInfo?.portableAsset && (
+                <p>
+                  ZIP 便携包：{updateInfo.portableAsset.name}
+                  {updateInfo.portableAsset.size > 0 ? `（${(updateInfo.portableAsset.size / 1024 / 1024).toFixed(1)} MB）` : ''}
+                </p>
+              )}
+            </div>
           </div>
           <p className="text-xs text-[var(--color-text-muted)]">
-            立即更新会下载安装包并启动安装程序，应用随后退出；选择下次启动安装会先下载，待下次打开软件时再提示完成更新。
+            安装包会启动安装程序；ZIP 便携包会解压到更新目录，适合不覆盖当前安装直接使用。
           </p>
           {updateInfo?.body && (
             <div className="max-h-36 overflow-y-auto rounded border border-[var(--color-border-muted)] bg-[var(--color-bg-primary)] px-3 py-2 text-xs whitespace-pre-wrap">
@@ -767,6 +826,27 @@ export function SettingsPage() {
             <p className="text-xs text-[var(--color-warning)]">
               未找到匹配当前系统的安装包，可打开下载页手动选择。
             </p>
+          )}
+          {portablePath && (
+            <div className="rounded-md border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] px-3 py-2 space-y-2">
+              <p className="text-xs text-[var(--color-text-secondary)]">ZIP 已解压：{portablePath}</p>
+              <Button size="sm" variant="secondary" onClick={() => openPath(portablePath)}>
+                打开解压目录
+              </Button>
+            </div>
+          )}
+          {updateProgress && (
+            <div className="rounded-md border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] px-3 py-2 space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span>{updateProgress.message}</span>
+                <span className="text-[var(--color-text-muted)]">{updateProgress.progress}%</span>
+              </div>
+              <Progress
+                percent={updateProgress.progress}
+                size="sm"
+                status={updateProgress.phase === 'error' ? 'error' : updateProgress.phase === 'done' ? 'success' : 'normal'}
+              />
+            </div>
           )}
         </div>
       </Modal>

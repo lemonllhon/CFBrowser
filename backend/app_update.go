@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"archive/zip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -25,7 +26,7 @@ const githubLatestReleaseAPI = "https://api.github.com/repos/lemon-casino/trace-
 
 type AppUpdateAsset struct {
 	Name        string `json:"name"`
-	Size       int64  `json:"size"`
+	Size        int64  `json:"size"`
 	DownloadURL string `json:"downloadUrl"`
 }
 
@@ -38,23 +39,34 @@ type AppUpdateInfo struct {
 	Body           string          `json:"body"`
 	HasUpdate      bool            `json:"hasUpdate"`
 	Asset          *AppUpdateAsset `json:"asset,omitempty"`
+	InstallerAsset *AppUpdateAsset `json:"installerAsset,omitempty"`
+	PortableAsset  *AppUpdateAsset `json:"portableAsset,omitempty"`
 	Message        string          `json:"message"`
 }
 
 type AppUpdateDownloadResult struct {
-	Cancelled       bool   `json:"cancelled"`
-	Message         string `json:"message"`
-	Version         string `json:"version"`
-	InstallerPath   string `json:"installerPath"`
+	Cancelled        bool   `json:"cancelled"`
+	Message          string `json:"message"`
+	Version          string `json:"version"`
+	InstallerPath    string `json:"installerPath"`
+	PackagePath      string `json:"packagePath"`
+	ExtractedPath    string `json:"extractedPath"`
 	InstallOnRestart bool   `json:"installOnRestart"`
+	PackageKind      string `json:"packageKind"`
+}
+
+type AppUpdateDownloadProgress struct {
+	Phase    string `json:"phase"`
+	Progress int    `json:"progress"`
+	Message  string `json:"message"`
 }
 
 type pendingAppUpdate struct {
-	Version           string `json:"version"`
-	InstallerPath     string `json:"installerPath"`
-	ReleaseURL        string `json:"releaseUrl"`
+	Version            string `json:"version"`
+	InstallerPath      string `json:"installerPath"`
+	ReleaseURL         string `json:"releaseUrl"`
 	InstallOnNextStart bool   `json:"installOnNextStart"`
-	CreatedAt         string `json:"createdAt"`
+	CreatedAt          string `json:"createdAt"`
 }
 
 type githubRelease struct {
@@ -88,7 +100,7 @@ func (a *App) CheckAppUpdate() (*AppUpdateInfo, error) {
 		return nil, fmt.Errorf("最新版本信息缺少 tag")
 	}
 
-	asset := pickReleaseAsset(release.Assets)
+	installerAsset, portableAsset := pickReleaseAssets(release.Assets)
 	info := &AppUpdateInfo{
 		CurrentVersion: currentVersion,
 		LatestVersion:  latestVersion,
@@ -97,11 +109,13 @@ func (a *App) CheckAppUpdate() (*AppUpdateInfo, error) {
 		PublishedAt:    release.PublishedAt,
 		Body:           strings.TrimSpace(release.Body),
 		HasUpdate:      appReleaseVersionsDiffer(latestVersion, currentVersion),
-		Asset:          asset,
+		Asset:          firstAsset(installerAsset, portableAsset),
+		InstallerAsset: installerAsset,
+		PortableAsset:  portableAsset,
 	}
 	if !info.HasUpdate {
 		info.Message = "当前已是最新版本"
-	} else if asset == nil {
+	} else if installerAsset == nil && portableAsset == nil {
 		info.Message = "检测到新版本，但没有找到适合当前系统的安装包"
 	} else {
 		info.Message = "检测到新版本"
@@ -122,24 +136,17 @@ func (a *App) OpenAppReleasePage(url string) error {
 }
 
 func (a *App) DownloadAppUpdate(info AppUpdateInfo, installOnRestart bool) (*AppUpdateDownloadResult, error) {
-	if info.Asset == nil || strings.TrimSpace(info.Asset.DownloadURL) == "" {
-		return nil, fmt.Errorf("没有可下载的更新安装包")
+	asset := firstAsset(info.InstallerAsset, info.Asset)
+	if asset == nil || strings.TrimSpace(asset.DownloadURL) == "" {
+		return nil, fmt.Errorf("没有可下载的安装包")
 	}
-	version := normalizeVersion(firstNonEmpty(info.LatestVersion, info.ReleaseName))
-	if version == "" {
-		version = "latest"
-	}
-	updatesDir := a.resolveAppPath(filepath.Join("data", "updates"))
-	if err := os.MkdirAll(updatesDir, 0755); err != nil {
-		return nil, fmt.Errorf("创建更新目录失败: %w", err)
-	}
-	fileName := sanitizeFileName(info.Asset.Name)
-	if fileName == "" {
-		fileName = "trace-browser-update-" + version
-	}
-	targetPath := filepath.Join(updatesDir, fileName)
-	if err := downloadFile(info.Asset.DownloadURL, targetPath); err != nil {
+	version := resolveUpdateVersion(info)
+	targetPath, err := a.downloadUpdateAsset(asset, version)
+	if err != nil {
 		return nil, err
+	}
+	if !isInstallableUpdatePackage(targetPath) {
+		return nil, fmt.Errorf("下载的文件不是可直接安装文件: %s", filepath.Base(targetPath))
 	}
 
 	pending := pendingAppUpdate{
@@ -157,8 +164,75 @@ func (a *App) DownloadAppUpdate(info AppUpdateInfo, installOnRestart bool) (*App
 		Message:          "更新安装包已下载",
 		Version:          version,
 		InstallerPath:    targetPath,
+		PackagePath:      targetPath,
 		InstallOnRestart: installOnRestart,
+		PackageKind:      "installer",
 	}, nil
+}
+
+func (a *App) DownloadAndExtractPortableUpdate(info AppUpdateInfo) (*AppUpdateDownloadResult, error) {
+	if info.PortableAsset == nil || strings.TrimSpace(info.PortableAsset.DownloadURL) == "" {
+		return nil, fmt.Errorf("没有可下载的 ZIP 便携包")
+	}
+	version := resolveUpdateVersion(info)
+	targetPath, err := a.downloadUpdateAsset(info.PortableAsset, version)
+	if err != nil {
+		return nil, err
+	}
+	if !strings.EqualFold(filepath.Ext(targetPath), ".zip") {
+		return nil, fmt.Errorf("下载的文件不是 ZIP 便携包: %s", filepath.Base(targetPath))
+	}
+	extractDir := a.resolveAppPath(filepath.Join("data", "updates", "portable-"+version))
+	_ = os.RemoveAll(extractDir)
+	a.emitAppUpdateDownloadProgress("extracting", 100, "正在解压 ZIP 便携包...")
+	if err := unzipFileTo(targetPath, extractDir); err != nil {
+		a.emitAppUpdateDownloadProgress("error", 100, "解压 ZIP 便携包失败")
+		return nil, fmt.Errorf("解压 ZIP 便携包失败: %w", err)
+	}
+	a.emitAppUpdateDownloadProgress("done", 100, "ZIP 便携包已解压完成")
+	return &AppUpdateDownloadResult{
+		Message:       "ZIP 便携包已下载并解压",
+		Version:       version,
+		PackagePath:   targetPath,
+		ExtractedPath: extractDir,
+		PackageKind:   "portable",
+	}, nil
+}
+
+func (a *App) OpenPath(path string) error {
+	target := strings.TrimSpace(path)
+	if target == "" {
+		return fmt.Errorf("路径不能为空")
+	}
+	info, err := os.Stat(target)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		target = filepath.Dir(target)
+	}
+	return openPathInFileManager(target)
+}
+
+func (a *App) downloadUpdateAsset(asset *AppUpdateAsset, version string) (string, error) {
+	updatesDir := a.resolveAppPath(filepath.Join("data", "updates"))
+	if err := os.MkdirAll(updatesDir, 0755); err != nil {
+		return "", fmt.Errorf("创建更新目录失败: %w", err)
+	}
+	fileName := sanitizeFileName(asset.Name)
+	if fileName == "" {
+		fileName = "trace-browser-update-" + version
+	}
+	targetPath := filepath.Join(updatesDir, fileName)
+	a.emitAppUpdateDownloadProgress("starting", 0, "准备下载更新包...")
+	if err := downloadFile(asset.DownloadURL, targetPath, func(progress int, message string) {
+		a.emitAppUpdateDownloadProgress("downloading", progress, message)
+	}); err != nil {
+		a.emitAppUpdateDownloadProgress("error", 0, err.Error())
+		return "", err
+	}
+	a.emitAppUpdateDownloadProgress("done", 100, "更新包下载完成")
+	return targetPath, nil
 }
 
 func (a *App) InstallDownloadedAppUpdate(installerPath string) error {
@@ -176,8 +250,11 @@ func (a *App) InstallDownloadedAppUpdate(installerPath string) error {
 	if _, err := os.Stat(target); err != nil {
 		return fmt.Errorf("更新包不存在: %w", err)
 	}
+	if !isInstallableUpdatePackage(target) {
+		return fmt.Errorf("更新包不是可直接安装文件，请打开下载页手动下载 Setup 安装包: %s", filepath.Base(target))
+	}
 	if err := startInstaller(target); err != nil {
-		return err
+		return fmt.Errorf("启动安装程序失败: %w", err)
 	}
 	_ = os.Remove(a.pendingAppUpdatePath())
 	go func() {
@@ -185,6 +262,23 @@ func (a *App) InstallDownloadedAppUpdate(installerPath string) error {
 		a.ForceQuit()
 	}()
 	return nil
+}
+
+func (a *App) emitAppUpdateDownloadProgress(phase string, progress int, message string) {
+	if a.ctx == nil {
+		return
+	}
+	if progress < 0 {
+		progress = 0
+	}
+	if progress > 100 {
+		progress = 100
+	}
+	runtime.EventsEmit(a.ctx, "app:update:download:progress", AppUpdateDownloadProgress{
+		Phase:    phase,
+		Progress: progress,
+		Message:  strings.TrimSpace(message),
+	})
 }
 
 func (a *App) emitPendingAppUpdateIfNeeded() {
@@ -231,7 +325,7 @@ func fetchLatestGithubRelease(ctx context.Context) (*githubRelease, error) {
 	return &release, nil
 }
 
-func pickReleaseAsset(assets []githubReleaseAsset) *AppUpdateAsset {
+func pickReleaseAssets(assets []githubReleaseAsset) (*AppUpdateAsset, *AppUpdateAsset) {
 	candidates := make([]githubReleaseAsset, 0, len(assets))
 	for _, asset := range assets {
 		name := strings.ToLower(asset.Name)
@@ -248,15 +342,34 @@ func pickReleaseAsset(assets []githubReleaseAsset) *AppUpdateAsset {
 		return assetScore(candidates[i].Name) > assetScore(candidates[j].Name)
 	})
 	if len(candidates) == 0 || assetScore(candidates[0].Name) <= 0 {
-		return nil
+		return nil, nil
 	}
-	best := candidates[0]
-	return &AppUpdateAsset{Name: best.Name, Size: best.Size, DownloadURL: best.BrowserDownloadURL}
+	var installer *AppUpdateAsset
+	var portable *AppUpdateAsset
+	for _, candidate := range candidates {
+		asset := &AppUpdateAsset{Name: candidate.Name, Size: candidate.Size, DownloadURL: candidate.BrowserDownloadURL}
+		if installer == nil && isInstallerAssetName(candidate.Name) {
+			installer = asset
+		}
+		if portable == nil && isPortableAssetName(candidate.Name) {
+			portable = asset
+		}
+	}
+	return installer, portable
 }
 
 func assetScore(name string) int {
 	lower := strings.ToLower(name)
 	score := 0
+	if goruntime.GOOS == "windows" && (strings.HasSuffix(lower, ".exe") || strings.HasSuffix(lower, ".msi")) {
+		score += 100
+	}
+	if strings.Contains(lower, "setup") || strings.Contains(lower, "installer") {
+		score += 30
+	}
+	if strings.Contains(lower, "portable") || strings.HasSuffix(lower, ".zip") {
+		score -= 25
+	}
 	if strings.Contains(lower, goruntime.GOOS) {
 		score += 20
 	}
@@ -275,13 +388,35 @@ func assetScore(name string) int {
 	if goruntime.GOARCH == "amd64" && (strings.Contains(lower, "x64") || strings.Contains(lower, "x86_64")) {
 		score += 10
 	}
-	if strings.Contains(lower, "installer") || strings.Contains(lower, "setup") {
-		score += 5
-	}
 	return score
 }
 
-func downloadFile(url string, targetPath string) error {
+func firstAsset(values ...*AppUpdateAsset) *AppUpdateAsset {
+	for _, value := range values {
+		if value != nil {
+			return value
+		}
+	}
+	return nil
+}
+
+func isInstallerAssetName(name string) bool {
+	lower := strings.ToLower(name)
+	switch goruntime.GOOS {
+	case "windows":
+		return strings.HasSuffix(lower, ".exe") || strings.HasSuffix(lower, ".msi")
+	case "darwin":
+		return strings.HasSuffix(lower, ".dmg") || strings.HasSuffix(lower, ".pkg")
+	default:
+		return strings.HasSuffix(lower, ".deb") || strings.HasSuffix(lower, ".rpm") || strings.HasSuffix(lower, ".appimage")
+	}
+}
+
+func isPortableAssetName(name string) bool {
+	return strings.HasSuffix(strings.ToLower(name), ".zip")
+}
+
+func downloadFile(url string, targetPath string, onProgress func(progress int, message string)) error {
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return err
@@ -296,12 +431,13 @@ func downloadFile(url string, targetPath string) error {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("下载更新失败：HTTP %d", resp.StatusCode)
 	}
+	totalSize := resp.ContentLength
 	tmp := targetPath + "." + shortHash(url) + ".tmp"
 	out, err := os.Create(tmp)
 	if err != nil {
 		return fmt.Errorf("创建下载文件失败: %w", err)
 	}
-	_, copyErr := io.Copy(out, resp.Body)
+	_, copyErr := copyWithProgress(out, resp.Body, totalSize, onProgress)
 	closeErr := out.Close()
 	if copyErr != nil {
 		_ = os.Remove(tmp)
@@ -316,6 +452,56 @@ func downloadFile(url string, targetPath string) error {
 		return fmt.Errorf("保存更新包失败: %w", err)
 	}
 	return nil
+}
+
+func copyWithProgress(dst io.Writer, src io.Reader, totalSize int64, onProgress func(progress int, message string)) (int64, error) {
+	buf := make([]byte, 256*1024)
+	var written int64
+	lastProgress := -1
+	lastEmit := time.Now().Add(-time.Second)
+	for {
+		nr, er := src.Read(buf)
+		if nr > 0 {
+			nw, ew := dst.Write(buf[:nr])
+			if nw < 0 || nr < nw {
+				nw = 0
+				if ew == nil {
+					ew = io.ErrShortWrite
+				}
+			}
+			written += int64(nw)
+			if ew != nil {
+				return written, ew
+			}
+			if nr != nw {
+				return written, io.ErrShortWrite
+			}
+			if onProgress != nil {
+				progress := 0
+				if totalSize > 0 {
+					progress = int(float64(written) / float64(totalSize) * 100)
+					if progress > 99 {
+						progress = 99
+					}
+				}
+				if progress != lastProgress || time.Since(lastEmit) >= 500*time.Millisecond {
+					onProgress(progress, formatDownloadProgress(written, totalSize))
+					lastProgress = progress
+					lastEmit = time.Now()
+				}
+			}
+		}
+		if er != nil {
+			if er == io.EOF {
+				break
+			}
+			return written, er
+		}
+	}
+	if onProgress != nil {
+		onProgress(100, "下载完成")
+	}
+	return written, nil
 }
 
 func (a *App) pendingAppUpdatePath() string {
@@ -349,7 +535,19 @@ func (a *App) loadPendingAppUpdate() (*pendingAppUpdate, error) {
 func startInstaller(path string) error {
 	switch goruntime.GOOS {
 	case "windows":
-		return exec.Command(path).Start()
+		ext := strings.ToLower(filepath.Ext(path))
+		if ext == ".msi" {
+			return exec.Command("msiexec.exe", "/i", path).Start()
+		}
+		return exec.Command(
+			"powershell",
+			"-NoProfile",
+			"-ExecutionPolicy",
+			"Bypass",
+			"-Command",
+			"Start-Process -LiteralPath $args[0]",
+			path,
+		).Start()
 	case "darwin":
 		return exec.Command("open", path).Start()
 	default:
@@ -359,6 +557,78 @@ func startInstaller(path string) error {
 		}
 		return exec.Command("xdg-open", path).Start()
 	}
+}
+
+func isInstallableUpdatePackage(path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	switch goruntime.GOOS {
+	case "windows":
+		return ext == ".exe" || ext == ".msi"
+	case "darwin":
+		return ext == ".dmg" || ext == ".pkg"
+	default:
+		lower := strings.ToLower(path)
+		return ext == ".deb" || strings.HasSuffix(lower, ".appimage") || strings.HasSuffix(lower, ".rpm")
+	}
+}
+
+func unzipFileTo(src string, dest string) error {
+	r, err := zip.OpenReader(src)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+	cleanDest := filepath.Clean(dest)
+	for _, f := range r.File {
+		target := filepath.Join(dest, filepath.FromSlash(f.Name))
+		cleanTarget := filepath.Clean(target)
+		if cleanTarget != cleanDest && !strings.HasPrefix(cleanTarget, cleanDest+string(os.PathSeparator)) {
+			return fmt.Errorf("非法路径: %s", f.Name)
+		}
+		if f.FileInfo().IsDir() {
+			if err := os.MkdirAll(target, 0755); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+			return err
+		}
+		out, err := os.Create(target)
+		if err != nil {
+			return err
+		}
+		rc, err := f.Open()
+		if err != nil {
+			out.Close()
+			return err
+		}
+		_, copyErr := io.Copy(out, rc)
+		rc.Close()
+		closeErr := out.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+	}
+	return nil
+}
+
+func formatDownloadProgress(written int64, totalSize int64) string {
+	if totalSize > 0 {
+		return fmt.Sprintf("正在下载 %.1f/%.1f MB", float64(written)/1024/1024, float64(totalSize)/1024/1024)
+	}
+	return fmt.Sprintf("正在下载 %.1f MB", float64(written)/1024/1024)
+}
+
+func resolveUpdateVersion(info AppUpdateInfo) string {
+	version := normalizeVersion(firstNonEmpty(info.LatestVersion, info.ReleaseName))
+	if version == "" {
+		return "latest"
+	}
+	return version
 }
 
 func openURLWithSystem(url string) error {

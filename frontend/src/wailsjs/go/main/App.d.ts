@@ -139,6 +139,8 @@ export function DeleteGroup(arg1:string):Promise<void>;
 
 export function DownloadAppUpdate(arg1:Record<string, any>,arg2:boolean):Promise<Record<string, any>>;
 
+export function DownloadAndExtractPortableUpdate(arg1:Record<string, any>):Promise<Record<string, any>>;
+
 export function FetchRemoteAuthorProfile(arg1:string,arg2:number):Promise<Record<string, any>>;
 
 export function ForceQuit():Promise<void>;
@@ -174,6 +176,8 @@ export function MoveInstancesToGroup(arg1:Array<string>,arg2:string):Promise<voi
 export function OpenCorePath(arg1:string):Promise<void>;
 
 export function OpenAppReleasePage(arg1:string):Promise<void>;
+
+export function OpenPath(arg1:string):Promise<void>;
 
 export function OpenUserDataDir(arg1:string):Promise<void>;
 

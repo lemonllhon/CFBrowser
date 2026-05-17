@@ -53,6 +53,8 @@ export interface AppUpdateInfo {
   body: string
   hasUpdate: boolean
   asset?: AppUpdateAsset
+  installerAsset?: AppUpdateAsset
+  portableAsset?: AppUpdateAsset
   message: string
 }
 
@@ -61,7 +63,10 @@ export interface AppUpdateDownloadResult {
   message?: string
   version?: string
   installerPath?: string
+  packagePath?: string
+  extractedPath?: string
   installOnRestart?: boolean
+  packageKind?: string
 }
 
 // 获取设置
@@ -161,6 +166,22 @@ export async function installDownloadedAppUpdate(installerPath?: string): Promis
     throw new Error('当前环境不支持安装更新')
   }
   await bindings.InstallDownloadedAppUpdate(installerPath || '')
+}
+
+export async function downloadAndExtractPortableUpdate(info: AppUpdateInfo | Record<string, any>): Promise<AppUpdateDownloadResult> {
+  const bindings: any = await getBindings()
+  if (!bindings?.DownloadAndExtractPortableUpdate) {
+    throw new Error('当前环境不支持下载 ZIP 便携包')
+  }
+  return (await bindings.DownloadAndExtractPortableUpdate(info)) || {}
+}
+
+export async function openPath(path: string): Promise<void> {
+  const bindings: any = await getBindings()
+  if (!bindings?.OpenPath) {
+    throw new Error('当前环境不支持打开目录')
+  }
+  await bindings.OpenPath(path)
 }
 
 export async function openAppReleasePage(url?: string): Promise<void> {
