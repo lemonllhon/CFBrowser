@@ -1,4 +1,4 @@
-import type { BrowserProfile, BrowserProfileInput, BrowserTab, BrowserSettings, BrowserCore, BrowserCoreInput, BrowserCoreValidateResult, BrowserProxy, BrowserCoreExtended, CookieInfo, CookieImportResult, SnapshotInfo, BrowserBookmark, BrowserStartURL, BrowserGroup, BrowserGroupInput, BrowserGroupWithCount, ProxyIPHealthResult } from './types'
+import type { BrowserProfile, BrowserProfileInput, BrowserTab, BrowserSettings, BrowserCore, BrowserCoreInput, BrowserCoreValidateResult, BrowserProxy, BrowserCoreExtended, CookieInfo, CookieImportResult, SnapshotInfo, BrowserBookmark, BrowserStartURL, BrowserGroup, BrowserGroupInput, BrowserGroupWithCount, ProxyIPHealthResult, DefaultContentRule } from './types'
 
 const getBindings = async () => {
   try {
@@ -36,6 +36,8 @@ let mockCores: BrowserCore[] = []
 let mockProxies: BrowserProxy[] = []
 
 let mockGroups: BrowserGroup[] = []
+
+let mockDefaultContentRules: DefaultContentRule[] = []
 
 // ============================================================================
 // Profile API
@@ -825,6 +827,24 @@ export async function fetchGroups(): Promise<BrowserGroupWithCount[]> {
     ...group,
     instanceCount: mockProfiles.filter(profile => profile.groupId === group.groupId).length,
   }))
+}
+
+export async function fetchDefaultContentRules(): Promise<DefaultContentRule[]> {
+  const bindings: any = await getBindings()
+  if (bindings?.DefaultContentRuleList) {
+    return (await bindings.DefaultContentRuleList()) || []
+  }
+  return mockDefaultContentRules
+}
+
+export async function saveDefaultContentRules(items: DefaultContentRule[]): Promise<boolean> {
+  const bindings: any = await getBindings()
+  if (bindings?.DefaultContentRuleSave) {
+    await bindings.DefaultContentRuleSave(items)
+    return true
+  }
+  mockDefaultContentRules = items
+  return true
 }
 
 export async function fetchDefaultStartURLs(): Promise<BrowserStartURL[]> {

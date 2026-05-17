@@ -104,6 +104,17 @@ type BrowserStartURL struct {
 	URL  string `yaml:"url" json:"url"`
 }
 
+type BrowserDefaultContentRule struct {
+	RuleId        string            `yaml:"rule_id" json:"ruleId"`
+	Scope         string            `yaml:"scope" json:"scope"`
+	TargetId      string            `yaml:"target_id,omitempty" json:"targetId,omitempty"`
+	TargetName    string            `yaml:"target_name" json:"targetName"`
+	StartURLs     []BrowserStartURL `yaml:"start_urls,omitempty" json:"startUrls"`
+	Bookmarks     []BrowserBookmark `yaml:"bookmarks,omitempty" json:"bookmarks"`
+	Enabled       bool              `yaml:"enabled" json:"enabled"`
+	ApplyToChilds bool              `yaml:"apply_to_childs,omitempty" json:"applyToChilds,omitempty"`
+}
+
 type BrowserConfig struct {
 	UserDataRoot           string                 `yaml:"user_data_root"`
 	DefaultFingerprintArgs []string               `yaml:"default_fingerprint_args"`
@@ -114,9 +125,10 @@ type BrowserConfig struct {
 	DefaultStartURLs       []BrowserStartURL      `yaml:"default_start_urls,omitempty"`
 	DefaultStartURLsSet    bool                   `yaml:"default_start_urls_set,omitempty"`
 	DefaultBookmarks       []BrowserBookmark      `yaml:"default_bookmarks,omitempty"`
-	Cores                  []BrowserCore          `yaml:"cores,omitempty"`
-	Proxies                []BrowserProxy         `yaml:"proxies,omitempty"`
-	Profiles               []BrowserProfileConfig `yaml:"profiles,omitempty"`
+	DefaultContentRules    []BrowserDefaultContentRule `yaml:"default_content_rules,omitempty"`
+	Cores                  []BrowserCore               `yaml:"cores,omitempty"`
+	Proxies                []BrowserProxy              `yaml:"proxies,omitempty"`
+	Profiles               []BrowserProfileConfig      `yaml:"profiles,omitempty"`
 	// 废弃字段，保留用于迁移
 	ChromeBinaryPath     string               `yaml:"chrome_binary_path,omitempty"`
 	ClashBinaryPath      string               `yaml:"clash_binary_path,omitempty"`
@@ -348,6 +360,9 @@ func normalizeConfig(config *Config) {
 	}
 	if config.Browser.DefaultStartURLs == nil {
 		config.Browser.DefaultStartURLs = []BrowserStartURL{}
+	}
+	if config.Browser.DefaultContentRules == nil {
+		config.Browser.DefaultContentRules = []BrowserDefaultContentRule{}
 	}
 	if config.Browser.Cores == nil {
 		config.Browser.Cores = []BrowserCore{}

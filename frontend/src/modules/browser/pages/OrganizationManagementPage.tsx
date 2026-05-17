@@ -1,12 +1,14 @@
-import { FolderTree, Tag } from 'lucide-react'
+import { FolderTree, Link2, Tag } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 import { Button } from '../../../shared/components'
+import { DefaultContentLinkPage } from './DefaultContentLinkPage'
 import { GroupManagementPage } from './GroupManagementPage'
 import { TagManagementPage } from './TagManagementPage'
 
-type OrganizationTab = 'tags' | 'groups'
+type OrganizationTab = 'tags' | 'groups' | 'defaults'
 
 function normalizeTab(value: string | null): OrganizationTab {
+  if (value === 'defaults') return 'defaults'
   return value === 'groups' ? 'groups' : 'tags'
 }
 
@@ -15,7 +17,7 @@ export function OrganizationManagementPage() {
   const activeTab = normalizeTab(searchParams.get('tab'))
 
   const switchTab = (tab: OrganizationTab) => {
-    setSearchParams(tab === 'groups' ? { tab: 'groups' } : {})
+    setSearchParams(tab === 'tags' ? {} : { tab })
   }
 
   return (
@@ -43,11 +45,21 @@ export function OrganizationManagementPage() {
               <FolderTree className="w-4 h-4" />
               分组
             </Button>
+            <Button
+              size="sm"
+              variant={activeTab === 'defaults' ? undefined : 'ghost'}
+              onClick={() => switchTab('defaults')}
+            >
+              <Link2 className="w-4 h-4" />
+              默认内容
+            </Button>
           </div>
         </div>
       </div>
       <div className="flex-1 min-h-0 overflow-hidden">
-        {activeTab === 'tags' ? <TagManagementPage embedded /> : <GroupManagementPage embedded />}
+        {activeTab === 'tags' && <TagManagementPage embedded />}
+        {activeTab === 'groups' && <GroupManagementPage embedded />}
+        {activeTab === 'defaults' && <DefaultContentLinkPage />}
       </div>
     </div>
   )

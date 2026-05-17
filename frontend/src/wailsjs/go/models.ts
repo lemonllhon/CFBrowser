@@ -571,6 +571,50 @@ export namespace config {
 	        this.url = source["url"];
 	    }
 	}
+	export class BrowserDefaultContentRule {
+	    ruleId: string;
+	    scope: string;
+	    targetId?: string;
+	    targetName: string;
+	    startUrls: BrowserStartURL[];
+	    bookmarks: BrowserBookmark[];
+	    enabled: boolean;
+	    applyToChilds?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new BrowserDefaultContentRule(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ruleId = source["ruleId"];
+	        this.scope = source["scope"];
+	        this.targetId = source["targetId"];
+	        this.targetName = source["targetName"];
+	        this.startUrls = this.convertValues(source["startUrls"], BrowserStartURL);
+	        this.bookmarks = this.convertValues(source["bookmarks"], BrowserBookmark);
+	        this.enabled = source["enabled"];
+	        this.applyToChilds = source["applyToChilds"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class BrowserCore {
 	    coreId: string;
 	    coreName: string;

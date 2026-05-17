@@ -38,7 +38,6 @@ export const navigationConfig: NavSection[] = [
       { name: '自动化接口（实验）', path: '/browser/automation', icon: 'Bot' },
       { name: '内核管理', path: '/browser/cores', icon: 'Cpu' },
       { name: '代理池配置', path: '/browser/proxy-pool', icon: 'Globe' },
-      { name: '默认内容', path: '/browser/bookmarks', icon: 'Bookmark' },
       { name: '组织管理', path: '/browser/organization', icon: 'FolderTree' },
     ]
   },

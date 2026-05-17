@@ -29,6 +29,10 @@ export function DefaultStartURLReset():Promise<void>;
 
 export function DefaultStartURLSave(arg1:Array<config.BrowserStartURL>):Promise<void>;
 
+export function DefaultContentRuleList():Promise<Array<config.BrowserDefaultContentRule>>;
+
+export function DefaultContentRuleSave(arg1:Array<config.BrowserDefaultContentRule>):Promise<void>;
+
 export function BrowserClearCookies(arg1:string):Promise<void>;
 
 export function BrowserCoreDelete(arg1:string):Promise<void>;

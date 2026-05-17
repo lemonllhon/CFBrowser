@@ -32,12 +32,7 @@ func (a *App) BookmarkList() []BrowserBookmark {
 // BookmarkSave 保存默认书签列表（优先 SQLite，降级 config.yaml）
 func (a *App) BookmarkSave(items []BrowserBookmark) error {
 	log := logger.New("Bookmark")
-	valid := make([]BrowserBookmark, 0, len(items))
-	for _, item := range items {
-		if item.Name != "" && item.URL != "" {
-			valid = append(valid, item)
-		}
-	}
+	valid := normalizeBookmarks(items)
 
 	if a.browserMgr.BookmarkDAO != nil {
 		if err := a.browserMgr.BookmarkDAO.ReplaceAll(valid); err != nil {

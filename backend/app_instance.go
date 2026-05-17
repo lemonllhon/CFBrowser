@@ -99,8 +99,8 @@ func (a *App) browserInstanceStartInternal(profileId string, extraLaunchArgs []s
 		profile.LastError = startErr.Error()
 		return profile, startErr
 	}
-	// 每次启动时合并默认书签（已存在的 URL 不重复添加）
-	if err := browser.EnsureDefaultBookmarks(userDataDir, a.BookmarkList()); err != nil {
+	// 每次启动时按全局、标签和分组规则合并默认书签（已存在的 URL 不重复添加）
+	if err := browser.EnsureDefaultBookmarks(userDataDir, a.BookmarkListForProfile(profile)); err != nil {
 		log.Error("默认书签写入失败", logger.F("error", err.Error()))
 	}
 
@@ -278,7 +278,7 @@ func (a *App) browserInstanceStartInternal(profileId string, extraLaunchArgs []s
 	args = append(args, effectiveFingerprintArgs...)
 	args = append(args, sanitizedProfileLaunchArgs...)
 	args = append(args, sanitizedExtraLaunchArgs...)
-	args = appendLaunchTargets(args, profile, normalizedStartURLs, skipDefaultStartURLs, a.DefaultStartURLValues())
+	args = appendLaunchTargets(args, profile, normalizedStartURLs, skipDefaultStartURLs, a.DefaultStartURLValuesForProfile(profile))
 
 	cmd := exec.Command(chromeBinaryPath, args...)
 	cmd.Dir = filepath.Dir(chromeBinaryPath)

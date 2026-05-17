@@ -159,6 +159,19 @@ export interface BrowserBookmark {
   url: string
 }
 
+export type DefaultContentScope = 'tag' | 'group'
+
+export interface DefaultContentRule {
+  ruleId: string
+  scope: DefaultContentScope
+  targetId?: string
+  targetName: string
+  startUrls: BrowserStartURL[]
+  bookmarks: BrowserBookmark[]
+  enabled: boolean
+  applyToChilds?: boolean
+}
+
 
 // 分组相关类型
 export interface BrowserGroup {

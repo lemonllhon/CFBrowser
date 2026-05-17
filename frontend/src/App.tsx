@@ -34,7 +34,6 @@ const BrowserCopyPage = lazyNamed(() => import('./modules/browser/pages/BrowserC
 const BrowserLogsPage = lazyNamed(() => import('./modules/browser/pages/BrowserLogsPage'), 'BrowserLogsPage')
 const ProxyPoolPage = lazyNamed(() => import('./modules/browser/pages/ProxyPoolPage'), 'ProxyPoolPage')
 const CoreManagementPage = lazyNamed(() => import('./modules/browser/pages/CoreManagementPage'), 'CoreManagementPage')
-const BookmarkSettingsPage = lazyNamed(() => import('./modules/browser/pages/BookmarkSettingsPage'), 'BookmarkSettingsPage')
 const LaunchApiDocsPage = lazyNamed(() => import('./modules/browser/pages/LaunchApiDocsPage'), 'LaunchApiDocsPage')
 const OrganizationManagementPage = lazyNamed(() => import('./modules/browser/pages/OrganizationManagementPage'), 'OrganizationManagementPage')
 const AutomationPage = lazyNamed(() => import('./modules/browser/pages/AutomationPage'), 'AutomationPage')
@@ -330,8 +329,8 @@ function App() {
               <Route path="/browser/logs" element={<BrowserLogsPage />} />
               <Route path="/browser/proxy-pool" element={<ProxyPoolPage />} />
               <Route path="/browser/cores" element={<CoreManagementPage />} />
-              <Route path="/browser/bookmarks" element={<BookmarkSettingsPage />} />
-              <Route path="/browser/start-urls" element={<Navigate to="/browser/bookmarks" replace />} />
+              <Route path="/browser/bookmarks" element={<Navigate to="/browser/organization?tab=defaults" replace />} />
+              <Route path="/browser/start-urls" element={<Navigate to="/browser/organization?tab=defaults" replace />} />
               <Route path="/browser/automation" element={<AutomationPage />} />
               <Route path="/browser/launch-api" element={<LaunchApiDocsPage />} />
               <Route path="/browser/organization" element={<OrganizationManagementPage />} />

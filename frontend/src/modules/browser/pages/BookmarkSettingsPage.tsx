@@ -108,7 +108,7 @@ function EditableURLList<T extends ManagedItem>({
   )
 }
 
-export function BookmarkSettingsPage() {
+export function BookmarkSettingsPage({ embedded = false }: { embedded?: boolean }) {
   const [bookmarkItems, setBookmarkItems] = useState<BrowserBookmark[]>([])
   const [startURLItems, setStartURLItems] = useState<BrowserStartURL[]>([])
   const [savingBookmarks, setSavingBookmarks] = useState(false)
@@ -174,12 +174,14 @@ export function BookmarkSettingsPage() {
 
   return (
     <div className="space-y-5 animate-fade-in">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold text-[var(--color-text-primary)]">默认内容管理</h1>
-          <p className="text-sm text-[var(--color-text-muted)] mt-1">统一管理实例启动打开页与新建实例默认书签</p>
+      {!embedded && (
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-semibold text-[var(--color-text-primary)]">默认内容管理</h1>
+            <p className="text-sm text-[var(--color-text-muted)] mt-1">统一管理实例启动打开页与新建实例默认书签</p>
+          </div>
         </div>
-      </div>
+      )}
 
       <Card title={`默认打开页（${startURLItems.length} 项）`} subtitle="实例启动时自动打开，拖拽左侧图标可调整打开顺序">
         <div className="flex items-center justify-end gap-2 mb-3">

@@ -46,6 +46,14 @@ export function DefaultStartURLSave(arg1) {
   return window['go']['main']['App']['DefaultStartURLSave'](arg1);
 }
 
+export function DefaultContentRuleList() {
+  return window['go']['main']['App']['DefaultContentRuleList']();
+}
+
+export function DefaultContentRuleSave(arg1) {
+  return window['go']['main']['App']['DefaultContentRuleSave'](arg1);
+}
+
 export function BrowserClearCookies(arg1) {
   return window['go']['main']['App']['BrowserClearCookies'](arg1);
 }
