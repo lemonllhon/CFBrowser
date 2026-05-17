@@ -147,7 +147,7 @@ export async function checkAppUpdate(): Promise<AppUpdateInfo> {
   return await bindings.CheckAppUpdate()
 }
 
-export async function downloadAppUpdate(info: AppUpdateInfo, installOnRestart: boolean): Promise<AppUpdateDownloadResult> {
+export async function downloadAppUpdate(info: AppUpdateInfo | Record<string, any>, installOnRestart: boolean): Promise<AppUpdateDownloadResult> {
   const bindings: any = await getBindings()
   if (!bindings?.DownloadAppUpdate) {
     throw new Error('当前环境不支持下载更新')

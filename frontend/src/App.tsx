@@ -9,11 +9,12 @@ import { useNotificationStore } from './store/notificationStore'
 import { useBackupStore } from './store/backupStore'
 import { ForceQuit as ForceQuitApp, QuitAppOnly as QuitAppOnlyApp, SaveWindowState } from './wailsjs/go/main/App'
 import {
-  CheckAppUpdate,
-  DownloadAppUpdate,
-  InstallDownloadedAppUpdate,
-  OpenAppReleasePage,
-} from './wailsjs/go/main/App'
+  checkAppUpdate,
+  downloadAppUpdate,
+  installDownloadedAppUpdate,
+  openAppReleasePage,
+  type AppUpdateInfo,
+} from './modules/settings/api'
 import { Environment, Quit, WindowGetSize, WindowHide, WindowIsMaximised, WindowIsMinimised, WindowIsNormal, WindowMinimise } from './wailsjs/runtime/runtime'
 
 function lazyNamed<TModule extends Record<string, ComponentType<any>>>(
@@ -125,18 +126,6 @@ function useWailsNotifications() {
   }, [addNotification])
 }
 
-type GlobalUpdateInfo = {
-  currentVersion: string
-  latestVersion: string
-  releaseName: string
-  releaseUrl: string
-  publishedAt: string
-  body: string
-  hasUpdate: boolean
-  asset?: { name: string; size: number; downloadUrl: string }
-  message: string
-}
-
 type PendingUpdateInfo = {
   version?: string
   installerPath?: string
@@ -145,7 +134,7 @@ type PendingUpdateInfo = {
 
 function useAutoUpdateCheck() {
   const addNotification = useNotificationStore((s) => s.addNotification)
-  const [updateInfo, setUpdateInfo] = useState<GlobalUpdateInfo | null>(null)
+  const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null)
   const [pendingUpdate, setPendingUpdate] = useState<PendingUpdateInfo | null>(null)
   const [open, setOpen] = useState(false)
   const [action, setAction] = useState<'none' | 'download-now' | 'download-next'>('none')
@@ -157,9 +146,9 @@ function useAutoUpdateCheck() {
         const raw = localStorage.getItem('app_settings')
         const settings = raw ? JSON.parse(raw) : {}
         if (settings.enableAutoUpdate === false) return
-        const info = await CheckAppUpdate()
+        const info = await checkAppUpdate()
         if (cancelled || !info?.hasUpdate) return
-        setUpdateInfo(info as GlobalUpdateInfo)
+        setUpdateInfo(info)
         setOpen(true)
         addNotification({
           type: 'info',
@@ -197,7 +186,7 @@ function useAutoUpdateCheck() {
     if (!updateInfo) return
     setAction(installOnRestart ? 'download-next' : 'download-now')
     try {
-      const res = await DownloadAppUpdate(updateInfo, installOnRestart)
+      const res = await downloadAppUpdate(updateInfo, installOnRestart)
       addNotification({
         type: 'success',
         title: '更新下载完成',
@@ -207,7 +196,7 @@ function useAutoUpdateCheck() {
         setOpen(false)
         return
       }
-      await InstallDownloadedAppUpdate(res?.installerPath || '')
+      await installDownloadedAppUpdate(res?.installerPath || '')
     } catch (error) {
       addNotification({
         type: 'error',
@@ -222,7 +211,7 @@ function useAutoUpdateCheck() {
   const handleInstallPending = async () => {
     setAction('download-now')
     try {
-      await InstallDownloadedAppUpdate(pendingUpdate?.installerPath || '')
+      await installDownloadedAppUpdate(pendingUpdate?.installerPath || '')
     } catch (error) {
       addNotification({
         type: 'error',
@@ -247,7 +236,7 @@ function useAutoUpdateCheck() {
           <Button variant="secondary" onClick={() => setOpen(false)} disabled={action !== 'none'}>
             稍后
           </Button>
-          <Button variant="secondary" onClick={() => OpenAppReleasePage(updateInfo?.releaseUrl || pendingUpdate?.releaseUrl || '')} disabled={action !== 'none'}>
+          <Button variant="secondary" onClick={() => openAppReleasePage(updateInfo?.releaseUrl || pendingUpdate?.releaseUrl || '')} disabled={action !== 'none'}>
             下载页
           </Button>
           {pendingUpdate ? (
