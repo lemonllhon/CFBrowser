@@ -215,6 +215,12 @@ export function WindowSyncGetState():Promise<backend.WindowSyncState>;
 
 export function WindowSyncListCandidates():Promise<Array<backend.WindowSyncCandidate>>;
 
+export function WindowSyncPause():Promise<backend.WindowSyncState>;
+
+export function WindowSyncResume():Promise<backend.WindowSyncState>;
+
+export function WindowSyncShowAll():Promise<backend.WindowSyncState>;
+
 export function WindowSyncStart(arg1:backend.WindowSyncStartInput):Promise<backend.WindowSyncState>;
 
 export function WindowSyncStop():Promise<backend.WindowSyncState>;

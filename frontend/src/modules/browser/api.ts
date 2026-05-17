@@ -299,6 +299,42 @@ export async function getWindowSyncState(): Promise<WindowSyncState | null> {
   return null
 }
 
+export async function pauseWindowSync(): Promise<WindowSyncState | null> {
+  const bindings: any = await getBindings()
+  if (bindings?.WindowSyncPause) {
+    return (await bindings.WindowSyncPause()) || null
+  }
+  const goApp = (window as any).go?.main?.App
+  if (goApp?.WindowSyncPause) {
+    return (await goApp.WindowSyncPause()) || null
+  }
+  return null
+}
+
+export async function resumeWindowSync(): Promise<WindowSyncState | null> {
+  const bindings: any = await getBindings()
+  if (bindings?.WindowSyncResume) {
+    return (await bindings.WindowSyncResume()) || null
+  }
+  const goApp = (window as any).go?.main?.App
+  if (goApp?.WindowSyncResume) {
+    return (await goApp.WindowSyncResume()) || null
+  }
+  return null
+}
+
+export async function showAllWindowSyncWindows(): Promise<WindowSyncState | null> {
+  const bindings: any = await getBindings()
+  if (bindings?.WindowSyncShowAll) {
+    return (await bindings.WindowSyncShowAll()) || null
+  }
+  const goApp = (window as any).go?.main?.App
+  if (goApp?.WindowSyncShowAll) {
+    return (await goApp.WindowSyncShowAll()) || null
+  }
+  return null
+}
+
 export async function stopWindowSync(): Promise<WindowSyncState | null> {
   const bindings: any = await getBindings()
   if (bindings?.WindowSyncStop) {

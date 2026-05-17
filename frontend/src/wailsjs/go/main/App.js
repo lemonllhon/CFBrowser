@@ -418,6 +418,18 @@ export function WindowSyncListCandidates() {
   return window['go']['main']['App']['WindowSyncListCandidates']();
 }
 
+export function WindowSyncPause() {
+  return window['go']['main']['App']['WindowSyncPause']();
+}
+
+export function WindowSyncResume() {
+  return window['go']['main']['App']['WindowSyncResume']();
+}
+
+export function WindowSyncShowAll() {
+  return window['go']['main']['App']['WindowSyncShowAll']();
+}
+
 export function WindowSyncStart(arg1) {
   return window['go']['main']['App']['WindowSyncStart'](arg1);
 }

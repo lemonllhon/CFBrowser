@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Activity, CheckCircle, ChevronDown, ChevronRight, ChevronUp, Copy, Edit2, FileText, Focus, Key, Pencil, Play, Plus, RefreshCw, RotateCcw, Settings, Shuffle, Sliders, Square, Star, Trash2, XCircle, LayoutGrid, List, MonitorUp } from 'lucide-react'
+import { Activity, CheckCircle, ChevronDown, ChevronRight, ChevronUp, Copy, Edit2, FileText, Focus, Key, Layers, MousePointerClick, Pause, Pencil, Play, Plus, RefreshCw, RotateCcw, Settings, Shuffle, Sliders, Square, Star, TextCursorInput, Trash2, XCircle, LayoutGrid, List, MonitorUp } from 'lucide-react'
 import { Badge, Button, Card, ConfirmModal, FormItem, Input, Modal, StatCard, Table, Textarea, toast } from '../../../shared/components'
 import type { TableColumn } from '../../../shared/components/Table'
 import type { BrowserCore, BrowserCoreInput, BrowserProfile, BrowserProxy, BrowserSettings, BrowserGroupWithCount, WindowSyncCandidate, WindowSyncState } from '../types'
@@ -20,13 +20,16 @@ import {
   fetchGroups,
   getWindowSyncState,
   listWindowSyncCandidates,
+  pauseWindowSync,
   pinCenterBrowserInstance,
   regenerateBrowserProfileCode,
+  resumeWindowSync,
   restartBrowserInstance,
   saveBrowserCore,
   saveBrowserSettings,
   setBrowserProfileCode,
   setDefaultBrowserCore,
+  showAllWindowSyncWindows,
   startWindowSync,
   startBrowserInstance,
   stopBrowserInstance,
@@ -104,6 +107,93 @@ function BatchToolbar({
         <Button size="sm" variant="ghost" onClick={onBatchDelete} title="批量删除" className="text-red-500 hover:text-red-600">
           <Trash2 className="w-3.5 h-3.5" />删除
         </Button>
+      </div>
+    </div>
+  )
+}
+
+function WindowSyncControlBar({
+  state,
+  loading,
+  onShowAll,
+  onTogglePause,
+  onStop,
+  onOpenList,
+}: {
+  state: WindowSyncState
+  loading: boolean
+  onShowAll: () => void
+  onTogglePause: () => void
+  onStop: () => void
+  onOpenList: () => void
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const masterName = state.windows.find(item => item.profileId === state.masterProfileId)?.profileName || state.masterProfileId
+
+  return (
+    <div
+      className="fixed right-5 bottom-5 z-40"
+      onMouseEnter={() => setExpanded(true)}
+      onMouseLeave={() => setExpanded(false)}
+    >
+      <div className={`rounded-lg border border-[var(--color-accent)]/30 bg-[var(--color-bg-elevated)] shadow-2xl transition-all duration-200 ${expanded ? 'w-[520px]' : 'w-[300px]'}`}>
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--color-border-muted)]">
+          <span
+            className={`w-2.5 h-2.5 rounded-full ${state.paused ? 'opacity-60' : ''}`}
+            style={{ backgroundColor: state.paused ? 'var(--color-warning)' : (state.masterColor || '#2563eb') }}
+          />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-sm font-medium text-[var(--color-text-primary)]">{state.paused ? '窗口同步已暂停' : '窗口同步中'}</span>
+              <Badge variant={state.paused ? 'warning' : 'info'} size="sm">{state.windows.length} 窗口</Badge>
+            </div>
+            <p className="text-xs text-[var(--color-text-muted)] truncate">主控：{masterName}</p>
+          </div>
+          <Button size="sm" variant="ghost" onClick={onShowAll} loading={loading} title="展示窗口">
+            <MonitorUp className="w-4 h-4" />
+          </Button>
+          <Button size="sm" variant="ghost" onClick={onStop} loading={loading} title="停止同步">
+            <Square className="w-4 h-4" />
+          </Button>
+        </div>
+
+        {expanded && (
+          <div className="px-3 py-3 space-y-3">
+            <div className="grid grid-cols-3 gap-2">
+              <Button size="sm" variant="secondary" onClick={onTogglePause} loading={loading} title={state.paused ? '恢复同步' : '暂停同步'}>
+                {state.paused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
+                {state.paused ? '恢复同步' : '暂停同步'}
+              </Button>
+              <Button size="sm" variant="secondary" onClick={onShowAll} loading={loading} title="展示全部窗口">
+                <MonitorUp className="w-4 h-4" />展示窗口
+              </Button>
+              <Button size="sm" variant="secondary" onClick={onOpenList} title="同步窗口列表">
+                <List className="w-4 h-4" />窗口列表
+              </Button>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              <Button size="sm" variant="ghost" disabled title="阶段 3 开启">
+                <LayoutGrid className="w-4 h-4" />窗口布局
+              </Button>
+              <Button size="sm" variant="ghost" disabled title="阶段 5 开启">
+                <TextCursorInput className="w-4 h-4" />批量输入
+              </Button>
+              <Button size="sm" variant="ghost" disabled title="阶段 6 开启">
+                <Layers className="w-4 h-4" />标签控制
+              </Button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <Button size="sm" variant="ghost" disabled title="阶段 7 开启">
+                <MousePointerClick className="w-4 h-4" />仿真操作
+              </Button>
+              <Button size="sm" variant="ghost" disabled title="阶段 8 开启">
+                <Settings className="w-4 h-4" />设置
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -813,6 +903,36 @@ export function BrowserListPage() {
     }
   }
 
+  const handleToggleWindowSyncPause = async () => {
+    if (!windowSyncState?.active) return
+    setWindowSyncLoading(true)
+    try {
+      const state = windowSyncState.paused ? await resumeWindowSync() : await pauseWindowSync()
+      setWindowSyncState(state?.active ? state : null)
+      toast.success(windowSyncState.paused ? '窗口同步已恢复' : '窗口同步已暂停')
+    } catch (error: any) {
+      toast.error(error?.message || '同步状态切换失败')
+    } finally {
+      setWindowSyncLoading(false)
+    }
+  }
+
+  const handleShowAllWindowSync = async () => {
+    if (!windowSyncState?.active) return
+    setWindowSyncLoading(true)
+    try {
+      const state = await showAllWindowSyncWindows()
+      if (state?.active) {
+        setWindowSyncState(state)
+      }
+      toast.success('同步窗口已弹出')
+    } catch (error: any) {
+      toast.error(error?.message || '展示同步窗口失败')
+    } finally {
+      setWindowSyncLoading(false)
+    }
+  }
+
   const handleDelete = async (profileId: string) => {
     const profile = profiles.find(item => item.profileId === profileId)
     if (!profile) {
@@ -1299,25 +1419,14 @@ export function BrowserListPage() {
       />
 
       {windowSyncState?.active && (
-        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-[var(--color-accent)]/25 bg-[var(--color-accent)]/10 px-4 py-3">
-          <div className="flex items-center gap-2">
-            <span
-              className="w-2.5 h-2.5 rounded-full"
-              style={{ backgroundColor: windowSyncState.masterColor || '#2563eb' }}
-            />
-            <span className="text-sm font-medium text-[var(--color-text-primary)]">窗口同步中</span>
-            <Badge variant="info" size="sm">主控：{windowSyncState.windows.find(item => item.profileId === windowSyncState.masterProfileId)?.profileName || windowSyncState.masterProfileId}</Badge>
-            <Badge variant="default" size="sm">共 {windowSyncState.windows.length} 个窗口</Badge>
-          </div>
-          <div className="ml-auto flex items-center gap-2">
-            <Button size="sm" variant="secondary" onClick={handleOpenWindowSyncModal}>
-              <MonitorUp className="w-4 h-4" />查看
-            </Button>
-            <Button size="sm" variant="secondary" onClick={handleStopWindowSync} loading={windowSyncLoading}>
-              <Square className="w-4 h-4" />停止同步
-            </Button>
-          </div>
-        </div>
+        <WindowSyncControlBar
+          state={windowSyncState}
+          loading={windowSyncLoading}
+          onShowAll={handleShowAllWindowSync}
+          onTogglePause={handleToggleWindowSyncPause}
+          onStop={handleStopWindowSync}
+          onOpenList={handleOpenWindowSyncModal}
+        />
       )}
 
       <Card padding="none">
@@ -1525,9 +1634,11 @@ export function BrowserListPage() {
               </Button>
             )}
             <Button variant="secondary" onClick={() => setWindowSyncModalOpen(false)}>取消</Button>
-            <Button onClick={handleStartWindowSync} loading={windowSyncLoading} disabled={!!windowSyncState?.active}>
-              开始同步窗口
-            </Button>
+            {!windowSyncState?.active && (
+              <Button onClick={handleStartWindowSync} loading={windowSyncLoading}>
+                开始同步窗口
+              </Button>
+            )}
           </>
         }
       >

@@ -170,6 +170,44 @@ func (a *App) WindowSyncStop() (*WindowSyncState, error) {
 	return previous, nil
 }
 
+func (a *App) WindowSyncPause() (*WindowSyncState, error) {
+	state, err := a.updateWindowSyncPaused(true)
+	if err != nil {
+		return nil, err
+	}
+	return state, nil
+}
+
+func (a *App) WindowSyncResume() (*WindowSyncState, error) {
+	state, err := a.updateWindowSyncPaused(false)
+	if err != nil {
+		return nil, err
+	}
+	return state, nil
+}
+
+func (a *App) WindowSyncShowAll() (*WindowSyncState, error) {
+	state, err := a.requireWindowSyncState()
+	if err != nil {
+		return nil, err
+	}
+
+	failures := make([]string, 0)
+	for _, item := range state.Windows {
+		if err := a.showWindowSyncProfile(item.ProfileId); err != nil {
+			name := strings.TrimSpace(item.ProfileName)
+			if name == "" {
+				name = item.ProfileId
+			}
+			failures = append(failures, fmt.Sprintf("%s：%v", name, err))
+		}
+	}
+	if len(failures) > 0 {
+		return state, fmt.Errorf("部分窗口弹出失败：%s", strings.Join(failures, "；"))
+	}
+	return state, nil
+}
+
 func (a *App) ensureWindowSyncProfileMutable(profileId string) error {
 	if a == nil {
 		return nil
@@ -187,6 +225,36 @@ func (a *App) ensureWindowSyncProfileMutable(profileId string) error {
 		return fmt.Errorf("同步状态下无法修改主控窗口，请先停止窗口同步")
 	}
 	return nil
+}
+
+func (a *App) updateWindowSyncPaused(paused bool) (*WindowSyncState, error) {
+	if a == nil {
+		return nil, fmt.Errorf("窗口同步未启动")
+	}
+	a.windowSyncMu.Lock()
+	if a.windowSyncState == nil || !a.windowSyncState.Active {
+		a.windowSyncMu.Unlock()
+		return nil, fmt.Errorf("窗口同步未启动")
+	}
+	a.windowSyncState.Paused = paused
+	a.windowSyncState.UpdatedAt = time.Now().Format(time.RFC3339)
+	state := cloneWindowSyncState(a.windowSyncState)
+	a.windowSyncMu.Unlock()
+
+	a.emitWindowSyncStateChanged(state)
+	return state, nil
+}
+
+func (a *App) requireWindowSyncState() (*WindowSyncState, error) {
+	if a == nil {
+		return nil, fmt.Errorf("窗口同步未启动")
+	}
+	a.windowSyncMu.Lock()
+	defer a.windowSyncMu.Unlock()
+	if a.windowSyncState == nil || !a.windowSyncState.Active {
+		return nil, fmt.Errorf("窗口同步未启动")
+	}
+	return cloneWindowSyncState(a.windowSyncState), nil
 }
 
 func (a *App) resolveWindowSyncCandidates(profileIds []string, masterProfileId string) ([]WindowSyncCandidate, error) {
@@ -272,6 +340,76 @@ func (a *App) pinWindowSyncMasterTopLeft(masterProfileId string) error {
 	_, _ = cdpCall(debugPort, "Page.bringToFront", nil)
 	if pid > 0 {
 		_ = setBrowserWindowsTopmostByPID(pid, left, top, width, height)
+	}
+	return nil
+}
+
+func (a *App) showWindowSyncProfile(profileId string) error {
+	profileId = strings.TrimSpace(profileId)
+	if profileId == "" {
+		return fmt.Errorf("profile id is required")
+	}
+
+	a.browserMgr.Mutex.Lock()
+	profile, exists := a.browserMgr.Profiles[profileId]
+	if !exists || profile == nil {
+		a.browserMgr.Mutex.Unlock()
+		return fmt.Errorf("实例不存在")
+	}
+	if !profile.Running || !profile.DebugReady || profile.DebugPort <= 0 {
+		a.browserMgr.Mutex.Unlock()
+		return fmt.Errorf("实例未运行或调试端口未就绪")
+	}
+	debugPort := profile.DebugPort
+	pid := profile.Pid
+	a.browserMgr.Mutex.Unlock()
+
+	targetID, err := firstPageTargetID(debugPort)
+	if err != nil {
+		return err
+	}
+	windowInfo, err := cdpBrowserCallResult(debugPort, "Browser.getWindowForTarget", map[string]any{"targetId": targetID})
+	if err != nil {
+		return err
+	}
+	windowID, ok := numericResult(windowInfo["windowId"])
+	if !ok {
+		return fmt.Errorf("无法获取浏览器窗口 ID")
+	}
+
+	bounds := map[string]any{"windowState": "normal"}
+	if rawBounds, ok := windowInfo["bounds"].(map[string]any); ok {
+		for _, key := range []string{"left", "top", "width", "height"} {
+			if value, ok := numericResult(rawBounds[key]); ok {
+				bounds[key] = value
+			}
+		}
+	}
+	if _, err := cdpBrowserCallResult(debugPort, "Browser.setWindowBounds", map[string]any{
+		"windowId": windowID,
+		"bounds":   bounds,
+	}); err != nil {
+		return err
+	}
+	_, _ = cdpCall(debugPort, "Page.bringToFront", nil)
+
+	if pid > 0 {
+		left, top, width, height := 0, 0, 0, 0
+		if value, ok := numericResult(bounds["left"]); ok {
+			left = value
+		}
+		if value, ok := numericResult(bounds["top"]); ok {
+			top = value
+		}
+		if value, ok := numericResult(bounds["width"]); ok {
+			width = value
+		}
+		if value, ok := numericResult(bounds["height"]); ok {
+			height = value
+		}
+		if width > 0 && height > 0 {
+			_ = setBrowserWindowsTopmostByPID(pid, left, top, width, height)
+		}
 	}
 	return nil
 }
