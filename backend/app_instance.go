@@ -387,6 +387,9 @@ func (a *App) browserInstanceStartInternal(profileId string, extraLaunchArgs []s
 }
 
 func (a *App) BrowserInstanceStop(profileId string) (*BrowserProfile, error) {
+	if err := a.ensureWindowSyncProfileMutable(profileId); err != nil {
+		return nil, err
+	}
 	log := logger.New("Browser")
 	a.browserMgr.Mutex.Lock()
 	defer a.browserMgr.Mutex.Unlock()
@@ -425,6 +428,9 @@ func (a *App) BrowserInstanceStop(profileId string) (*BrowserProfile, error) {
 }
 
 func (a *App) BrowserInstanceRestart(profileId string) (*BrowserProfile, error) {
+	if err := a.ensureWindowSyncProfileMutable(profileId); err != nil {
+		return nil, err
+	}
 	if _, err := a.BrowserInstanceStop(profileId); err != nil {
 		return nil, err
 	}

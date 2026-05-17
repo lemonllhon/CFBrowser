@@ -193,3 +193,33 @@ export interface BrowserGroupInput {
 export interface BrowserGroupWithCount extends BrowserGroup {
   instanceCount: number
 }
+
+export interface WindowSyncCandidate {
+  profileId: string
+  profileName: string
+  debugPort: number
+  pid: number
+  running: boolean
+  debugReady: boolean
+  role?: 'master' | 'controlled' | string
+  master?: boolean
+  canSync: boolean
+  unavailable?: string
+}
+
+export interface WindowSyncStartInput {
+  profileIds: string[]
+  masterProfileId: string
+}
+
+export interface WindowSyncState {
+  sessionId: string
+  active: boolean
+  paused: boolean
+  masterProfileId: string
+  profileIds: string[]
+  windows: WindowSyncCandidate[]
+  masterColor: string
+  startedAt: string
+  updatedAt: string
+}

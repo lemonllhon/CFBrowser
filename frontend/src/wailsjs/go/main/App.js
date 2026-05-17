@@ -409,3 +409,19 @@ export function UpdateGroup(arg1, arg2) {
 export function ValidateProxyConfig(arg1, arg2) {
   return window['go']['main']['App']['ValidateProxyConfig'](arg1, arg2);
 }
+
+export function WindowSyncGetState() {
+  return window['go']['main']['App']['WindowSyncGetState']();
+}
+
+export function WindowSyncListCandidates() {
+  return window['go']['main']['App']['WindowSyncListCandidates']();
+}
+
+export function WindowSyncStart(arg1) {
+  return window['go']['main']['App']['WindowSyncStart'](arg1);
+}
+
+export function WindowSyncStop() {
+  return window['go']['main']['App']['WindowSyncStop']();
+}

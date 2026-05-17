@@ -1,4 +1,4 @@
-import type { BrowserProfile, BrowserProfileInput, BrowserTab, BrowserSettings, BrowserCore, BrowserCoreInput, BrowserCoreValidateResult, BrowserProxy, BrowserCoreExtended, CookieInfo, CookieImportResult, SnapshotInfo, BrowserBookmark, BrowserStartURL, BrowserGroup, BrowserGroupInput, BrowserGroupWithCount, ProxyIPHealthResult, DefaultContentRule } from './types'
+import type { BrowserProfile, BrowserProfileInput, BrowserTab, BrowserSettings, BrowserCore, BrowserCoreInput, BrowserCoreValidateResult, BrowserProxy, BrowserCoreExtended, CookieInfo, CookieImportResult, SnapshotInfo, BrowserBookmark, BrowserStartURL, BrowserGroup, BrowserGroupInput, BrowserGroupWithCount, ProxyIPHealthResult, DefaultContentRule, WindowSyncCandidate, WindowSyncStartInput, WindowSyncState } from './types'
 
 const getBindings = async () => {
   try {
@@ -229,6 +229,86 @@ export async function fetchBrowserTabs(profileId: string): Promise<BrowserTab[]>
     { tabId: 'tab-1', title: '新标签页', url: 'about:blank', active: true },
     { tabId: 'tab-2', title: '示例站点', url: 'https://example.com', active: false },
   ]
+}
+
+// ============================================================================
+// Window Sync API
+// ============================================================================
+
+export async function listWindowSyncCandidates(): Promise<WindowSyncCandidate[]> {
+  const bindings: any = await getBindings()
+  if (bindings?.WindowSyncListCandidates) {
+    return (await bindings.WindowSyncListCandidates()) || []
+  }
+  const goApp = (window as any).go?.main?.App
+  if (goApp?.WindowSyncListCandidates) {
+    return (await goApp.WindowSyncListCandidates()) || []
+  }
+  return mockProfiles
+    .filter(profile => profile.running && profile.debugReady && profile.debugPort > 0)
+    .map(profile => ({
+      profileId: profile.profileId,
+      profileName: profile.profileName,
+      debugPort: profile.debugPort,
+      pid: profile.pid,
+      running: profile.running,
+      debugReady: profile.debugReady,
+      canSync: true,
+      unavailable: '',
+    }))
+}
+
+export async function startWindowSync(input: WindowSyncStartInput): Promise<WindowSyncState | null> {
+  const bindings: any = await getBindings()
+  if (bindings?.WindowSyncStart) {
+    return (await bindings.WindowSyncStart(input)) || null
+  }
+  const goApp = (window as any).go?.main?.App
+  if (goApp?.WindowSyncStart) {
+    return (await goApp.WindowSyncStart(input)) || null
+  }
+  const candidates = await listWindowSyncCandidates()
+  const selected = candidates.filter(item => input.profileIds.includes(item.profileId))
+  const now = new Date().toISOString()
+  return {
+    sessionId: `mock-sync-${Date.now()}`,
+    active: true,
+    paused: false,
+    masterProfileId: input.masterProfileId,
+    profileIds: input.profileIds,
+    windows: selected.map(item => ({
+      ...item,
+      role: item.profileId === input.masterProfileId ? 'master' : 'controlled',
+      master: item.profileId === input.masterProfileId,
+    })),
+    masterColor: '#2563eb',
+    startedAt: now,
+    updatedAt: now,
+  }
+}
+
+export async function getWindowSyncState(): Promise<WindowSyncState | null> {
+  const bindings: any = await getBindings()
+  if (bindings?.WindowSyncGetState) {
+    return (await bindings.WindowSyncGetState()) || null
+  }
+  const goApp = (window as any).go?.main?.App
+  if (goApp?.WindowSyncGetState) {
+    return (await goApp.WindowSyncGetState()) || null
+  }
+  return null
+}
+
+export async function stopWindowSync(): Promise<WindowSyncState | null> {
+  const bindings: any = await getBindings()
+  if (bindings?.WindowSyncStop) {
+    return (await bindings.WindowSyncStop()) || null
+  }
+  const goApp = (window as any).go?.main?.App
+  if (goApp?.WindowSyncStop) {
+    return (await goApp.WindowSyncStop()) || null
+  }
+  return null
 }
 
 // ============================================================================

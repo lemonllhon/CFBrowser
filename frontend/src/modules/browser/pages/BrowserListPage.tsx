@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Activity, CheckCircle, ChevronDown, ChevronRight, ChevronUp, Copy, Edit2, FileText, Focus, Key, Pencil, Play, Plus, RefreshCw, RotateCcw, Settings, Shuffle, Sliders, Square, Star, Trash2, XCircle, LayoutGrid, List } from 'lucide-react'
+import { Activity, CheckCircle, ChevronDown, ChevronRight, ChevronUp, Copy, Edit2, FileText, Focus, Key, Pencil, Play, Plus, RefreshCw, RotateCcw, Settings, Shuffle, Sliders, Square, Star, Trash2, XCircle, LayoutGrid, List, MonitorUp } from 'lucide-react'
 import { Badge, Button, Card, ConfirmModal, FormItem, Input, Modal, StatCard, Table, Textarea, toast } from '../../../shared/components'
 import type { TableColumn } from '../../../shared/components/Table'
-import type { BrowserCore, BrowserCoreInput, BrowserProfile, BrowserProxy, BrowserSettings, BrowserGroupWithCount } from '../types'
+import type { BrowserCore, BrowserCoreInput, BrowserProfile, BrowserProxy, BrowserSettings, BrowserGroupWithCount, WindowSyncCandidate, WindowSyncState } from '../types'
 import { InstanceFilterBar, EMPTY_FILTERS } from '../components/InstanceFilterBar'
 import type { InstanceFilters } from '../components/InstanceFilterBar'
 import { KeywordsModal } from '../components/KeywordsModal'
@@ -18,6 +18,8 @@ import {
   fetchBrowserProxies,
   fetchBrowserSettings,
   fetchGroups,
+  getWindowSyncState,
+  listWindowSyncCandidates,
   pinCenterBrowserInstance,
   regenerateBrowserProfileCode,
   restartBrowserInstance,
@@ -25,8 +27,10 @@ import {
   saveBrowserSettings,
   setBrowserProfileCode,
   setDefaultBrowserCore,
+  startWindowSync,
   startBrowserInstance,
   stopBrowserInstance,
+  stopWindowSync,
   switchBrowserProfileProxyNow,
   validateBrowserCorePath,
   validateProxyConfig,
@@ -319,6 +323,14 @@ export function BrowserListPage() {
   const profilesRef = useRef<BrowserProfile[]>([])
   const silentRefreshInFlightRef = useRef(false)
 
+  // 窗口同步
+  const [windowSyncModalOpen, setWindowSyncModalOpen] = useState(false)
+  const [windowSyncCandidates, setWindowSyncCandidates] = useState<WindowSyncCandidate[]>([])
+  const [windowSyncSelectedIds, setWindowSyncSelectedIds] = useState<Set<string>>(new Set())
+  const [windowSyncMasterId, setWindowSyncMasterId] = useState('')
+  const [windowSyncState, setWindowSyncState] = useState<WindowSyncState | null>(null)
+  const [windowSyncLoading, setWindowSyncLoading] = useState(false)
+
   // 关键字弹窗
   const [kwModal, setKwModal] = useState<{ open: boolean; profile: BrowserProfile | null }>({ open: false, profile: null })
 
@@ -494,6 +506,13 @@ export function BrowserListPage() {
       }
       void loadProfiles({ silent: true, syncRuntimeState: true })
     })
+    const offWindowSyncChanged = EventsOn('window-sync:state-changed', (payload: any) => {
+      setWindowSyncState(payload?.active ? payload : null)
+    })
+
+    void getWindowSyncState().then(state => {
+      setWindowSyncState(state?.active ? state : null)
+    })
 
     const timer = window.setInterval(() => {
       if (document.visibilityState !== 'visible') return
@@ -508,6 +527,7 @@ export function BrowserListPage() {
       offGroupsUpdated?.()
       offStopped?.()
       offCrashed?.()
+      offWindowSyncChanged?.()
     }
   }, [])
 
@@ -548,6 +568,7 @@ export function BrowserListPage() {
   const isProfileSwitchingProxy = (profileId: string) => switchingProxyIds.has(profileId)
   const isProfilePinning = (profileId: string) => pinningIds.has(profileId)
   const isProfileBusy = (profileId: string) => isProfileStarting(profileId) || isProfileStopping(profileId) || isProfileSwitchingProxy(profileId) || isProfilePinning(profileId)
+  const isWindowSyncMaster = (profileId: string) => !!windowSyncState?.active && windowSyncState.masterProfileId === profileId
 
   const getProfileStatus = (profile: BrowserProfile) => (
     resolveProfileStatus(profile.running, profile.debugReady, isProfileStarting(profile.profileId), isProfileStopping(profile.profileId))
@@ -701,6 +722,94 @@ export function BrowserListPage() {
       toast.error(error?.message || '置顶居中失败')
     } finally {
       updatePendingIds(setPinningIds, profileId, false)
+    }
+  }
+
+  const loadWindowSyncCandidates = async () => {
+    setWindowSyncLoading(true)
+    try {
+      const items = await listWindowSyncCandidates()
+      setWindowSyncCandidates(items)
+      const syncableIds = new Set(items.filter(item => item.canSync).map(item => item.profileId))
+      setWindowSyncSelectedIds(prev => {
+        const next = new Set(Array.from(prev).filter(id => syncableIds.has(id)))
+        if (next.size === 0) {
+          const selectedRunning = Array.from(selectedIds).filter(id => syncableIds.has(id))
+          selectedRunning.forEach(id => next.add(id))
+        }
+        return next
+      })
+      setWindowSyncMasterId(prev => {
+        if (prev && syncableIds.has(prev)) return prev
+        const activeMaster = items.find(item => item.master && item.canSync)?.profileId
+        if (activeMaster) return activeMaster
+        const selectedRunning = Array.from(selectedIds).find(id => syncableIds.has(id))
+        if (selectedRunning) return selectedRunning
+        return items.find(item => item.canSync)?.profileId || ''
+      })
+    } finally {
+      setWindowSyncLoading(false)
+    }
+  }
+
+  const handleOpenWindowSyncModal = async () => {
+    setWindowSyncModalOpen(true)
+    await loadWindowSyncCandidates()
+  }
+
+  const toggleWindowSyncCandidate = (profileId: string) => {
+    const candidate = windowSyncCandidates.find(item => item.profileId === profileId)
+    if (!candidate?.canSync) return
+    setWindowSyncSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(profileId)) {
+        next.delete(profileId)
+        if (windowSyncMasterId === profileId) {
+          setWindowSyncMasterId(Array.from(next)[0] || '')
+        }
+      } else {
+        next.add(profileId)
+        if (!windowSyncMasterId) {
+          setWindowSyncMasterId(profileId)
+        }
+      }
+      return next
+    })
+  }
+
+  const handleStartWindowSync = async () => {
+    const profileIds = Array.from(windowSyncSelectedIds)
+    if (profileIds.length < 2) {
+      toast.error('至少选择 2 个运行中的窗口')
+      return
+    }
+    if (!windowSyncMasterId || !windowSyncSelectedIds.has(windowSyncMasterId)) {
+      toast.error('请选择一个已选窗口作为主控窗口')
+      return
+    }
+    setWindowSyncLoading(true)
+    try {
+      const state = await startWindowSync({ profileIds, masterProfileId: windowSyncMasterId })
+      setWindowSyncState(state?.active ? state : null)
+      setWindowSyncModalOpen(false)
+      toast.success('窗口同步已创建，主控窗口已定位到左上角')
+    } catch (error: any) {
+      toast.error(error?.message || '开始窗口同步失败')
+    } finally {
+      setWindowSyncLoading(false)
+    }
+  }
+
+  const handleStopWindowSync = async () => {
+    setWindowSyncLoading(true)
+    try {
+      await stopWindowSync()
+      setWindowSyncState(null)
+      toast.success('窗口同步已停止')
+    } catch (error: any) {
+      toast.error(error?.message || '停止窗口同步失败')
+    } finally {
+      setWindowSyncLoading(false)
     }
   }
 
@@ -970,6 +1079,11 @@ export function BrowserListPage() {
               {value}
             </Link>
             <CopyProfileNameButton name={record.profileName} />
+            {isWindowSyncMaster(record.profileId) && (
+              <Badge variant="info" size="sm" dot dotClassName="w-2 h-2" className="border border-[var(--color-accent)]/25">
+                主控
+              </Badge>
+            )}
           </div>
           {record.tags && record.tags.length > 0 && (
             <div className="flex gap-1 flex-wrap">
@@ -1028,20 +1142,22 @@ export function BrowserListPage() {
         const isSwitchingProxy = isProfileSwitchingProxy(record.profileId)
         const isPinning = isProfilePinning(record.profileId)
         const isBusy = isProfileBusy(record.profileId)
+        const isSyncMaster = isWindowSyncMaster(record.profileId)
+        const disabledBySync = isSyncMaster
 
         return (
           <div className="flex justify-end gap-1">
             {record.running ? (
-              <Button size="sm" variant="secondary" onClick={() => handleStop(record.profileId)} title="停止" loading={isStopping}>
+              <Button size="sm" variant="secondary" onClick={() => handleStop(record.profileId)} title={disabledBySync ? '同步状态下无法修改主控窗口' : '停止'} loading={isStopping} disabled={disabledBySync}>
                 {!isStopping && <Square className="w-3.5 h-3.5" />}
               </Button>
             ) : (
-              <Button size="sm" onClick={() => handleStart(record.profileId)} title="启动" loading={isStarting}>
+              <Button size="sm" onClick={() => handleStart(record.profileId)} title={disabledBySync ? '同步状态下无法修改主控窗口' : '启动'} loading={isStarting} disabled={disabledBySync}>
                 {!isStarting && <Play className="w-3.5 h-3.5 fill-current" />}
               </Button>
             )}
             {record.running && record.autoProxySwitchEnabled && (
-              <Button size="sm" variant="ghost" onClick={() => handleSwitchProxyNow(record.profileId)} title="手动切换出口" loading={isSwitchingProxy} disabled={isBusy && !isSwitchingProxy}>
+              <Button size="sm" variant="ghost" onClick={() => handleSwitchProxyNow(record.profileId)} title={disabledBySync ? '同步状态下无法修改主控窗口' : '手动切换出口'} loading={isSwitchingProxy} disabled={disabledBySync || (isBusy && !isSwitchingProxy)}>
                 {!isSwitchingProxy && <Shuffle className="w-3.5 h-3.5" />}
               </Button>
             )}
@@ -1050,11 +1166,11 @@ export function BrowserListPage() {
                 {!isPinning && <Focus className="w-3.5 h-3.5" />}
               </Button>
             )}
-            <Button size="sm" variant="ghost" onClick={() => handleRestart(record.profileId)} title="重启" disabled={isBusy}><RotateCcw className="w-3.5 h-3.5" /></Button>
+            <Button size="sm" variant="ghost" onClick={() => handleRestart(record.profileId)} title={disabledBySync ? '同步状态下无法修改主控窗口' : '重启'} disabled={disabledBySync || isBusy}><RotateCcw className="w-3.5 h-3.5" /></Button>
             <Button size="sm" variant="ghost" onClick={() => openKwModal(record)} title="关键字" disabled={isBusy}><Key className="w-3.5 h-3.5" /></Button>
-            <Link to={`/browser/edit/${record.profileId}`}><Button size="sm" variant="ghost" title="配置" disabled={isBusy}><Settings className="w-3.5 h-3.5" /></Button></Link>
+            <Link to={`/browser/edit/${record.profileId}`}><Button size="sm" variant="ghost" title={disabledBySync ? '同步状态下无法修改主控窗口' : '配置'} disabled={disabledBySync || isBusy}><Settings className="w-3.5 h-3.5" /></Button></Link>
             <Button size="sm" variant="ghost" onClick={() => openCopyModal(record)} title="克隆" disabled={isBusy}><Copy className="w-3.5 h-3.5" /></Button>
-            <Button size="sm" variant="ghost" onClick={() => handleDelete(record.profileId)} title="删除" disabled={isBusy}><Trash2 className="w-3.5 h-3.5 text-red-500" /></Button>
+            <Button size="sm" variant="ghost" onClick={() => handleDelete(record.profileId)} title={disabledBySync ? '同步状态下无法修改主控窗口' : '删除'} disabled={disabledBySync || isBusy}><Trash2 className="w-3.5 h-3.5 text-red-500" /></Button>
           </div>
         )
       },
@@ -1104,6 +1220,7 @@ export function BrowserListPage() {
         <div className="flex gap-2">
           <Button variant="secondary" size="sm" onClick={() => setHeaderCollapsed(prev => !prev)}>{headerCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}{headerCollapsed ? '展开面板' : '收起面板'}</Button>
           <Button variant="secondary" size="sm" onClick={() => { void loadProfiles() }}><RefreshCw className="w-4 h-4" />刷新</Button>
+          <Button variant="secondary" size="sm" onClick={handleOpenWindowSyncModal}><MonitorUp className="w-4 h-4" />窗口同步</Button>
           <Button variant="secondary" size="sm" onClick={handleOpenSettings}><Sliders className="w-4 h-4" />基础配置</Button>
           <Button variant="secondary" size="sm" onClick={() => setExpandModalOpen(true)} className="text-[var(--color-primary)] border-[var(--color-primary)] hover:bg-[var(--color-primary)]/10">
             <Plus className="w-4 h-4" />扩容情况
@@ -1181,6 +1298,28 @@ export function BrowserListPage() {
         batchLoading={batchLoading}
       />
 
+      {windowSyncState?.active && (
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-[var(--color-accent)]/25 bg-[var(--color-accent)]/10 px-4 py-3">
+          <div className="flex items-center gap-2">
+            <span
+              className="w-2.5 h-2.5 rounded-full"
+              style={{ backgroundColor: windowSyncState.masterColor || '#2563eb' }}
+            />
+            <span className="text-sm font-medium text-[var(--color-text-primary)]">窗口同步中</span>
+            <Badge variant="info" size="sm">主控：{windowSyncState.windows.find(item => item.profileId === windowSyncState.masterProfileId)?.profileName || windowSyncState.masterProfileId}</Badge>
+            <Badge variant="default" size="sm">共 {windowSyncState.windows.length} 个窗口</Badge>
+          </div>
+          <div className="ml-auto flex items-center gap-2">
+            <Button size="sm" variant="secondary" onClick={handleOpenWindowSyncModal}>
+              <MonitorUp className="w-4 h-4" />查看
+            </Button>
+            <Button size="sm" variant="secondary" onClick={handleStopWindowSync} loading={windowSyncLoading}>
+              <Square className="w-4 h-4" />停止同步
+            </Button>
+          </div>
+        </div>
+      )}
+
       <Card padding="none">
         <div className="overflow-auto" style={{ maxHeight: 'calc(100vh - 320px)' }}>
           {/* Replace table with Flex column of Cards */}
@@ -1205,6 +1344,8 @@ export function BrowserListPage() {
                 const isSwitchingProxy = isProfileSwitchingProxy(record.profileId)
                 const isPinning = isProfilePinning(record.profileId)
                 const isBusy = isProfileBusy(record.profileId)
+                const isSyncMaster = isWindowSyncMaster(record.profileId)
+                const disabledBySync = isSyncMaster
 
                 return (
                   <div
@@ -1229,6 +1370,11 @@ export function BrowserListPage() {
                               {record.profileName}
                             </Link>
                             <CopyProfileNameButton name={record.profileName} />
+                            {isSyncMaster && (
+                              <Badge variant="info" size="sm" dot dotClassName="w-2 h-2" className="border border-[var(--color-accent)]/25">
+                                主控
+                              </Badge>
+                            )}
                           </div>
                           {record.tags && record.tags.length > 0 && (
                             <div className="flex gap-1 ml-1">
@@ -1244,18 +1390,18 @@ export function BrowserListPage() {
 
                       <div className="flex items-center gap-1 flex-wrap">
                         {record.running ? (
-                          <Button size="sm" variant="secondary" onClick={() => handleStop(record.profileId)} title={isStopping ? '停止中' : '停止'} loading={isStopping}>
+                          <Button size="sm" variant="secondary" onClick={() => handleStop(record.profileId)} title={disabledBySync ? '同步状态下无法修改主控窗口' : (isStopping ? '停止中' : '停止')} loading={isStopping} disabled={disabledBySync}>
                             {!isStopping && <Square className="w-4 h-4 mr-1.5" />}
                             {isStopping ? '停止中' : '停止'}
                           </Button>
                         ) : (
-                          <Button size="sm" onClick={() => handleStart(record.profileId)} title={isStarting ? '启动中' : '启动'} loading={isStarting}>
+                          <Button size="sm" onClick={() => handleStart(record.profileId)} title={disabledBySync ? '同步状态下无法修改主控窗口' : (isStarting ? '启动中' : '启动')} loading={isStarting} disabled={disabledBySync}>
                             {!isStarting && <Play className="w-4 h-4 fill-current mr-1.5" />}
                             {isStarting ? '启动中' : '启动'}
                           </Button>
                         )}
                         {record.running && record.autoProxySwitchEnabled && (
-                          <Button size="sm" variant="ghost" onClick={() => handleSwitchProxyNow(record.profileId)} title="手动切换出口" className="px-3" loading={isSwitchingProxy} disabled={isBusy && !isSwitchingProxy}>
+                          <Button size="sm" variant="ghost" onClick={() => handleSwitchProxyNow(record.profileId)} title={disabledBySync ? '同步状态下无法修改主控窗口' : '手动切换出口'} className="px-3" loading={isSwitchingProxy} disabled={disabledBySync || (isBusy && !isSwitchingProxy)}>
                             {!isSwitchingProxy && <Shuffle className="w-4 h-4 mr-1.5" />}
                             {isSwitchingProxy ? '切换中' : '切换出口'}
                           </Button>
@@ -1267,11 +1413,11 @@ export function BrowserListPage() {
                           </Button>
                         )}
                         <span className="w-px h-4 bg-[var(--color-border-muted)] mx-1"></span>
-                        <Button size="sm" variant="ghost" onClick={() => handleRestart(record.profileId)} title="重启" className="px-3" disabled={isBusy}><RotateCcw className="w-4 h-4 mr-1.5" />重启</Button>
+                        <Button size="sm" variant="ghost" onClick={() => handleRestart(record.profileId)} title={disabledBySync ? '同步状态下无法修改主控窗口' : '重启'} className="px-3" disabled={disabledBySync || isBusy}><RotateCcw className="w-4 h-4 mr-1.5" />重启</Button>
                         <Button size="sm" variant="ghost" onClick={() => openKwModal(record)} title="关键字管理" className="px-3" disabled={isBusy}><Key className="w-4 h-4 mr-1.5" />关键字</Button>
-                        <Link to={`/browser/edit/${record.profileId}`}><Button size="sm" variant="ghost" title="配置" className="px-3" disabled={isBusy}><Settings className="w-4 h-4 mr-1.5" />配置</Button></Link>
+                        <Link to={`/browser/edit/${record.profileId}`}><Button size="sm" variant="ghost" title={disabledBySync ? '同步状态下无法修改主控窗口' : '配置'} className="px-3" disabled={disabledBySync || isBusy}><Settings className="w-4 h-4 mr-1.5" />配置</Button></Link>
                         <Button size="sm" variant="ghost" onClick={() => openCopyModal(record)} title="克隆" className="px-3" disabled={isBusy}><Copy className="w-4 h-4 mr-1.5" />克隆</Button>
-                        <Button size="sm" variant="ghost" onClick={() => handleDelete(record.profileId)} title="删除" className="px-3 text-red-500 hover:text-red-600 hover:bg-red-50" disabled={isBusy}><Trash2 className="w-4 h-4 mr-1.5" />删除</Button>
+                        <Button size="sm" variant="ghost" onClick={() => handleDelete(record.profileId)} title={disabledBySync ? '同步状态下无法修改主控窗口' : '删除'} className="px-3 text-red-500 hover:text-red-600 hover:bg-red-50" disabled={disabledBySync || isBusy}><Trash2 className="w-4 h-4 mr-1.5" />删除</Button>
                       </div>
                     </div>
 
@@ -1361,6 +1507,114 @@ export function BrowserListPage() {
                 placeholder="1200"
               />
             </FormItem>
+          </div>
+        </div>
+      </Modal>
+
+      {/* 窗口同步弹窗 */}
+      <Modal
+        open={windowSyncModalOpen}
+        onClose={() => setWindowSyncModalOpen(false)}
+        title="窗口同步"
+        width="760px"
+        footer={
+          <>
+            {windowSyncState?.active && (
+              <Button variant="secondary" onClick={handleStopWindowSync} loading={windowSyncLoading}>
+                停止同步
+              </Button>
+            )}
+            <Button variant="secondary" onClick={() => setWindowSyncModalOpen(false)}>取消</Button>
+            <Button onClick={handleStartWindowSync} loading={windowSyncLoading} disabled={!!windowSyncState?.active}>
+              开始同步窗口
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          {windowSyncState?.active && (
+            <div className="rounded-lg border border-[var(--color-accent)]/25 bg-[var(--color-accent)]/10 px-3 py-2">
+              <div className="flex flex-wrap items-center gap-2 text-sm text-[var(--color-text-primary)]">
+                <Badge variant="info" dot dotClassName="w-2 h-2">同步中</Badge>
+                <span>主控窗口：{windowSyncState.windows.find(item => item.profileId === windowSyncState.masterProfileId)?.profileName || windowSyncState.masterProfileId}</span>
+                <span className="text-[var(--color-text-muted)]">同步状态下无法修改主控窗口。</span>
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-[var(--color-text-primary)]">选择需要同时操控的窗口</p>
+              <p className="text-xs text-[var(--color-text-muted)] mt-1">仅运行中且调试端口就绪的实例可以加入窗口同步。</p>
+            </div>
+            <Button size="sm" variant="secondary" onClick={loadWindowSyncCandidates} loading={windowSyncLoading}>
+              <RefreshCw className="w-4 h-4" />刷新
+            </Button>
+          </div>
+
+          <div className="border border-[var(--color-border-default)] rounded-lg overflow-hidden">
+            <div className="grid grid-cols-[44px_1.4fr_120px_120px_96px] gap-3 bg-[var(--color-bg-secondary)] px-3 py-2 text-xs font-medium text-[var(--color-text-muted)]">
+              <span>选择</span>
+              <span>窗口</span>
+              <span>状态</span>
+              <span>主控窗口</span>
+              <span>调试端口</span>
+            </div>
+            <div className="max-h-[360px] overflow-y-auto divide-y divide-[var(--color-border-muted)]">
+              {windowSyncCandidates.length === 0 ? (
+                <div className="px-3 py-10 text-center text-sm text-[var(--color-text-muted)]">
+                  {windowSyncLoading ? '正在加载窗口...' : '暂无可同步窗口，请先启动至少 2 个实例。'}
+                </div>
+              ) : (
+                windowSyncCandidates.map(candidate => {
+                  const checked = windowSyncSelectedIds.has(candidate.profileId)
+                  const isMaster = windowSyncMasterId === candidate.profileId
+                  return (
+                    <div
+                      key={candidate.profileId}
+                      className={`grid grid-cols-[44px_1.4fr_120px_120px_96px] gap-3 items-center px-3 py-2 text-sm ${candidate.canSync ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-muted)] bg-[var(--color-bg-muted)]/30'}`}
+                    >
+                      <input
+                        type="checkbox"
+                        className="w-4 h-4 accent-[var(--color-accent)]"
+                        checked={checked}
+                        disabled={!candidate.canSync || !!windowSyncState?.active}
+                        onChange={() => toggleWindowSyncCandidate(candidate.profileId)}
+                      />
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="truncate font-medium">{candidate.profileName}</span>
+                          {candidate.master && <Badge variant="info" size="sm">当前主控</Badge>}
+                        </div>
+                        {!candidate.canSync && (
+                          <div className="text-xs text-[var(--color-error)] mt-0.5">{candidate.unavailable || '不可同步'}</div>
+                        )}
+                      </div>
+                      <Badge variant={candidate.canSync ? 'success' : 'warning'} size="sm" dot>
+                        {candidate.canSync ? '可同步' : '不可用'}
+                      </Badge>
+                      <label className="inline-flex items-center gap-2">
+                        <input
+                          type="radio"
+                          name="window-sync-master"
+                          className="w-4 h-4 accent-[var(--color-accent)]"
+                          checked={isMaster}
+                          disabled={!candidate.canSync || !checked || !!windowSyncState?.active}
+                          onChange={() => setWindowSyncMasterId(candidate.profileId)}
+                        />
+                        <span className="text-xs">{isMaster ? '主控' : '设为主控'}</span>
+                      </label>
+                      <span className="text-xs font-mono text-[var(--color-text-muted)]">{candidate.debugPort || '-'}</span>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--color-text-muted)]">
+            <span>已选 {windowSyncSelectedIds.size} 个窗口</span>
+            <span>主控：{windowSyncCandidates.find(item => item.profileId === windowSyncMasterId)?.profileName || '未选择'}</span>
           </div>
         </div>
       </Modal>

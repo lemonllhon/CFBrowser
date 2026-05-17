@@ -210,3 +210,11 @@ export function TriggerGC():Promise<void>;
 export function UpdateGroup(arg1:string,arg2:browser.GroupInput):Promise<browser.Group>;
 
 export function ValidateProxyConfig(arg1:string,arg2:string):Promise<backend.ProxyValidationResult>;
+
+export function WindowSyncGetState():Promise<backend.WindowSyncState>;
+
+export function WindowSyncListCandidates():Promise<Array<backend.WindowSyncCandidate>>;
+
+export function WindowSyncStart(arg1:backend.WindowSyncStartInput):Promise<backend.WindowSyncState>;
+
+export function WindowSyncStop():Promise<backend.WindowSyncState>;

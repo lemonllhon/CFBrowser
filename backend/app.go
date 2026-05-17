@@ -54,6 +54,8 @@ type App struct {
 	xrayBridgeRefs   map[string]string
 	switchBridgeRefs map[string]*switchingProxyBridge
 	authProxyBridgeRefs map[string]*authenticatedProxyBridge
+	windowSyncMu     sync.Mutex
+	windowSyncState  *WindowSyncState
 	stopServicesOnce sync.Once
 	finalizeOnce     sync.Once
 }
@@ -683,6 +685,9 @@ func (a *App) BrowserGetAllTags() []string {
 
 // BrowserProfileSetKeywords 设置实例关键字
 func (a *App) BrowserProfileSetKeywords(profileId string, keywords []string) (*BrowserProfile, error) {
+	if err := a.ensureWindowSyncProfileMutable(profileId); err != nil {
+		return nil, err
+	}
 	return a.browserMgr.SetKeywords(profileId, keywords)
 }
 
@@ -691,10 +696,18 @@ func (a *App) BrowserProfileCreate(input BrowserProfileInput) (*BrowserProfile, 
 }
 
 func (a *App) BrowserProfileUpdate(profileId string, input BrowserProfileInput) (*BrowserProfile, error) {
+	if err := a.ensureWindowSyncProfileMutable(profileId); err != nil {
+		return nil, err
+	}
 	return a.browserMgr.Update(profileId, input)
 }
 
-func (a *App) BrowserProfileDelete(profileId string) error { return a.deleteProfileWithData(profileId) }
+func (a *App) BrowserProfileDelete(profileId string) error {
+	if err := a.ensureWindowSyncProfileMutable(profileId); err != nil {
+		return err
+	}
+	return a.deleteProfileWithData(profileId)
+}
 
 // BrowserProfileCopy 复制实例配置（除指纹参数外全部复制）
 func (a *App) BrowserProfileCopy(profileId string, newName string) (*BrowserProfile, error) {

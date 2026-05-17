@@ -148,6 +148,96 @@ export namespace backend {
 	        this.filePath = source["filePath"];
 	    }
 	}
+	export class WindowSyncCandidate {
+	    profileId: string;
+	    profileName: string;
+	    debugPort: number;
+	    pid: number;
+	    running: boolean;
+	    debugReady: boolean;
+	    role: string;
+	    master: boolean;
+	    canSync: boolean;
+	    unavailable: string;
+
+	    static createFrom(source: any = {}) {
+	        return new WindowSyncCandidate(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.profileId = source["profileId"];
+	        this.profileName = source["profileName"];
+	        this.debugPort = source["debugPort"];
+	        this.pid = source["pid"];
+	        this.running = source["running"];
+	        this.debugReady = source["debugReady"];
+	        this.role = source["role"];
+	        this.master = source["master"];
+	        this.canSync = source["canSync"];
+	        this.unavailable = source["unavailable"];
+	    }
+	}
+	export class WindowSyncStartInput {
+	    profileIds: string[];
+	    masterProfileId: string;
+
+	    static createFrom(source: any = {}) {
+	        return new WindowSyncStartInput(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.profileIds = source["profileIds"];
+	        this.masterProfileId = source["masterProfileId"];
+	    }
+	}
+	export class WindowSyncState {
+	    sessionId: string;
+	    active: boolean;
+	    paused: boolean;
+	    masterProfileId: string;
+	    profileIds: string[];
+	    windows: WindowSyncCandidate[];
+	    masterColor: string;
+	    startedAt: string;
+	    updatedAt: string;
+
+	    static createFrom(source: any = {}) {
+	        return new WindowSyncState(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sessionId = source["sessionId"];
+	        this.active = source["active"];
+	        this.paused = source["paused"];
+	        this.masterProfileId = source["masterProfileId"];
+	        this.profileIds = source["profileIds"];
+	        this.windows = this.convertValues(source["windows"], WindowSyncCandidate);
+	        this.masterColor = source["masterColor"];
+	        this.startedAt = source["startedAt"];
+	        this.updatedAt = source["updatedAt"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 
 }
 
