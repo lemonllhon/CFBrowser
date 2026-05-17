@@ -212,6 +212,18 @@ export interface WindowSyncStartInput {
   masterProfileId: string
 }
 
+export type WindowSyncLayoutMode = 'grid' | 'stack' | 'custom'
+
+export interface WindowSyncLayoutSettings {
+  mode: WindowSyncLayoutMode | string
+  width: number
+  height: number
+  gapX: number
+  gapY: number
+  perRow: number
+  updatedAt?: string
+}
+
 export interface WindowSyncState {
   sessionId: string
   active: boolean
@@ -220,6 +232,7 @@ export interface WindowSyncState {
   profileIds: string[]
   windows: WindowSyncCandidate[]
   masterColor: string
+  layout: WindowSyncLayoutSettings
   startedAt: string
   updatedAt: string
 }

@@ -1,4 +1,4 @@
-import type { BrowserProfile, BrowserProfileInput, BrowserTab, BrowserSettings, BrowserCore, BrowserCoreInput, BrowserCoreValidateResult, BrowserProxy, BrowserCoreExtended, CookieInfo, CookieImportResult, SnapshotInfo, BrowserBookmark, BrowserStartURL, BrowserGroup, BrowserGroupInput, BrowserGroupWithCount, ProxyIPHealthResult, DefaultContentRule, WindowSyncCandidate, WindowSyncStartInput, WindowSyncState } from './types'
+import type { BrowserProfile, BrowserProfileInput, BrowserTab, BrowserSettings, BrowserCore, BrowserCoreInput, BrowserCoreValidateResult, BrowserProxy, BrowserCoreExtended, CookieInfo, CookieImportResult, SnapshotInfo, BrowserBookmark, BrowserStartURL, BrowserGroup, BrowserGroupInput, BrowserGroupWithCount, ProxyIPHealthResult, DefaultContentRule, WindowSyncCandidate, WindowSyncLayoutSettings, WindowSyncStartInput, WindowSyncState } from './types'
 
 const getBindings = async () => {
   try {
@@ -282,6 +282,7 @@ export async function startWindowSync(input: WindowSyncStartInput): Promise<Wind
       master: item.profileId === input.masterProfileId,
     })),
     masterColor: '#2563eb',
+    layout: defaultWindowSyncLayoutSettings(),
     startedAt: now,
     updatedAt: now,
   }
@@ -295,6 +296,53 @@ export async function getWindowSyncState(): Promise<WindowSyncState | null> {
   const goApp = (window as any).go?.main?.App
   if (goApp?.WindowSyncGetState) {
     return (await goApp.WindowSyncGetState()) || null
+  }
+  return null
+}
+
+export function defaultWindowSyncLayoutSettings(): WindowSyncLayoutSettings {
+  return {
+    mode: 'grid',
+    width: 1500,
+    height: 500,
+    gapX: 10,
+    gapY: 10,
+    perRow: 2,
+  }
+}
+
+export async function getWindowSyncLayoutSettings(): Promise<WindowSyncLayoutSettings> {
+  const bindings: any = await getBindings()
+  if (bindings?.WindowSyncGetLayoutSettings) {
+    return (await bindings.WindowSyncGetLayoutSettings()) || defaultWindowSyncLayoutSettings()
+  }
+  const goApp = (window as any).go?.main?.App
+  if (goApp?.WindowSyncGetLayoutSettings) {
+    return (await goApp.WindowSyncGetLayoutSettings()) || defaultWindowSyncLayoutSettings()
+  }
+  return defaultWindowSyncLayoutSettings()
+}
+
+export async function saveWindowSyncLayoutSettings(settings: WindowSyncLayoutSettings): Promise<WindowSyncLayoutSettings> {
+  const bindings: any = await getBindings()
+  if (bindings?.WindowSyncSaveLayoutSettings) {
+    return (await bindings.WindowSyncSaveLayoutSettings(settings)) || settings
+  }
+  const goApp = (window as any).go?.main?.App
+  if (goApp?.WindowSyncSaveLayoutSettings) {
+    return (await goApp.WindowSyncSaveLayoutSettings(settings)) || settings
+  }
+  return settings
+}
+
+export async function applyWindowSyncLayout(settings: WindowSyncLayoutSettings): Promise<WindowSyncState | null> {
+  const bindings: any = await getBindings()
+  if (bindings?.WindowSyncApplyLayout) {
+    return (await bindings.WindowSyncApplyLayout(settings)) || null
+  }
+  const goApp = (window as any).go?.main?.App
+  if (goApp?.WindowSyncApplyLayout) {
+    return (await goApp.WindowSyncApplyLayout(settings)) || null
   }
   return null
 }

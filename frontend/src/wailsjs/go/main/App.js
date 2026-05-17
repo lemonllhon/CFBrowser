@@ -410,8 +410,16 @@ export function ValidateProxyConfig(arg1, arg2) {
   return window['go']['main']['App']['ValidateProxyConfig'](arg1, arg2);
 }
 
+export function WindowSyncApplyLayout(arg1) {
+  return window['go']['main']['App']['WindowSyncApplyLayout'](arg1);
+}
+
 export function WindowSyncGetState() {
   return window['go']['main']['App']['WindowSyncGetState']();
+}
+
+export function WindowSyncGetLayoutSettings() {
+  return window['go']['main']['App']['WindowSyncGetLayoutSettings']();
 }
 
 export function WindowSyncListCandidates() {
@@ -424,6 +432,10 @@ export function WindowSyncPause() {
 
 export function WindowSyncResume() {
   return window['go']['main']['App']['WindowSyncResume']();
+}
+
+export function WindowSyncSaveLayoutSettings(arg1) {
+  return window['go']['main']['App']['WindowSyncSaveLayoutSettings'](arg1);
 }
 
 export function WindowSyncShowAll() {

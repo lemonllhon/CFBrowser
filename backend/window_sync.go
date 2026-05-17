@@ -2,6 +2,7 @@ package backend
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -11,6 +12,16 @@ import (
 )
 
 const defaultWindowSyncMasterColor = "#2563eb"
+
+type WindowSyncLayoutSettings struct {
+	Mode     string `json:"mode"`
+	Width    int    `json:"width"`
+	Height   int    `json:"height"`
+	GapX     int    `json:"gapX"`
+	GapY     int    `json:"gapY"`
+	PerRow   int    `json:"perRow"`
+	UpdatedAt string `json:"updatedAt"`
+}
 
 type WindowSyncCandidate struct {
 	ProfileId    string `json:"profileId"`
@@ -38,6 +49,7 @@ type WindowSyncState struct {
 	ProfileIds      []string              `json:"profileIds"`
 	Windows         []WindowSyncCandidate `json:"windows"`
 	MasterColor     string                `json:"masterColor"`
+	Layout          WindowSyncLayoutSettings `json:"layout"`
 	StartedAt       string                `json:"startedAt"`
 	UpdatedAt       string                `json:"updatedAt"`
 }
@@ -125,6 +137,7 @@ func (a *App) WindowSyncStart(input WindowSyncStartInput) (*WindowSyncState, err
 		ProfileIds:      profileIds,
 		Windows:         windows,
 		MasterColor:     defaultWindowSyncMasterColor,
+		Layout:          a.normalizedWindowSyncLayoutSettings(a.windowSyncLayout),
 		StartedAt:       now,
 		UpdatedAt:       now,
 	}
@@ -133,7 +146,7 @@ func (a *App) WindowSyncStart(input WindowSyncStartInput) (*WindowSyncState, err
 	a.windowSyncState = cloneWindowSyncState(state)
 	a.windowSyncMu.Unlock()
 
-	if err := a.pinWindowSyncMasterTopLeft(masterProfileId); err != nil {
+	if err := a.applyWindowSyncLayoutToState(state.Layout, state); err != nil {
 		a.windowSyncMu.Lock()
 		a.windowSyncState = nil
 		a.windowSyncMu.Unlock()
@@ -142,6 +155,56 @@ func (a *App) WindowSyncStart(input WindowSyncStartInput) (*WindowSyncState, err
 
 	a.emitWindowSyncStateChanged(state)
 	return cloneWindowSyncState(state), nil
+}
+
+func (a *App) WindowSyncApplyLayout(input WindowSyncLayoutSettings) (*WindowSyncState, error) {
+	settings := a.normalizedWindowSyncLayoutSettings(input)
+
+	a.windowSyncMu.Lock()
+	if a.windowSyncState == nil || !a.windowSyncState.Active {
+		a.windowSyncMu.Unlock()
+		return nil, fmt.Errorf("窗口同步未启动")
+	}
+	now := time.Now().Format(time.RFC3339)
+	settings.UpdatedAt = now
+	a.windowSyncLayout = settings
+	a.windowSyncState.Layout = settings
+	a.windowSyncState.UpdatedAt = now
+	state := cloneWindowSyncState(a.windowSyncState)
+	a.windowSyncMu.Unlock()
+
+	if err := a.applyWindowSyncLayoutToState(settings, state); err != nil {
+		return state, err
+	}
+	a.emitWindowSyncStateChanged(state)
+	return state, nil
+}
+
+func (a *App) WindowSyncSaveLayoutSettings(input WindowSyncLayoutSettings) (*WindowSyncLayoutSettings, error) {
+	settings := a.normalizedWindowSyncLayoutSettings(input)
+	settings.UpdatedAt = time.Now().Format(time.RFC3339)
+
+	a.windowSyncMu.Lock()
+	a.windowSyncLayout = settings
+	if a.windowSyncState != nil && a.windowSyncState.Active {
+		a.windowSyncState.Layout = settings
+		a.windowSyncState.UpdatedAt = settings.UpdatedAt
+	}
+	a.windowSyncMu.Unlock()
+
+	return &settings, nil
+}
+
+func (a *App) WindowSyncGetLayoutSettings() WindowSyncLayoutSettings {
+	if a == nil {
+		return defaultWindowSyncLayoutSettings()
+	}
+	a.windowSyncMu.Lock()
+	defer a.windowSyncMu.Unlock()
+	if a.windowSyncState != nil && a.windowSyncState.Active && strings.TrimSpace(a.windowSyncState.Layout.Mode) != "" {
+		return a.normalizedWindowSyncLayoutSettings(a.windowSyncState.Layout)
+	}
+	return a.normalizedWindowSyncLayoutSettings(a.windowSyncLayout)
 }
 
 func (a *App) WindowSyncGetState() *WindowSyncState {
@@ -412,6 +475,204 @@ func (a *App) showWindowSyncProfile(profileId string) error {
 		}
 	}
 	return nil
+}
+
+func (a *App) applyWindowSyncLayoutToState(settings WindowSyncLayoutSettings, state *WindowSyncState) error {
+	if state == nil || len(state.Windows) == 0 {
+		return fmt.Errorf("窗口同步未启动")
+	}
+	rects := calculateWindowSyncLayoutRects(settings, orderedWindowSyncWindows(state), primaryWorkArea())
+	failures := make([]string, 0)
+	for _, item := range orderedWindowSyncWindows(state) {
+		rect, ok := rects[item.ProfileId]
+		if !ok {
+			continue
+		}
+		if err := a.setWindowSyncProfileBounds(item.ProfileId, rect); err != nil {
+			name := strings.TrimSpace(item.ProfileName)
+			if name == "" {
+				name = item.ProfileId
+			}
+			failures = append(failures, fmt.Sprintf("%s：%v", name, err))
+		}
+	}
+
+	if strings.EqualFold(strings.TrimSpace(settings.Mode), "stack") {
+		_ = a.showWindowSyncProfile(state.MasterProfileId)
+	}
+	if len(failures) > 0 {
+		return fmt.Errorf("部分窗口布局失败：%s", strings.Join(failures, "；"))
+	}
+	return nil
+}
+
+func (a *App) setWindowSyncProfileBounds(profileId string, rect workAreaRect) error {
+	profileId = strings.TrimSpace(profileId)
+	if profileId == "" {
+		return fmt.Errorf("profile id is required")
+	}
+
+	a.browserMgr.Mutex.Lock()
+	profile, exists := a.browserMgr.Profiles[profileId]
+	if !exists || profile == nil {
+		a.browserMgr.Mutex.Unlock()
+		return fmt.Errorf("实例不存在")
+	}
+	if !profile.Running || !profile.DebugReady || profile.DebugPort <= 0 {
+		a.browserMgr.Mutex.Unlock()
+		return fmt.Errorf("实例未运行或调试端口未就绪")
+	}
+	debugPort := profile.DebugPort
+	pid := profile.Pid
+	a.browserMgr.Mutex.Unlock()
+
+	targetID, err := firstPageTargetID(debugPort)
+	if err != nil {
+		return err
+	}
+	windowInfo, err := cdpBrowserCallResult(debugPort, "Browser.getWindowForTarget", map[string]any{"targetId": targetID})
+	if err != nil {
+		return err
+	}
+	windowID, ok := numericResult(windowInfo["windowId"])
+	if !ok {
+		return fmt.Errorf("无法获取浏览器窗口 ID")
+	}
+	if _, err := cdpBrowserCallResult(debugPort, "Browser.setWindowBounds", map[string]any{
+		"windowId": windowID,
+		"bounds": map[string]any{
+			"windowState": "normal",
+			"left":        rect.Left,
+			"top":         rect.Top,
+			"width":       rect.Width,
+			"height":      rect.Height,
+		},
+	}); err != nil {
+		return err
+	}
+	_, _ = cdpCall(debugPort, "Page.bringToFront", nil)
+	if pid > 0 {
+		_ = setBrowserWindowsTopmostByPID(pid, rect.Left, rect.Top, rect.Width, rect.Height)
+	}
+	return nil
+}
+
+func calculateWindowSyncLayoutRects(settings WindowSyncLayoutSettings, windows []WindowSyncCandidate, area workAreaRect) map[string]workAreaRect {
+	settings = normalizeWindowSyncLayoutSettings(settings)
+	rects := make(map[string]workAreaRect, len(windows))
+	count := len(windows)
+	if count == 0 {
+		return rects
+	}
+
+	switch strings.ToLower(strings.TrimSpace(settings.Mode)) {
+	case "stack":
+		for _, item := range windows {
+			rects[item.ProfileId] = workAreaRect{
+				Left:   area.Left,
+				Top:    area.Top,
+				Width:  maxInt(320, area.Width),
+				Height: maxInt(240, area.Height),
+			}
+		}
+	case "custom":
+		perRow := maxInt(1, settings.PerRow)
+		width := maxInt(320, settings.Width)
+		height := maxInt(240, settings.Height)
+		for index, item := range windows {
+			col := index % perRow
+			row := index / perRow
+			rects[item.ProfileId] = workAreaRect{
+				Left:   area.Left + col*(width+settings.GapX),
+				Top:    area.Top + row*(height+settings.GapY),
+				Width:  width,
+				Height: height,
+			}
+		}
+	default:
+		cols := int(math.Ceil(math.Sqrt(float64(count))))
+		if cols < 1 {
+			cols = 1
+		}
+		rows := int(math.Ceil(float64(count) / float64(cols)))
+		if rows < 1 {
+			rows = 1
+		}
+		gapX, gapY := 8, 8
+		width := (area.Width - gapX*(cols-1)) / cols
+		height := (area.Height - gapY*(rows-1)) / rows
+		width = maxInt(320, width)
+		height = maxInt(240, height)
+		for index, item := range windows {
+			col := index % cols
+			row := index / cols
+			rects[item.ProfileId] = workAreaRect{
+				Left:   area.Left + col*(width+gapX),
+				Top:    area.Top + row*(height+gapY),
+				Width:  width,
+				Height: height,
+			}
+		}
+	}
+	return rects
+}
+
+func orderedWindowSyncWindows(state *WindowSyncState) []WindowSyncCandidate {
+	if state == nil {
+		return nil
+	}
+	windows := append([]WindowSyncCandidate{}, state.Windows...)
+	sort.SliceStable(windows, func(i, j int) bool {
+		if windows[i].ProfileId == state.MasterProfileId {
+			return true
+		}
+		if windows[j].ProfileId == state.MasterProfileId {
+			return false
+		}
+		return i < j
+	})
+	return windows
+}
+
+func (a *App) normalizedWindowSyncLayoutSettings(settings WindowSyncLayoutSettings) WindowSyncLayoutSettings {
+	return normalizeWindowSyncLayoutSettings(settings)
+}
+
+func normalizeWindowSyncLayoutSettings(settings WindowSyncLayoutSettings) WindowSyncLayoutSettings {
+	mode := strings.ToLower(strings.TrimSpace(settings.Mode))
+	if mode != "grid" && mode != "stack" && mode != "custom" {
+		mode = "grid"
+	}
+	out := WindowSyncLayoutSettings{
+		Mode:      mode,
+		Width:     settings.Width,
+		Height:    settings.Height,
+		GapX:      maxInt(0, settings.GapX),
+		GapY:      maxInt(0, settings.GapY),
+		PerRow:    settings.PerRow,
+		UpdatedAt: settings.UpdatedAt,
+	}
+	if out.Width <= 0 {
+		out.Width = 1500
+	}
+	if out.Height <= 0 {
+		out.Height = 500
+	}
+	if out.PerRow <= 0 {
+		out.PerRow = 2
+	}
+	return out
+}
+
+func defaultWindowSyncLayoutSettings() WindowSyncLayoutSettings {
+	return WindowSyncLayoutSettings{
+		Mode:   "grid",
+		Width:  1500,
+		Height: 500,
+		GapX:   10,
+		GapY:   10,
+		PerRow: 2,
+	}
 }
 
 func (a *App) emitWindowSyncStateChanged(state *WindowSyncState) {

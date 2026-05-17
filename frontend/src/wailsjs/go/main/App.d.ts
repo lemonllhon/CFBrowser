@@ -211,13 +211,19 @@ export function UpdateGroup(arg1:string,arg2:browser.GroupInput):Promise<browser
 
 export function ValidateProxyConfig(arg1:string,arg2:string):Promise<backend.ProxyValidationResult>;
 
+export function WindowSyncApplyLayout(arg1:backend.WindowSyncLayoutSettings):Promise<backend.WindowSyncState>;
+
 export function WindowSyncGetState():Promise<backend.WindowSyncState>;
+
+export function WindowSyncGetLayoutSettings():Promise<backend.WindowSyncLayoutSettings>;
 
 export function WindowSyncListCandidates():Promise<Array<backend.WindowSyncCandidate>>;
 
 export function WindowSyncPause():Promise<backend.WindowSyncState>;
 
 export function WindowSyncResume():Promise<backend.WindowSyncState>;
+
+export function WindowSyncSaveLayoutSettings(arg1:backend.WindowSyncLayoutSettings):Promise<backend.WindowSyncLayoutSettings>;
 
 export function WindowSyncShowAll():Promise<backend.WindowSyncState>;
 

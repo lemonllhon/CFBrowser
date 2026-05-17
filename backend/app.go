@@ -56,6 +56,7 @@ type App struct {
 	authProxyBridgeRefs map[string]*authenticatedProxyBridge
 	windowSyncMu     sync.Mutex
 	windowSyncState  *WindowSyncState
+	windowSyncLayout WindowSyncLayoutSettings
 	stopServicesOnce sync.Once
 	finalizeOnce     sync.Once
 }

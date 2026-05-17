@@ -3,22 +3,25 @@ import { Link } from 'react-router-dom'
 import { Activity, CheckCircle, ChevronDown, ChevronRight, ChevronUp, Copy, Edit2, FileText, Focus, Key, Layers, MousePointerClick, Pause, Pencil, Play, Plus, RefreshCw, RotateCcw, Settings, Shuffle, Sliders, Square, Star, TextCursorInput, Trash2, XCircle, LayoutGrid, List, MonitorUp } from 'lucide-react'
 import { Badge, Button, Card, ConfirmModal, FormItem, Input, Modal, StatCard, Table, Textarea, toast } from '../../../shared/components'
 import type { TableColumn } from '../../../shared/components/Table'
-import type { BrowserCore, BrowserCoreInput, BrowserProfile, BrowserProxy, BrowserSettings, BrowserGroupWithCount, WindowSyncCandidate, WindowSyncState } from '../types'
+import type { BrowserCore, BrowserCoreInput, BrowserProfile, BrowserProxy, BrowserSettings, BrowserGroupWithCount, WindowSyncCandidate, WindowSyncLayoutSettings, WindowSyncState } from '../types'
 import { InstanceFilterBar, EMPTY_FILTERS } from '../components/InstanceFilterBar'
 import type { InstanceFilters } from '../components/InstanceFilterBar'
 import { KeywordsModal } from '../components/KeywordsModal'
 import { EventsOn } from '../../../wailsjs/runtime/runtime'
 import { resolveActionErrorMessage, resolveActionFeedback } from '../utils/actionErrors'
 import {
+  applyWindowSyncLayout,
   copyBrowserProfile,
   deleteBrowserCore,
   deleteBrowserProfile,
+  defaultWindowSyncLayoutSettings,
   fetchBrowserCores,
   fetchBrowserProfiles,
   fetchBrowserProxies,
   fetchBrowserSettings,
   fetchGroups,
   getWindowSyncState,
+  getWindowSyncLayoutSettings,
   listWindowSyncCandidates,
   pauseWindowSync,
   pinCenterBrowserInstance,
@@ -27,6 +30,7 @@ import {
   restartBrowserInstance,
   saveBrowserCore,
   saveBrowserSettings,
+  saveWindowSyncLayoutSettings,
   setBrowserProfileCode,
   setDefaultBrowserCore,
   showAllWindowSyncWindows,
@@ -119,6 +123,7 @@ function WindowSyncControlBar({
   onTogglePause,
   onStop,
   onOpenList,
+  onOpenLayout,
 }: {
   state: WindowSyncState
   loading: boolean
@@ -126,6 +131,7 @@ function WindowSyncControlBar({
   onTogglePause: () => void
   onStop: () => void
   onOpenList: () => void
+  onOpenLayout: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const masterName = state.windows.find(item => item.profileId === state.masterProfileId)?.profileName || state.masterProfileId
@@ -173,7 +179,7 @@ function WindowSyncControlBar({
             </div>
 
             <div className="grid grid-cols-3 gap-2">
-              <Button size="sm" variant="ghost" disabled title="阶段 3 开启">
+              <Button size="sm" variant="ghost" onClick={onOpenLayout} title="窗口布局">
                 <LayoutGrid className="w-4 h-4" />窗口布局
               </Button>
               <Button size="sm" variant="ghost" disabled title="阶段 5 开启">
@@ -420,6 +426,8 @@ export function BrowserListPage() {
   const [windowSyncMasterId, setWindowSyncMasterId] = useState('')
   const [windowSyncState, setWindowSyncState] = useState<WindowSyncState | null>(null)
   const [windowSyncLoading, setWindowSyncLoading] = useState(false)
+  const [windowSyncLayoutModalOpen, setWindowSyncLayoutModalOpen] = useState(false)
+  const [windowSyncLayout, setWindowSyncLayout] = useState<WindowSyncLayoutSettings>(() => defaultWindowSyncLayoutSettings())
 
   // 关键字弹窗
   const [kwModal, setKwModal] = useState<{ open: boolean; profile: BrowserProfile | null }>({ open: false, profile: null })
@@ -602,7 +610,11 @@ export function BrowserListPage() {
 
     void getWindowSyncState().then(state => {
       setWindowSyncState(state?.active ? state : null)
+      if (state?.layout) {
+        setWindowSyncLayout(state.layout)
+      }
     })
+    void getWindowSyncLayoutSettings().then(setWindowSyncLayout)
 
     const timer = window.setInterval(() => {
       if (document.visibilityState !== 'visible') return
@@ -881,6 +893,9 @@ export function BrowserListPage() {
     try {
       const state = await startWindowSync({ profileIds, masterProfileId: windowSyncMasterId })
       setWindowSyncState(state?.active ? state : null)
+      if (state?.layout) {
+        setWindowSyncLayout(state.layout)
+      }
       setWindowSyncModalOpen(false)
       toast.success('窗口同步已创建，主控窗口已定位到左上角')
     } catch (error: any) {
@@ -909,6 +924,9 @@ export function BrowserListPage() {
     try {
       const state = windowSyncState.paused ? await resumeWindowSync() : await pauseWindowSync()
       setWindowSyncState(state?.active ? state : null)
+      if (state?.layout) {
+        setWindowSyncLayout(state.layout)
+      }
       toast.success(windowSyncState.paused ? '窗口同步已恢复' : '窗口同步已暂停')
     } catch (error: any) {
       toast.error(error?.message || '同步状态切换失败')
@@ -924,10 +942,49 @@ export function BrowserListPage() {
       const state = await showAllWindowSyncWindows()
       if (state?.active) {
         setWindowSyncState(state)
+        if (state.layout) {
+          setWindowSyncLayout(state.layout)
+        }
       }
       toast.success('同步窗口已弹出')
     } catch (error: any) {
       toast.error(error?.message || '展示同步窗口失败')
+    } finally {
+      setWindowSyncLoading(false)
+    }
+  }
+
+  const handleOpenWindowSyncLayout = async () => {
+    try {
+      const settings = await getWindowSyncLayoutSettings()
+      setWindowSyncLayout(settings)
+    } catch {
+      // 保留当前布局表单值即可。
+    }
+    setWindowSyncLayoutModalOpen(true)
+  }
+
+  const updateWindowSyncLayout = (patch: Partial<WindowSyncLayoutSettings>) => {
+    setWindowSyncLayout(prev => ({ ...prev, ...patch }))
+  }
+
+  const handleApplyWindowSyncLayout = async (settings?: WindowSyncLayoutSettings) => {
+    const nextSettings = settings || windowSyncLayout
+    setWindowSyncLoading(true)
+    try {
+      await saveWindowSyncLayoutSettings(nextSettings)
+      const state = await applyWindowSyncLayout(nextSettings)
+      if (state?.active) {
+        setWindowSyncState(state)
+        if (state.layout) {
+          setWindowSyncLayout(state.layout)
+        }
+      } else {
+        setWindowSyncLayout(nextSettings)
+      }
+      toast.success('窗口布局已应用')
+    } catch (error: any) {
+      toast.error(error?.message || '应用窗口布局失败')
     } finally {
       setWindowSyncLoading(false)
     }
@@ -1426,6 +1483,7 @@ export function BrowserListPage() {
           onTogglePause={handleToggleWindowSyncPause}
           onStop={handleStopWindowSync}
           onOpenList={handleOpenWindowSyncModal}
+          onOpenLayout={handleOpenWindowSyncLayout}
         />
       )}
 
@@ -1726,6 +1784,123 @@ export function BrowserListPage() {
           <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--color-text-muted)]">
             <span>已选 {windowSyncSelectedIds.size} 个窗口</span>
             <span>主控：{windowSyncCandidates.find(item => item.profileId === windowSyncMasterId)?.profileName || '未选择'}</span>
+          </div>
+        </div>
+      </Modal>
+
+      {/* 窗口布局弹窗 */}
+      <Modal
+        open={windowSyncLayoutModalOpen}
+        onClose={() => setWindowSyncLayoutModalOpen(false)}
+        title="窗口布局"
+        width="560px"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setWindowSyncLayoutModalOpen(false)}>关闭</Button>
+            <Button
+              onClick={() => {
+                void handleApplyWindowSyncLayout()
+                setWindowSyncLayoutModalOpen(false)
+              }}
+              loading={windowSyncLoading}
+            >
+              应用布局
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-5">
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { mode: 'grid', label: '宫格布局', icon: <LayoutGrid className="w-4 h-4" /> },
+              { mode: 'stack', label: '堆叠布局', icon: <Layers className="w-4 h-4" /> },
+              { mode: 'custom', label: '自定义', icon: <Sliders className="w-4 h-4" /> },
+            ].map(item => (
+              <Button
+                key={item.mode}
+                size="sm"
+                variant={windowSyncLayout.mode === item.mode ? 'primary' : 'secondary'}
+                onClick={() => {
+                  const next = { ...windowSyncLayout, mode: item.mode }
+                  setWindowSyncLayout(next)
+                  if (item.mode !== 'custom') {
+                    void handleApplyWindowSyncLayout(next)
+                    setWindowSyncLayoutModalOpen(false)
+                  }
+                }}
+                loading={windowSyncLoading && windowSyncLayout.mode === item.mode}
+              >
+                {item.icon}{item.label}
+              </Button>
+            ))}
+          </div>
+
+          <div className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] px-3 py-2">
+            <p className="text-sm font-medium text-[var(--color-text-primary)]">
+              {windowSyncLayout.mode === 'stack' ? '堆叠布局' : windowSyncLayout.mode === 'custom' ? '自定义布局' : '宫格布局'}
+            </p>
+            <p className="text-xs text-[var(--color-text-muted)] mt-1">
+              {windowSyncLayout.mode === 'stack'
+                ? '所有同步窗口撑满主屏，主控窗口保持在最上层。'
+                : windowSyncLayout.mode === 'custom'
+                  ? '按尺寸、间距和每行数量排列，允许窗口溢出主屏。'
+                  : '所有同步窗口会在主屏工作区自动平铺排列。'}
+            </p>
+          </div>
+
+          <div className={windowSyncLayout.mode === 'custom' ? 'space-y-4' : 'space-y-4 opacity-60'}>
+            <div className="grid grid-cols-2 gap-4">
+              <FormItem label="窗口宽度">
+                <Input
+                  type="number"
+                  min={320}
+                  step={10}
+                  disabled={windowSyncLayout.mode !== 'custom'}
+                  value={windowSyncLayout.width}
+                  onChange={e => updateWindowSyncLayout({ width: Math.max(320, Number(e.target.value) || 1500) })}
+                />
+              </FormItem>
+              <FormItem label="窗口高度">
+                <Input
+                  type="number"
+                  min={240}
+                  step={10}
+                  disabled={windowSyncLayout.mode !== 'custom'}
+                  value={windowSyncLayout.height}
+                  onChange={e => updateWindowSyncLayout({ height: Math.max(240, Number(e.target.value) || 500) })}
+                />
+              </FormItem>
+              <FormItem label="水平间距">
+                <Input
+                  type="number"
+                  min={0}
+                  step={1}
+                  disabled={windowSyncLayout.mode !== 'custom'}
+                  value={windowSyncLayout.gapX}
+                  onChange={e => updateWindowSyncLayout({ gapX: Math.max(0, Number(e.target.value) || 0) })}
+                />
+              </FormItem>
+              <FormItem label="垂直间距">
+                <Input
+                  type="number"
+                  min={0}
+                  step={1}
+                  disabled={windowSyncLayout.mode !== 'custom'}
+                  value={windowSyncLayout.gapY}
+                  onChange={e => updateWindowSyncLayout({ gapY: Math.max(0, Number(e.target.value) || 0) })}
+                />
+              </FormItem>
+            </div>
+            <FormItem label="每行数量">
+              <Input
+                type="number"
+                min={1}
+                step={1}
+                disabled={windowSyncLayout.mode !== 'custom'}
+                value={windowSyncLayout.perRow}
+                onChange={e => updateWindowSyncLayout({ perRow: Math.max(1, Number(e.target.value) || 2) })}
+              />
+            </FormItem>
           </div>
         </div>
       </Modal>

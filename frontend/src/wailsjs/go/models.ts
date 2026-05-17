@@ -192,6 +192,30 @@ export namespace backend {
 	        this.masterProfileId = source["masterProfileId"];
 	    }
 	}
+	export class WindowSyncLayoutSettings {
+	    mode: string;
+	    width: number;
+	    height: number;
+	    gapX: number;
+	    gapY: number;
+	    perRow: number;
+	    updatedAt: string;
+
+	    static createFrom(source: any = {}) {
+	        return new WindowSyncLayoutSettings(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.mode = source["mode"];
+	        this.width = source["width"];
+	        this.height = source["height"];
+	        this.gapX = source["gapX"];
+	        this.gapY = source["gapY"];
+	        this.perRow = source["perRow"];
+	        this.updatedAt = source["updatedAt"];
+	    }
+	}
 	export class WindowSyncState {
 	    sessionId: string;
 	    active: boolean;
@@ -200,6 +224,7 @@ export namespace backend {
 	    profileIds: string[];
 	    windows: WindowSyncCandidate[];
 	    masterColor: string;
+	    layout: WindowSyncLayoutSettings;
 	    startedAt: string;
 	    updatedAt: string;
 
@@ -216,6 +241,7 @@ export namespace backend {
 	        this.profileIds = source["profileIds"];
 	        this.windows = this.convertValues(source["windows"], WindowSyncCandidate);
 	        this.masterColor = source["masterColor"];
+	        this.layout = this.convertValues(source["layout"], WindowSyncLayoutSettings);
 	        this.startedAt = source["startedAt"];
 	        this.updatedAt = source["updatedAt"];
 	    }
