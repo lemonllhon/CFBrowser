@@ -76,7 +76,8 @@ Write-Host "Syncing wails.json productVersion from local git tag..."
 Write-Host "  Tag: $tagName"
 
 $releaseVersion = Assert-VersionValue -Value ($tagName -replace '^[vV]', '') -Source "local git tag"
-$config = Get-Content -LiteralPath $wailsConfigPath -Raw | ConvertFrom-Json
+$configText = Get-Content -LiteralPath $wailsConfigPath -Raw
+$config = $configText | ConvertFrom-Json
 $currentVersion = Get-TrimmedText ([string]$config.info.productVersion)
 
 if ($currentVersion -eq $releaseVersion) {
@@ -84,9 +85,13 @@ if ($currentVersion -eq $releaseVersion) {
     exit 0
 }
 
-$config.info.productVersion = $releaseVersion
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-$jsonText = ($config | ConvertTo-Json -Depth 100)
-[System.IO.File]::WriteAllText($wailsConfigPath, $jsonText + "`n", $utf8NoBom)
+$updatedText = [regex]::Replace(
+    $configText,
+    '("productVersion"\s*:\s*")[^"]*(")',
+    "`${1}$releaseVersion`${2}",
+    1
+)
+[System.IO.File]::WriteAllText($wailsConfigPath, $updatedText, $utf8NoBom)
 
 Write-Host "OK wails.json productVersion synced: $currentVersion -> $releaseVersion"

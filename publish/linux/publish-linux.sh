@@ -178,13 +178,28 @@ if [[ ! -f "$WAILS_CONFIG" ]]; then
 fi
 
 if [[ "$SKIP_BUILD" -ne 1 ]]; then
-  echo "[1/5] Installing frontend dependencies..."
+  echo "[1/6] Syncing Wails product version..."
+  python3 - "$WAILS_CONFIG" "$VERSION" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+version = sys.argv[2].strip()
+data = json.loads(path.read_text(encoding="utf-8"))
+old_version = (((data or {}).get("info") or {}).get("productVersion") or "").strip()
+data.setdefault("info", {})["productVersion"] = version
+path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+print(f"wails.json productVersion: {old_version} -> {version}")
+PY
+
+  echo "[2/6] Installing frontend dependencies..."
   (cd "$ROOT_DIR/frontend" && BROWSERSLIST_IGNORE_OLD_DATA=1 npm ci --prefer-offline --no-audit --no-fund)
 
-  echo "[2/5] Building frontend assets..."
+  echo "[3/6] Building frontend assets..."
   (cd "$ROOT_DIR/frontend" && BROWSERSLIST_IGNORE_OLD_DATA=1 npm run build)
 
-  echo "[3/5] Building app binary with Wails..."
+  echo "[4/6] Building app binary with Wails..."
   rm -f "$APP_BIN"
   (
     cd "$ROOT_DIR"
@@ -199,7 +214,7 @@ if [[ ! -f "$APP_BIN" ]]; then
   exit 1
 fi
 
-echo "[4/5] Assembling staging files..."
+echo "[5/6] Assembling staging files..."
 APP_STAGE="$STAGING_ROOT/$TARGET/app"
 DEB_STAGE="$STAGING_ROOT/$TARGET/deb"
 rm -rf "$APP_STAGE" "$DEB_STAGE"
@@ -374,7 +389,7 @@ else
   dpkg-deb --build "$PKG_ROOT" "$OUTPUT_DIR/$DEB_NAME" >/dev/null
 fi
 
-echo "[5/5] Artifacts generated:"
+echo "[6/6] Artifacts generated:"
 echo "  - $OUTPUT_DIR/$TAR_NAME"
 echo "  - $OUTPUT_DIR/$DEB_NAME"
 
