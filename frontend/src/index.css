@@ -275,7 +275,7 @@ input, select, textarea {
   width: 100%;
   min-height: 54px;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 
 .window-sync-floating-toolbar button,
@@ -301,19 +301,24 @@ input, select, textarea {
   width: 0;
   min-width: 0;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   overflow: hidden;
   opacity: 0;
   transition: width 0.18s ease, opacity 0.18s ease;
 }
 
 .window-sync-toolbar-expanded.is-expanded {
-  width: 318px;
+  width: 488px;
   opacity: 1;
 }
 
 .window-sync-floating-toolbar.is-batch-open .window-sync-toolbar-expanded.is-expanded {
-  width: 482px;
+  width: 488px;
+}
+
+.window-sync-toolbar-expanded button {
+  white-space: nowrap;
+  word-break: keep-all;
 }
 
 .window-sync-batch-panel {

@@ -23,7 +23,7 @@ const (
 	windowSyncToolbarArg       = "--window-sync-toolbar"
 	windowSyncToolbarPortArg   = "--window-sync-toolbar-port"
 	windowSyncToolbarTokenArg  = "--window-sync-toolbar-token"
-	windowSyncToolbarWidth     = 520
+	windowSyncToolbarWidth     = 760
 	windowSyncToolbarHeight    = 76
 	windowSyncToolbarTopOffset = 18
 )

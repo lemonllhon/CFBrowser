@@ -17,7 +17,7 @@ type ToolbarConfig = {
 const fallbackConfig: ToolbarConfig = {
   port: 0,
   token: '',
-  width: 520,
+  width: 760,
   height: 76,
   x: 360,
   y: 18,
@@ -208,7 +208,7 @@ export function WindowSyncFloatingToolbar() {
 
   useEffect(() => {
     try {
-      WindowSetSize(batchOpen ? 720 : config.width || fallbackConfig.width, batchOpen ? 430 : config.height || fallbackConfig.height)
+      WindowSetSize(batchOpen ? 760 : config.width || fallbackConfig.width, batchOpen ? 430 : config.height || fallbackConfig.height)
     } catch {
       // Older runtimes may ignore dynamic toolbar resizing; commands still work.
     }
