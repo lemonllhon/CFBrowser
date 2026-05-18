@@ -39,6 +39,7 @@ type windowSyncToolbarController struct {
 
 type windowSyncToolbarCommandInput struct {
 	Command string `json:"command"`
+	Mode    string `json:"mode"`
 }
 
 type WindowSyncToolbarConfig struct {
@@ -235,6 +236,8 @@ func (c *windowSyncToolbarController) handleCommand(w http.ResponseWriter, r *ht
 	switch strings.TrimSpace(strings.ToLower(input.Command)) {
 	case "show-all":
 		state, err = app.WindowSyncShowAll()
+	case "layout":
+		state, err = app.WindowSyncApplyLayout(WindowSyncLayoutSettings{Mode: strings.TrimSpace(strings.ToLower(input.Mode))})
 	case "pause":
 		state, err = app.WindowSyncPause()
 	case "resume":

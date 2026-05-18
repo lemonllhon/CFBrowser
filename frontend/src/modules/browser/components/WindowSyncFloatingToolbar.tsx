@@ -103,6 +103,21 @@ export function WindowSyncFloatingToolbar() {
     }
   }
 
+  const applyLayout = async (mode: 'grid' | 'stack') => {
+    setLoadingCommand(`layout:${mode}`)
+    try {
+      const next = await request<WindowSyncState>('/command', {
+        method: 'POST',
+        body: JSON.stringify({ command: 'layout', mode }),
+      })
+      setState(next?.active ? next : null)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '布局切换失败')
+    } finally {
+      setLoadingCommand('')
+    }
+  }
+
   useEffect(() => {
     document.body.classList.add('window-sync-toolbar-body')
     const keepTopmost = () => {
@@ -194,9 +209,27 @@ export function WindowSyncFloatingToolbar() {
             {paused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
             {paused ? '恢复' : '暂停'}
           </Button>
-          <Button size="sm" variant="ghost" title="布局入口将在下一步接入" disabled className="h-9 px-3">
+          <Button
+            size="sm"
+            variant="ghost"
+            title="宫格布局"
+            onClick={() => void applyLayout('grid')}
+            loading={loadingCommand === 'layout:grid'}
+            className="h-9 px-3"
+          >
             <SquareStack className="h-4 w-4" />
-            布局
+            宫格
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            title="堆叠布局"
+            onClick={() => void applyLayout('stack')}
+            loading={loadingCommand === 'layout:stack'}
+            className="h-9 px-3"
+          >
+            <SquareStack className="h-4 w-4" />
+            堆叠
           </Button>
           <Button size="sm" variant="ghost" title="刷新状态" onClick={() => void loadState()} className="h-9 px-3">
             <RefreshCw className="h-4 w-4" />
