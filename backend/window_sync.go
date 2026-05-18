@@ -1176,10 +1176,28 @@ func (a *App) applyWindowSyncLayoutToState(settings WindowSyncLayoutSettings, st
 }
 
 func (a *App) windowSyncLayoutWorkArea() workAreaRect {
+	if x, y, ok := a.windowSyncAppWindowCenterPoint(); ok {
+		return workAreaForPoint(x, y)
+	}
 	if x, y, ok := appWindowCenterPoint(); ok {
 		return workAreaForPoint(x, y)
 	}
 	return primaryWorkArea()
+}
+
+func (a *App) windowSyncAppWindowCenterPoint() (int, int, bool) {
+	if a == nil || a.ctx == nil {
+		return 0, 0, false
+	}
+	defer func() {
+		_ = recover()
+	}()
+	x, y := runtime.WindowGetPosition(a.ctx)
+	width, height := runtime.WindowGetSize(a.ctx)
+	if width <= 0 || height <= 0 {
+		return 0, 0, false
+	}
+	return x + width/2, y + height/2, true
 }
 
 func (a *App) setWindowSyncProfileBounds(profileId string, rect workAreaRect) error {
