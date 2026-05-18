@@ -160,6 +160,9 @@ func (a *App) WindowSyncStart(input WindowSyncStartInput) (*WindowSyncState, err
 	}
 
 	now := time.Now().Format(time.RFC3339)
+	layout := a.normalizedWindowSyncLayoutSettings(a.windowSyncLayout)
+	layout.Mode = "grid"
+	layout.UpdatedAt = now
 	state := &WindowSyncState{
 		SessionId:       uuid.NewString(),
 		Active:          true,
@@ -170,7 +173,7 @@ func (a *App) WindowSyncStart(input WindowSyncStartInput) (*WindowSyncState, err
 		MasterColor:     defaultWindowSyncMasterColor,
 		SyncKeyboard:    true,
 		SyncMouse:       true,
-		Layout:          a.normalizedWindowSyncLayoutSettings(a.windowSyncLayout),
+		Layout:          layout,
 		StartedAt:       now,
 		UpdatedAt:       now,
 	}
@@ -1147,7 +1150,7 @@ func (a *App) applyWindowSyncLayoutToState(settings WindowSyncLayoutSettings, st
 	if state == nil || len(state.Windows) == 0 {
 		return fmt.Errorf("窗口同步未启动")
 	}
-	rects := calculateWindowSyncLayoutRects(settings, orderedWindowSyncWindows(state), primaryWorkArea())
+	rects := calculateWindowSyncLayoutRects(settings, orderedWindowSyncWindows(state), a.windowSyncLayoutWorkArea())
 	failures := make([]string, 0)
 	for _, item := range orderedWindowSyncWindows(state) {
 		rect, ok := rects[item.ProfileId]
@@ -1170,6 +1173,13 @@ func (a *App) applyWindowSyncLayoutToState(settings WindowSyncLayoutSettings, st
 		return fmt.Errorf("部分窗口布局失败：%s", strings.Join(failures, "；"))
 	}
 	return nil
+}
+
+func (a *App) windowSyncLayoutWorkArea() workAreaRect {
+	if x, y, ok := appWindowCenterPoint(); ok {
+		return workAreaForPoint(x, y)
+	}
+	return primaryWorkArea()
 }
 
 func (a *App) setWindowSyncProfileBounds(profileId string, rect workAreaRect) error {
@@ -1229,12 +1239,23 @@ func calculateWindowSyncLayoutRects(settings WindowSyncLayoutSettings, windows [
 
 	switch strings.ToLower(strings.TrimSpace(settings.Mode)) {
 	case "stack":
-		for _, item := range windows {
+		offset := 24
+		width := maxInt(320, area.Width)
+		height := maxInt(240, area.Height)
+		for index, item := range windows {
+			left := area.Left + index*offset
+			top := area.Top + index*offset
+			if left+width > area.Left+area.Width {
+				left = area.Left
+			}
+			if top+height > area.Top+area.Height {
+				top = area.Top
+			}
 			rects[item.ProfileId] = workAreaRect{
-				Left:   area.Left,
-				Top:    area.Top,
-				Width:  maxInt(320, area.Width),
-				Height: maxInt(240, area.Height),
+				Left:   left,
+				Top:    top,
+				Width:  width,
+				Height: height,
 			}
 		}
 	case "custom":
@@ -1252,19 +1273,10 @@ func calculateWindowSyncLayoutRects(settings WindowSyncLayoutSettings, windows [
 			}
 		}
 	default:
-		cols := int(math.Ceil(math.Sqrt(float64(count))))
-		if cols < 1 {
-			cols = 1
-		}
-		rows := int(math.Ceil(float64(count) / float64(cols)))
-		if rows < 1 {
-			rows = 1
-		}
+		cols, rows := bestWindowSyncGrid(count, area)
 		gapX, gapY := 8, 8
-		width := (area.Width - gapX*(cols-1)) / cols
-		height := (area.Height - gapY*(rows-1)) / rows
-		width = maxInt(320, width)
-		height = maxInt(240, height)
+		width := maxInt(160, (area.Width-gapX*(cols-1))/cols)
+		height := maxInt(120, (area.Height-gapY*(rows-1))/rows)
 		for index, item := range windows {
 			col := index % cols
 			row := index / cols
@@ -1277,6 +1289,29 @@ func calculateWindowSyncLayoutRects(settings WindowSyncLayoutSettings, windows [
 		}
 	}
 	return rects
+}
+
+func bestWindowSyncGrid(count int, area workAreaRect) (int, int) {
+	if count <= 1 {
+		return 1, 1
+	}
+	screenRatio := float64(maxInt(1, area.Width)) / float64(maxInt(1, area.Height))
+	bestCols, bestRows := count, 1
+	bestScore := math.MaxFloat64
+	for cols := 1; cols <= count; cols++ {
+		rows := int(math.Ceil(float64(count) / float64(cols)))
+		cellRatio := (float64(area.Width) / float64(cols)) / (float64(area.Height) / float64(rows))
+		score := math.Abs(math.Log(cellRatio))
+		if cols < rows && screenRatio >= 1 {
+			score += 0.2
+		}
+		if score < bestScore {
+			bestScore = score
+			bestCols = cols
+			bestRows = rows
+		}
+	}
+	return bestCols, bestRows
 }
 
 func orderedWindowSyncWindows(state *WindowSyncState) []WindowSyncCandidate {
