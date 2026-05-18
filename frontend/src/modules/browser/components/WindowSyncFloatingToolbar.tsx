@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Eye, GripHorizontal, Keyboard, Pause, Play, Power, RefreshCw, SquareStack, X } from 'lucide-react'
+import { Eye, GripHorizontal, Keyboard, Link, Pause, Play, Power, RefreshCw, SquareStack, X } from 'lucide-react'
 import { Button, ToastContainer, toast } from '../../../shared/components'
 import { ThemeProvider } from '../../../shared/theme'
-import type { WindowSyncBatchInputDifferentItem, WindowSyncBatchInputResult, WindowSyncState } from '../types'
+import type { WindowSyncActionResult, WindowSyncBatchInputDifferentItem, WindowSyncBatchInputResult, WindowSyncState } from '../types'
 import { WindowSetAlwaysOnTop, WindowSetPosition, WindowSetSize } from '../../../wailsjs/runtime/runtime'
 
 type ToolbarConfig = {
@@ -66,6 +66,11 @@ function resultMessage(result: WindowSyncBatchInputResult | null) {
   return `批量输入完成：成功 ${result.success}/${result.total}${result.failed > 0 ? `，失败 ${result.failed}` : ''}`
 }
 
+function actionResultMessage(action: string, result: WindowSyncActionResult | null) {
+  if (!result) return `${action}已执行`
+  return `${action}完成：成功 ${result.success}/${result.total}${result.failed > 0 ? `，失败 ${result.failed}` : ''}`
+}
+
 export function WindowSyncFloatingToolbar() {
   const [config] = useState<ToolbarConfig>(() => readToolbarConfig())
   const [state, setState] = useState<WindowSyncState | null>(null)
@@ -76,6 +81,9 @@ export function WindowSyncFloatingToolbar() {
   const [sameText, setSameText] = useState('')
   const [differentTexts, setDifferentTexts] = useState<Record<string, string>>({})
   const [batchResult, setBatchResult] = useState<WindowSyncBatchInputResult | null>(null)
+  const [tabPanelOpen, setTabPanelOpen] = useState(false)
+  const [openUrlsText, setOpenUrlsText] = useState('')
+  const [tabResult, setTabResult] = useState<WindowSyncActionResult | null>(null)
   const endpoint = useMemo(() => `http://127.0.0.1:${config.port}`, [config.port])
 
   const request = async <T,>(path: string, init?: RequestInit): Promise<T | null> => {
@@ -173,6 +181,39 @@ export function WindowSyncFloatingToolbar() {
     }
   }
 
+  const runTabCommand = async (command: string, label: string, urls?: string[]) => {
+    setLoadingCommand(command)
+    try {
+      const result = await request<WindowSyncActionResult>('/command', {
+        method: 'POST',
+        body: JSON.stringify({ command, urls }),
+      })
+      setTabResult(result)
+      if ((result?.failed || 0) > 0) {
+        toast.warning(actionResultMessage(label, result))
+      } else {
+        toast.success(actionResultMessage(label, result))
+      }
+      await loadState()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : `${label}失败`)
+    } finally {
+      setLoadingCommand('')
+    }
+  }
+
+  const runOpenUrls = async () => {
+    const urls = openUrlsText
+      .split(/\r?\n/)
+      .map(item => item.trim())
+      .filter(Boolean)
+    if (urls.length === 0) {
+      toast.error('请输入需要打开的网址')
+      return
+    }
+    await runTabCommand('open-urls', '打开网站', urls)
+  }
+
   useEffect(() => {
     document.body.classList.add('window-sync-toolbar-body')
     const keepTopmost = () => {
@@ -208,11 +249,14 @@ export function WindowSyncFloatingToolbar() {
 
   useEffect(() => {
     try {
-      WindowSetSize(batchOpen ? 760 : config.width || fallbackConfig.width, batchOpen ? 430 : config.height || fallbackConfig.height)
+      WindowSetSize(
+        batchOpen || tabPanelOpen ? 760 : config.width || fallbackConfig.width,
+        batchOpen || tabPanelOpen ? 430 : config.height || fallbackConfig.height,
+      )
     } catch {
       // Older runtimes may ignore dynamic toolbar resizing; commands still work.
     }
-  }, [batchOpen, config.height, config.width])
+  }, [batchOpen, config.height, config.width, tabPanelOpen])
 
   useEffect(() => {
     const windows = orderedWindows(state)
@@ -233,7 +277,7 @@ export function WindowSyncFloatingToolbar() {
   return (
     <ThemeProvider>
       <main
-        className={`window-sync-floating-toolbar ${batchOpen ? 'is-batch-open' : ''}`}
+        className={`window-sync-floating-toolbar ${batchOpen || tabPanelOpen ? 'is-panel-open' : ''}`}
         onMouseEnter={() => setExpanded(true)}
         onMouseLeave={() => setExpanded(false)}
       >
@@ -292,12 +336,27 @@ export function WindowSyncFloatingToolbar() {
               title="批量输入"
               onClick={() => {
                 setBatchOpen(open => !open)
+                setTabPanelOpen(false)
                 setBatchResult(null)
               }}
               className="h-9 px-3"
             >
               <Keyboard className="h-4 w-4" />
               批量输入
+            </Button>
+            <Button
+              size="sm"
+              variant={tabPanelOpen ? 'secondary' : 'ghost'}
+              title="标签控制"
+              onClick={() => {
+                setTabPanelOpen(open => !open)
+                setBatchOpen(false)
+                setTabResult(null)
+              }}
+              className="h-9 px-3"
+            >
+              <Link className="h-4 w-4" />
+              标签
             </Button>
             <Button
               size="sm"
@@ -380,6 +439,64 @@ export function WindowSyncFloatingToolbar() {
             <div className="flex items-center justify-end gap-2">
               <Button size="sm" variant="secondary" onClick={() => setBatchResult(null)}>清除结果</Button>
               <Button size="sm" onClick={() => void runBatchInput()} loading={batchLoading}>输入</Button>
+            </div>
+          </section>
+        )}
+        {tabPanelOpen && (
+          <section className="window-sync-batch-panel">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-[var(--color-text-primary)]">标签控制</div>
+                <div className="text-xs text-[var(--color-text-muted)]">当前同步窗口 {windows.length} 个，按主控当前标签执行。</div>
+              </div>
+              <Button size="sm" variant="ghost" title="关闭标签控制" onClick={() => setTabPanelOpen(false)} className="h-8 w-8 px-0">
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <div className="window-sync-tab-actions">
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => void runTabCommand('close-other-tabs', '关闭其他标签页')}
+                loading={loadingCommand === 'close-other-tabs'}
+              >
+                关闭其他标签页
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => void runTabCommand('close-current-tab', '关闭当前标签页')}
+                loading={loadingCommand === 'close-current-tab'}
+              >
+                关闭当前标签页
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => void runTabCommand('close-blank-tabs', '关闭空白标签页')}
+                loading={loadingCommand === 'close-blank-tabs'}
+              >
+                关闭空白标签页
+              </Button>
+            </div>
+            <textarea
+              className="window-sync-batch-textarea window-sync-open-urls-textarea"
+              value={openUrlsText}
+              onChange={event => setOpenUrlsText(event.target.value)}
+              placeholder="输入要在所有同步窗口打开的网址，多个网址换行区分"
+            />
+            {tabResult && (
+              <div className="window-sync-batch-result">
+                {tabResult.results.map(item => (
+                  <div key={item.profileId} className={item.success ? 'text-[var(--color-success)]' : 'text-[var(--color-danger)]'}>
+                    {(item.master ? '主控' : '被控')} · {item.profileName || item.profileId}：{item.success ? '成功' : item.error || '失败'}
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex items-center justify-end gap-2">
+              <Button size="sm" variant="secondary" onClick={() => setTabResult(null)}>清除结果</Button>
+              <Button size="sm" onClick={() => void runOpenUrls()} loading={loadingCommand === 'open-urls'}>打开网站</Button>
             </div>
           </section>
         )}

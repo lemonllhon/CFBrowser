@@ -108,6 +108,25 @@ type WindowSyncBatchInputResult struct {
 	Results []WindowSyncBatchInputResultItem `json:"results"`
 }
 
+type WindowSyncOpenUrlsInput struct {
+	Urls []string `json:"urls"`
+}
+
+type WindowSyncActionResultItem struct {
+	ProfileId   string `json:"profileId"`
+	ProfileName string `json:"profileName"`
+	Master      bool   `json:"master"`
+	Success     bool   `json:"success"`
+	Error       string `json:"error"`
+}
+
+type WindowSyncActionResult struct {
+	Total   int                          `json:"total"`
+	Success int                          `json:"success"`
+	Failed  int                          `json:"failed"`
+	Results []WindowSyncActionResultItem `json:"results"`
+}
+
 func (a *App) WindowSyncListCandidates() []WindowSyncCandidate {
 	if a == nil || a.browserMgr == nil {
 		return []WindowSyncCandidate{}
@@ -464,6 +483,101 @@ func (a *App) runWindowSyncBatchInput(state *WindowSyncState, texts map[string]s
 		result.Results = append(result.Results, entry)
 	}
 	return result, nil
+}
+
+func (a *App) WindowSyncCloseOtherTabs() (*WindowSyncActionResult, error) {
+	state, err := a.requireWindowSyncState()
+	if err != nil {
+		return nil, err
+	}
+	master := findWindowSyncWindow(state.Windows, state.MasterProfileId)
+	if master == nil || master.DebugPort <= 0 {
+		return nil, fmt.Errorf("主控窗口不可用")
+	}
+	activeTarget, err := activeWindowSyncTargetForPort(master.DebugPort)
+	if err != nil {
+		return nil, err
+	}
+	result := a.runWindowSyncTabAction(state, func(item WindowSyncCandidate) error {
+		return closeOtherWindowSyncTabs(item.DebugPort, activeTarget)
+	})
+	a.updateWindowSyncToolbar(state)
+	return result, nil
+}
+
+func (a *App) WindowSyncCloseCurrentTab() (*WindowSyncActionResult, error) {
+	state, err := a.requireWindowSyncState()
+	if err != nil {
+		return nil, err
+	}
+	master := findWindowSyncWindow(state.Windows, state.MasterProfileId)
+	if master == nil || master.DebugPort <= 0 {
+		return nil, fmt.Errorf("主控窗口不可用")
+	}
+	activeTarget, err := activeWindowSyncTargetForPort(master.DebugPort)
+	if err != nil {
+		return nil, err
+	}
+	result := a.runWindowSyncTabAction(state, func(item WindowSyncCandidate) error {
+		return closeCurrentWindowSyncTab(item.DebugPort, activeTarget)
+	})
+	a.updateWindowSyncToolbar(state)
+	return result, nil
+}
+
+func (a *App) WindowSyncCloseBlankTabs() (*WindowSyncActionResult, error) {
+	state, err := a.requireWindowSyncState()
+	if err != nil {
+		return nil, err
+	}
+	result := a.runWindowSyncTabAction(state, func(item WindowSyncCandidate) error {
+		return closeBlankWindowSyncTabs(item.DebugPort)
+	})
+	a.updateWindowSyncToolbar(state)
+	return result, nil
+}
+
+func (a *App) WindowSyncOpenUrls(input WindowSyncOpenUrlsInput) (*WindowSyncActionResult, error) {
+	state, err := a.requireWindowSyncState()
+	if err != nil {
+		return nil, err
+	}
+	urls, err := normalizeWindowSyncOpenUrls(input.Urls)
+	if err != nil {
+		return nil, err
+	}
+	result := a.runWindowSyncTabAction(state, func(item WindowSyncCandidate) error {
+		return openWindowSyncUrls(item.DebugPort, urls)
+	})
+	a.updateWindowSyncToolbar(state)
+	return result, nil
+}
+
+func (a *App) runWindowSyncTabAction(state *WindowSyncState, action func(WindowSyncCandidate) error) *WindowSyncActionResult {
+	result := &WindowSyncActionResult{
+		Total:   len(state.Windows),
+		Results: make([]WindowSyncActionResultItem, 0, len(state.Windows)),
+	}
+	for _, item := range orderedWindowSyncWindows(state) {
+		entry := WindowSyncActionResultItem{
+			ProfileId:   item.ProfileId,
+			ProfileName: item.ProfileName,
+			Master:      item.Master,
+		}
+		if item.DebugPort <= 0 {
+			entry.Error = "窗口调试端口不可用"
+		} else if err := action(item); err != nil {
+			entry.Error = err.Error()
+		} else {
+			entry.Success = true
+			result.Success++
+		}
+		if !entry.Success {
+			result.Failed++
+		}
+		result.Results = append(result.Results, entry)
+	}
+	return result
 }
 
 func (a *App) ensureWindowSyncProfileMutable(profileId string) error {
@@ -1025,6 +1139,131 @@ func syncWindowSyncTabsToControlled(debugPort int, activeTarget windowSyncTarget
 	return activateWindowSyncTarget(debugPort, target)
 }
 
+func activeWindowSyncTargetForPort(debugPort int) (windowSyncTarget, error) {
+	targets, err := pageWebSocketTargets(debugPort)
+	if err != nil {
+		return windowSyncTarget{}, err
+	}
+	_, target := activeWindowSyncTarget(targets)
+	if strings.TrimSpace(target.Id) == "" {
+		return windowSyncTarget{}, fmt.Errorf("未找到当前激活标签页")
+	}
+	return target, nil
+}
+
+func closeOtherWindowSyncTabs(debugPort int, masterActive windowSyncTarget) error {
+	targets, err := pageWebSocketTargets(debugPort)
+	if err != nil {
+		return err
+	}
+	keep := findWindowSyncTargetByURL(targets, masterActive.Url)
+	if strings.TrimSpace(keep.Id) == "" && strings.TrimSpace(masterActive.Url) != "" {
+		keep, err = createWindowSyncTarget(debugPort, masterActive.Url)
+		if err != nil {
+			return err
+		}
+		targets, err = pageWebSocketTargets(debugPort)
+		if err != nil {
+			return err
+		}
+	}
+	if strings.TrimSpace(keep.Id) == "" {
+		_, keep = activeWindowSyncTarget(targets)
+	}
+	if strings.TrimSpace(keep.Id) == "" {
+		return fmt.Errorf("未找到需要保留的标签页")
+	}
+	closed := 0
+	for _, target := range targets {
+		if target.Id == keep.Id || strings.TrimSpace(target.Id) == "" {
+			continue
+		}
+		if err := closeWindowSyncTarget(debugPort, target.Id); err != nil {
+			return err
+		}
+		closed++
+	}
+	if err := activateWindowSyncTarget(debugPort, keep); err != nil {
+		return err
+	}
+	_ = closed
+	return nil
+}
+
+func closeCurrentWindowSyncTab(debugPort int, masterActive windowSyncTarget) error {
+	targets, err := pageWebSocketTargets(debugPort)
+	if err != nil {
+		return err
+	}
+	target := findWindowSyncTargetByURL(targets, masterActive.Url)
+	if strings.TrimSpace(target.Id) == "" {
+		_, target = activeWindowSyncTarget(targets)
+	}
+	if strings.TrimSpace(target.Id) == "" {
+		return fmt.Errorf("未找到需要关闭的标签页")
+	}
+	if len(targets) <= 1 {
+		if _, err := createWindowSyncTarget(debugPort, "about:blank"); err != nil {
+			return err
+		}
+	}
+	return closeWindowSyncTarget(debugPort, target.Id)
+}
+
+func closeBlankWindowSyncTabs(debugPort int) error {
+	targets, err := pageWebSocketTargets(debugPort)
+	if err != nil {
+		return err
+	}
+	blankTargets := make([]windowSyncTarget, 0)
+	for _, target := range targets {
+		if isWindowSyncBlankURL(target.Url) {
+			blankTargets = append(blankTargets, target)
+		}
+	}
+	if len(blankTargets) == 0 {
+		return nil
+	}
+	if len(blankTargets) >= len(targets) {
+		if _, err := createWindowSyncTarget(debugPort, "about:blank"); err != nil {
+			return err
+		}
+	}
+	for _, target := range blankTargets {
+		if strings.TrimSpace(target.Id) == "" {
+			continue
+		}
+		if err := closeWindowSyncTarget(debugPort, target.Id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func openWindowSyncUrls(debugPort int, urls []string) error {
+	var lastTarget windowSyncTarget
+	for _, rawURL := range urls {
+		target, err := createWindowSyncTarget(debugPort, rawURL)
+		if err != nil {
+			return err
+		}
+		lastTarget = target
+	}
+	if strings.TrimSpace(lastTarget.Id) != "" {
+		return activateWindowSyncTarget(debugPort, lastTarget)
+	}
+	return nil
+}
+
+func closeWindowSyncTarget(debugPort int, targetID string) error {
+	targetID = strings.TrimSpace(targetID)
+	if targetID == "" {
+		return fmt.Errorf("缺少标签页 target id")
+	}
+	_, err := cdpBrowserCallResult(debugPort, "Target.closeTarget", map[string]any{"targetId": targetID})
+	return err
+}
+
 func ensureWindowSyncTargetForEvent(debugPort int, targets []windowSyncTarget, event windowSyncEvent) (windowSyncTarget, error) {
 	if target := findWindowSyncTargetByURL(targets, event.TargetUrl); strings.TrimSpace(target.Id) != "" {
 		return target, nil
@@ -1148,6 +1387,65 @@ func normalizeWindowSyncTargetURL(rawURL string) string {
 		parsed.Path = ""
 	}
 	return strings.TrimRight(parsed.String(), "/")
+}
+
+func normalizeWindowSyncOpenUrls(input []string) ([]string, error) {
+	seen := make(map[string]struct{})
+	out := make([]string, 0, len(input))
+	for _, item := range input {
+		for _, line := range strings.Split(strings.ReplaceAll(item, "\r\n", "\n"), "\n") {
+			value := strings.TrimSpace(line)
+			if value == "" {
+				continue
+			}
+			normalized, err := normalizeWindowSyncOpenURL(value)
+			if err != nil {
+				return nil, err
+			}
+			key := normalizeWindowSyncTargetURL(normalized)
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+			out = append(out, normalized)
+		}
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("请输入需要打开的网址")
+	}
+	return out, nil
+}
+
+func normalizeWindowSyncOpenURL(rawURL string) (string, error) {
+	value := strings.TrimSpace(rawURL)
+	if value == "" {
+		return "", fmt.Errorf("网址不能为空")
+	}
+	lower := strings.ToLower(value)
+	if lower == "about:blank" {
+		return "about:blank", nil
+	}
+	if !strings.Contains(value, "://") {
+		value = "https://" + value
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Scheme == "" {
+		return "", fmt.Errorf("网址格式不正确：%s", rawURL)
+	}
+	switch strings.ToLower(parsed.Scheme) {
+	case "http", "https", "about":
+	default:
+		return "", fmt.Errorf("暂不支持该网址协议：%s", parsed.Scheme)
+	}
+	if parsed.Scheme != "about" && strings.TrimSpace(parsed.Host) == "" {
+		return "", fmt.Errorf("网址缺少域名：%s", rawURL)
+	}
+	return parsed.String(), nil
+}
+
+func isWindowSyncBlankURL(rawURL string) bool {
+	value := strings.TrimSpace(strings.ToLower(rawURL))
+	return value == "" || value == "about:blank" || value == "chrome://newtab/" || value == "chrome://new-tab-page/" || value == "edge://newtab/"
 }
 
 func (a *App) requireWindowSyncState() (*WindowSyncState, error) {

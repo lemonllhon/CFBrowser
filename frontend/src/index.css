@@ -312,7 +312,7 @@ input, select, textarea {
   opacity: 1;
 }
 
-.window-sync-floating-toolbar.is-batch-open .window-sync-toolbar-expanded.is-expanded {
+.window-sync-floating-toolbar.is-panel-open .window-sync-toolbar-expanded.is-expanded {
   width: 488px;
 }
 
@@ -417,4 +417,18 @@ input, select, textarea {
   padding: 8px 10px;
   font-size: 12px;
   line-height: 1.5;
+}
+
+.window-sync-tab-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.window-sync-tab-actions button {
+  white-space: nowrap;
+}
+
+.window-sync-open-urls-textarea {
+  min-height: 98px;
 }

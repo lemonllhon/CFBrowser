@@ -265,3 +265,18 @@ export interface WindowSyncBatchInputResult {
   failed: number
   results: WindowSyncBatchInputResultItem[]
 }
+
+export interface WindowSyncActionResultItem {
+  profileId: string
+  profileName: string
+  master: boolean
+  success: boolean
+  error: string
+}
+
+export interface WindowSyncActionResult {
+  total: number
+  success: number
+  failed: number
+  results: WindowSyncActionResultItem[]
+}

@@ -42,6 +42,7 @@ type windowSyncToolbarCommandInput struct {
 	Mode    string                              `json:"mode"`
 	Text    string                              `json:"text"`
 	Items   []WindowSyncBatchInputDifferentItem `json:"items"`
+	Urls    []string                            `json:"urls"`
 }
 
 type WindowSyncToolbarConfig struct {
@@ -250,6 +251,14 @@ func (c *windowSyncToolbarController) handleCommand(w http.ResponseWriter, r *ht
 		data, err = app.WindowSyncBatchInputSame(WindowSyncBatchInputSameInput{Text: input.Text})
 	case "batch-input-different":
 		data, err = app.WindowSyncBatchInputDifferent(WindowSyncBatchInputDifferentInput{Items: input.Items})
+	case "close-other-tabs":
+		data, err = app.WindowSyncCloseOtherTabs()
+	case "close-current-tab":
+		data, err = app.WindowSyncCloseCurrentTab()
+	case "close-blank-tabs":
+		data, err = app.WindowSyncCloseBlankTabs()
+	case "open-urls":
+		data, err = app.WindowSyncOpenUrls(WindowSyncOpenUrlsInput{Urls: input.Urls})
 	default:
 		writeWindowSyncToolbarCORS(w)
 		http.Error(w, "unknown command", http.StatusBadRequest)
