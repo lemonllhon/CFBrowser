@@ -285,7 +285,11 @@ func randomWindowSyncToolbarToken() (string, error) {
 
 func windowSyncToolbarInitialConfig(port int, token string) string {
 	area := primaryWorkArea()
-	x := area.Left + maxInt(0, (area.Width-windowSyncToolbarWidth)/2)
+	xOffset := (area.Width - windowSyncToolbarWidth) / 2
+	if xOffset < 0 {
+		xOffset = 0
+	}
+	x := area.Left + xOffset
 	y := area.Top + windowSyncToolbarTopOffset
 	cfg := WindowSyncToolbarConfig{
 		Port:   port,
