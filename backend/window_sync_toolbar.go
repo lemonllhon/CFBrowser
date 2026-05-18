@@ -407,10 +407,3 @@ func parseWindowSyncToolbarStringArg(args []string, name string, fallback string
 	}
 	return strings.TrimSpace(fallback)
 }
-
-func maxInt(a int, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
