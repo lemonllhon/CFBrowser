@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Eye, GripHorizontal, Keyboard, Link, Pause, Play, Power, RefreshCw, SquareStack, X } from 'lucide-react'
+import { Eye, GripHorizontal, Keyboard, Link, List, Pause, Play, Power, RefreshCw, Settings, SquareStack, X } from 'lucide-react'
 import { Button, ToastContainer, toast } from '../../../shared/components'
 import { ThemeProvider } from '../../../shared/theme'
-import type { WindowSyncActionResult, WindowSyncBatchInputDifferentItem, WindowSyncBatchInputResult, WindowSyncState } from '../types'
+import type { WindowSyncActionResult, WindowSyncBatchInputDifferentItem, WindowSyncBatchInputResult, WindowSyncSettings, WindowSyncState } from '../types'
 import { WindowSetAlwaysOnTop, WindowSetPosition, WindowSetSize } from '../../../wailsjs/runtime/runtime'
 
 type ToolbarConfig = {
@@ -17,7 +17,7 @@ type ToolbarConfig = {
 const fallbackConfig: ToolbarConfig = {
   port: 0,
   token: '',
-  width: 760,
+  width: 980,
   height: 76,
   x: 360,
   y: 18,
@@ -71,6 +71,20 @@ function actionResultMessage(action: string, result: WindowSyncActionResult | nu
   return `${action}完成：成功 ${result.success}/${result.total}${result.failed > 0 ? `，失败 ${result.failed}` : ''}`
 }
 
+function stateToSettings(state: WindowSyncState | null): WindowSyncSettings {
+  return {
+    masterColor: state?.masterColor || '#2563eb',
+    syncKeyboard: state?.syncKeyboard ?? true,
+    syncMouse: state?.syncMouse ?? true,
+  }
+}
+
+function normalizeColor(value: string) {
+  const trimmed = value.trim()
+  if (!trimmed) return '#2563eb'
+  return trimmed.startsWith('#') ? trimmed : `#${trimmed}`
+}
+
 export function WindowSyncFloatingToolbar() {
   const [config] = useState<ToolbarConfig>(() => readToolbarConfig())
   const [state, setState] = useState<WindowSyncState | null>(null)
@@ -84,6 +98,9 @@ export function WindowSyncFloatingToolbar() {
   const [tabPanelOpen, setTabPanelOpen] = useState(false)
   const [openUrlsText, setOpenUrlsText] = useState('')
   const [tabResult, setTabResult] = useState<WindowSyncActionResult | null>(null)
+  const [listPanelOpen, setListPanelOpen] = useState(false)
+  const [settingsPanelOpen, setSettingsPanelOpen] = useState(false)
+  const [settingsDraft, setSettingsDraft] = useState<WindowSyncSettings>(() => stateToSettings(null))
   const endpoint = useMemo(() => `http://127.0.0.1:${config.port}`, [config.port])
 
   const request = async <T,>(path: string, init?: RequestInit): Promise<T | null> => {
@@ -214,6 +231,41 @@ export function WindowSyncFloatingToolbar() {
     await runTabCommand('open-urls', '打开网站', urls)
   }
 
+  const openSinglePanel = (panel: 'batch' | 'tab' | 'list' | 'settings') => {
+    setBatchOpen(panel === 'batch' ? open => !open : false)
+    setTabPanelOpen(panel === 'tab' ? open => !open : false)
+    setListPanelOpen(panel === 'list' ? open => !open : false)
+    setSettingsPanelOpen(panel === 'settings' ? open => !open : false)
+    if (panel === 'settings') {
+      setSettingsDraft(stateToSettings(state))
+    }
+    setBatchResult(null)
+    setTabResult(null)
+  }
+
+  const saveSettings = async () => {
+    setLoadingCommand('save-settings')
+    try {
+      const next = await request<WindowSyncState>('/command', {
+        method: 'POST',
+        body: JSON.stringify({
+          command: 'save-settings',
+          settings: {
+            ...settingsDraft,
+            masterColor: normalizeColor(settingsDraft.masterColor),
+          },
+        }),
+      })
+      setState(next?.active ? next : null)
+      setSettingsDraft(stateToSettings(next))
+      toast.success('同步设置已保存')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '保存同步设置失败')
+    } finally {
+      setLoadingCommand('')
+    }
+  }
+
   useEffect(() => {
     document.body.classList.add('window-sync-toolbar-body')
     const keepTopmost = () => {
@@ -250,13 +302,13 @@ export function WindowSyncFloatingToolbar() {
   useEffect(() => {
     try {
       WindowSetSize(
-        batchOpen || tabPanelOpen ? 760 : config.width || fallbackConfig.width,
-        batchOpen || tabPanelOpen ? 430 : config.height || fallbackConfig.height,
+        batchOpen || tabPanelOpen || listPanelOpen || settingsPanelOpen ? 980 : config.width || fallbackConfig.width,
+        batchOpen || tabPanelOpen || listPanelOpen || settingsPanelOpen ? 430 : config.height || fallbackConfig.height,
       )
     } catch {
       // Older runtimes may ignore dynamic toolbar resizing; commands still work.
     }
-  }, [batchOpen, config.height, config.width, tabPanelOpen])
+  }, [batchOpen, config.height, config.width, listPanelOpen, settingsPanelOpen, tabPanelOpen])
 
   useEffect(() => {
     const windows = orderedWindows(state)
@@ -269,15 +321,22 @@ export function WindowSyncFloatingToolbar() {
     })
   }, [state?.sessionId, state?.windows?.length])
 
+  useEffect(() => {
+    if (settingsPanelOpen) {
+      setSettingsDraft(stateToSettings(state))
+    }
+  }, [settingsPanelOpen, state?.masterColor, state?.syncKeyboard, state?.syncMouse])
+
   const paused = !!state?.paused
   const count = profileCount(state)
   const windows = orderedWindows(state)
   const batchLoading = loadingCommand === 'batch-input:same' || loadingCommand === 'batch-input:different'
+  const panelOpen = batchOpen || tabPanelOpen || listPanelOpen || settingsPanelOpen
 
   return (
     <ThemeProvider>
       <main
-        className={`window-sync-floating-toolbar ${batchOpen || tabPanelOpen ? 'is-panel-open' : ''}`}
+        className={`window-sync-floating-toolbar ${panelOpen ? 'is-panel-open' : ''}`}
         onMouseEnter={() => setExpanded(true)}
         onMouseLeave={() => setExpanded(false)}
       >
@@ -318,7 +377,7 @@ export function WindowSyncFloatingToolbar() {
               <Power className="h-4 w-4" />
             </Button>
           </div>
-          <div className={`window-sync-toolbar-expanded ${expanded || batchOpen ? 'is-expanded' : ''}`}>
+          <div className={`window-sync-toolbar-expanded ${expanded || panelOpen ? 'is-expanded' : ''}`}>
             <Button
               size="sm"
               variant="secondary"
@@ -334,11 +393,7 @@ export function WindowSyncFloatingToolbar() {
               size="sm"
               variant={batchOpen ? 'secondary' : 'ghost'}
               title="批量输入"
-              onClick={() => {
-                setBatchOpen(open => !open)
-                setTabPanelOpen(false)
-                setBatchResult(null)
-              }}
+              onClick={() => openSinglePanel('batch')}
               className="h-9 px-3"
             >
               <Keyboard className="h-4 w-4" />
@@ -348,15 +403,31 @@ export function WindowSyncFloatingToolbar() {
               size="sm"
               variant={tabPanelOpen ? 'secondary' : 'ghost'}
               title="标签控制"
-              onClick={() => {
-                setTabPanelOpen(open => !open)
-                setBatchOpen(false)
-                setTabResult(null)
-              }}
+              onClick={() => openSinglePanel('tab')}
               className="h-9 px-3"
             >
               <Link className="h-4 w-4" />
               标签
+            </Button>
+            <Button
+              size="sm"
+              variant={listPanelOpen ? 'secondary' : 'ghost'}
+              title="同步窗口列表"
+              onClick={() => openSinglePanel('list')}
+              className="h-9 px-3"
+            >
+              <List className="h-4 w-4" />
+              列表
+            </Button>
+            <Button
+              size="sm"
+              variant={settingsPanelOpen ? 'secondary' : 'ghost'}
+              title="同步设置"
+              onClick={() => openSinglePanel('settings')}
+              className="h-9 px-3"
+            >
+              <Settings className="h-4 w-4" />
+              设置
             </Button>
             <Button
               size="sm"
@@ -497,6 +568,111 @@ export function WindowSyncFloatingToolbar() {
             <div className="flex items-center justify-end gap-2">
               <Button size="sm" variant="secondary" onClick={() => setTabResult(null)}>清除结果</Button>
               <Button size="sm" onClick={() => void runOpenUrls()} loading={loadingCommand === 'open-urls'}>打开网站</Button>
+            </div>
+          </section>
+        )}
+        {listPanelOpen && (
+          <section className="window-sync-batch-panel">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-[var(--color-text-primary)]">同步窗口列表</div>
+                <div className="text-xs text-[var(--color-text-muted)]">当前同步窗口 {windows.length} 个，主控窗口固定。</div>
+              </div>
+              <Button size="sm" variant="ghost" title="关闭窗口列表" onClick={() => setListPanelOpen(false)} className="h-8 w-8 px-0">
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <div className="window-sync-window-list">
+              {windows.map(window => (
+                <div key={window.profileId} className="window-sync-window-list-item">
+                  <div className="min-w-0">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className={window.master ? 'window-sync-role-badge is-master' : 'window-sync-role-badge'}>
+                        {window.master ? '主控' : '被控'}
+                      </span>
+                      <span className="truncate text-sm font-medium text-[var(--color-text-primary)]">{window.profileName || window.profileId}</span>
+                    </div>
+                    <div className="mt-1 truncate text-xs text-[var(--color-text-muted)]">
+                      PID {window.pid || '-'} · 调试端口 {window.debugPort || '-'}
+                    </div>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <div className={window.running ? 'text-xs text-[var(--color-success)]' : 'text-xs text-[var(--color-danger)]'}>
+                      {window.running ? '运行中' : '未运行'}
+                    </div>
+                    <div className={window.debugReady ? 'mt-1 text-xs text-[var(--color-success)]' : 'mt-1 text-xs text-[var(--color-text-muted)]'}>
+                      {window.debugReady ? '调试就绪' : '调试未就绪'}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center justify-end gap-2">
+              <Button size="sm" variant="secondary" onClick={() => void loadState()}>刷新</Button>
+              <Button size="sm" variant="secondary" onClick={() => void runCommand('show-all')} loading={loadingCommand === 'show-all'}>展示窗口</Button>
+            </div>
+          </section>
+        )}
+        {settingsPanelOpen && (
+          <section className="window-sync-batch-panel">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-[var(--color-text-primary)]">同步设置</div>
+                <div className="text-xs text-[var(--color-text-muted)]">保存后立即应用到当前同步会话。</div>
+              </div>
+              <Button size="sm" variant="ghost" title="关闭同步设置" onClick={() => setSettingsPanelOpen(false)} className="h-8 w-8 px-0">
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <div className="window-sync-settings-panel">
+              <label className="window-sync-setting-row">
+                <span>
+                  <span className="block text-sm font-medium text-[var(--color-text-primary)]">主控窗口颜色</span>
+                  <span className="block text-xs text-[var(--color-text-muted)]">用于主控窗口标识。</span>
+                </span>
+                <span className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={normalizeColor(settingsDraft.masterColor)}
+                    onChange={event => setSettingsDraft(prev => ({ ...prev, masterColor: event.target.value }))}
+                    className="window-sync-color-input"
+                  />
+                  <input
+                    value={settingsDraft.masterColor}
+                    onChange={event => setSettingsDraft(prev => ({ ...prev, masterColor: event.target.value }))}
+                    className="window-sync-color-text"
+                    placeholder="#2563eb"
+                  />
+                </span>
+              </label>
+              <label className="window-sync-setting-row">
+                <span>
+                  <span className="block text-sm font-medium text-[var(--color-text-primary)]">同步键盘输入</span>
+                  <span className="block text-xs text-[var(--color-text-muted)]">开启后主控按键会同步到被控窗口。</span>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={settingsDraft.syncKeyboard}
+                  onChange={event => setSettingsDraft(prev => ({ ...prev, syncKeyboard: event.target.checked }))}
+                  className="window-sync-toggle"
+                />
+              </label>
+              <label className="window-sync-setting-row">
+                <span>
+                  <span className="block text-sm font-medium text-[var(--color-text-primary)]">同步鼠标输入</span>
+                  <span className="block text-xs text-[var(--color-text-muted)]">开启后点击、滚动和拖动会同步到被控窗口。</span>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={settingsDraft.syncMouse}
+                  onChange={event => setSettingsDraft(prev => ({ ...prev, syncMouse: event.target.checked }))}
+                  className="window-sync-toggle"
+                />
+              </label>
+            </div>
+            <div className="flex items-center justify-end gap-2">
+              <Button size="sm" variant="secondary" onClick={() => setSettingsDraft(stateToSettings(state))}>重置</Button>
+              <Button size="sm" onClick={() => void saveSettings()} loading={loadingCommand === 'save-settings'}>保存</Button>
             </div>
           </section>
         )}

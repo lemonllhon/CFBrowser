@@ -308,12 +308,12 @@ input, select, textarea {
 }
 
 .window-sync-toolbar-expanded.is-expanded {
-  width: 488px;
+  width: 700px;
   opacity: 1;
 }
 
 .window-sync-floating-toolbar.is-panel-open .window-sync-toolbar-expanded.is-expanded {
-  width: 488px;
+  width: 700px;
 }
 
 .window-sync-toolbar-expanded button {
@@ -431,4 +431,87 @@ input, select, textarea {
 
 .window-sync-open-urls-textarea {
   min-height: 98px;
+}
+
+.window-sync-window-list {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  overflow: auto;
+}
+
+.window-sync-window-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--color-border-default);
+  border-radius: 8px;
+  background: var(--color-bg-base);
+  padding: 10px 12px;
+}
+
+.window-sync-role-badge {
+  display: inline-flex;
+  height: 20px;
+  align-items: center;
+  border-radius: 6px;
+  background: var(--color-bg-muted);
+  color: var(--color-text-muted);
+  padding: 0 7px;
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.window-sync-role-badge.is-master {
+  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  color: var(--color-accent);
+}
+
+.window-sync-settings-panel {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  overflow: auto;
+}
+
+.window-sync-setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border: 1px solid var(--color-border-default);
+  border-radius: 8px;
+  background: var(--color-bg-base);
+  padding: 12px;
+}
+
+.window-sync-color-input {
+  width: 42px;
+  height: 34px;
+  border: 1px solid var(--color-border-default);
+  border-radius: 8px;
+  background: transparent;
+}
+
+.window-sync-color-text {
+  width: 110px;
+  height: 34px;
+  border: 1px solid var(--color-border-default);
+  border-radius: 8px;
+  background: var(--color-bg-base);
+  color: var(--color-text-primary);
+  padding: 0 10px;
+  font-size: 13px;
+}
+
+.window-sync-toggle {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--color-accent);
 }

@@ -300,8 +300,12 @@ func (a *App) WindowSyncGetState() *WindowSyncState {
 		return nil
 	}
 	a.windowSyncMu.Lock()
-	defer a.windowSyncMu.Unlock()
-	return cloneWindowSyncState(a.windowSyncState)
+	state := cloneWindowSyncState(a.windowSyncState)
+	a.windowSyncMu.Unlock()
+	if state == nil || !state.Active {
+		return state
+	}
+	return a.refreshWindowSyncRuntimeState(state)
 }
 
 func (a *App) WindowSyncStop() (*WindowSyncState, error) {
@@ -2270,6 +2274,48 @@ func cloneWindowSyncState(state *WindowSyncState) *WindowSyncState {
 	snapshot.ProfileIds = append([]string{}, state.ProfileIds...)
 	snapshot.Windows = append([]WindowSyncCandidate{}, state.Windows...)
 	return &snapshot
+}
+
+func (a *App) refreshWindowSyncRuntimeState(state *WindowSyncState) *WindowSyncState {
+	if a == nil || state == nil || !state.Active || a.browserMgr == nil {
+		return state
+	}
+	a.browserMgr.Mutex.Lock()
+	byId := make(map[string]*WindowSyncCandidate, len(state.Windows))
+	for i := range state.Windows {
+		byId[state.Windows[i].ProfileId] = &state.Windows[i]
+	}
+	for _, profile := range a.browserMgr.Profiles {
+		if profile == nil {
+			continue
+		}
+		if item := byId[profile.ProfileId]; item != nil {
+			item.ProfileName = profile.ProfileName
+			item.DebugPort = profile.DebugPort
+			item.Pid = profile.Pid
+			item.Running = profile.Running
+			item.DebugReady = profile.DebugReady
+			item.CanSync = profile.Running && profile.DebugReady && profile.DebugPort > 0
+			item.CanAutoStart = !profile.Running
+			if !profile.Running {
+				item.Unavailable = "实例未运行"
+			} else if !profile.DebugReady || profile.DebugPort <= 0 {
+				item.Unavailable = "调试端口未就绪"
+			} else {
+				item.Unavailable = ""
+			}
+		}
+	}
+	a.browserMgr.Mutex.Unlock()
+
+	a.windowSyncMu.Lock()
+	if a.windowSyncState != nil && a.windowSyncState.Active && a.windowSyncState.SessionId == state.SessionId {
+		a.windowSyncState.Windows = append([]WindowSyncCandidate{}, state.Windows...)
+		a.windowSyncState.UpdatedAt = time.Now().Format(time.RFC3339)
+		state.UpdatedAt = a.windowSyncState.UpdatedAt
+	}
+	a.windowSyncMu.Unlock()
+	return state
 }
 
 func normalizeWindowSyncProfileIds(profileIds []string) []string {

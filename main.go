@@ -121,7 +121,7 @@ func NewApp(appRoot, version string) *App {
 func runWindowSyncToolbar(appRoot string) {
 	cfg := backend.ParseWindowSyncToolbarArgs(os.Args[1:])
 	const (
-		toolbarExpandedWidth  = 760
+		toolbarExpandedWidth  = 980
 		toolbarExpandedHeight = 430
 	)
 	err := wails.Run(&options.App{

@@ -23,7 +23,7 @@ const (
 	windowSyncToolbarArg       = "--window-sync-toolbar"
 	windowSyncToolbarPortArg   = "--window-sync-toolbar-port"
 	windowSyncToolbarTokenArg  = "--window-sync-toolbar-token"
-	windowSyncToolbarWidth     = 760
+	windowSyncToolbarWidth     = 980
 	windowSyncToolbarHeight    = 76
 	windowSyncToolbarTopOffset = 18
 )
@@ -43,6 +43,7 @@ type windowSyncToolbarCommandInput struct {
 	Text    string                              `json:"text"`
 	Items   []WindowSyncBatchInputDifferentItem `json:"items"`
 	Urls    []string                            `json:"urls"`
+	Settings WindowSyncSettings                 `json:"settings"`
 }
 
 type WindowSyncToolbarConfig struct {
@@ -259,6 +260,8 @@ func (c *windowSyncToolbarController) handleCommand(w http.ResponseWriter, r *ht
 		data, err = app.WindowSyncCloseBlankTabs()
 	case "open-urls":
 		data, err = app.WindowSyncOpenUrls(WindowSyncOpenUrlsInput{Urls: input.Urls})
+	case "save-settings":
+		data, err = app.WindowSyncSaveSettings(input.Settings)
 	default:
 		writeWindowSyncToolbarCORS(w)
 		http.Error(w, "unknown command", http.StatusBadRequest)
