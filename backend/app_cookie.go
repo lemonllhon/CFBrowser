@@ -37,6 +37,7 @@ type cdpTarget struct {
 	Id                   string `json:"id"`
 	Title                string `json:"title"`
 	Url                  string `json:"url"`
+	Attached             bool   `json:"attached"`
 	WebSocketDebuggerUrl string `json:"webSocketDebuggerUrl"`
 	Type                 string `json:"type"`
 }

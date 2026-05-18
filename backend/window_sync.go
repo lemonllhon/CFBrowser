@@ -24,6 +24,7 @@ type windowSyncTarget struct {
 	Id           string
 	Title        string
 	Url          string
+	Attached     bool
 	Index        int
 	WebSocketURL string
 }
@@ -392,6 +393,7 @@ func (a *App) stopWindowSyncListenerLocked() {
 }
 
 func (a *App) runWindowSyncListener(seq int, cancel <-chan struct{}) {
+	lastActiveTab := ""
 	for {
 		select {
 		case <-cancel:
@@ -409,7 +411,7 @@ func (a *App) runWindowSyncListener(seq int, cancel <-chan struct{}) {
 			continue
 		}
 
-		if err := a.listenWindowSyncMaster(seq, cancel, state, master.DebugPort); err != nil {
+		if err := a.listenWindowSyncMaster(seq, cancel, state, master.DebugPort, &lastActiveTab); err != nil {
 			select {
 			case <-cancel:
 				return
@@ -419,7 +421,7 @@ func (a *App) runWindowSyncListener(seq int, cancel <-chan struct{}) {
 	}
 }
 
-func (a *App) listenWindowSyncMaster(seq int, cancel <-chan struct{}, state *WindowSyncState, debugPort int) error {
+func (a *App) listenWindowSyncMaster(seq int, cancel <-chan struct{}, state *WindowSyncState, debugPort int, lastActiveTab *string) error {
 	targets, err := pageWebSocketTargets(debugPort)
 	if err != nil {
 		return err
@@ -452,8 +454,9 @@ func (a *App) listenWindowSyncMaster(seq int, cancel <-chan struct{}, state *Win
 		return fmt.Errorf("未找到可监听的主控页面")
 	}
 
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
+	refreshAfter := 0
 	for {
 		select {
 		case <-cancel:
@@ -462,7 +465,11 @@ func (a *App) listenWindowSyncMaster(seq int, cancel <-chan struct{}, state *Win
 			logger.New("WindowSync").Warn("主控页面监听中断", logger.F("error", err.Error()))
 			return err
 		case <-ticker.C:
-			return nil
+			refreshAfter++
+			a.syncWindowSyncTabs(seq, debugPort, lastActiveTab)
+			if refreshAfter >= 4 {
+				return nil
+			}
 		}
 	}
 }
@@ -495,29 +502,6 @@ func (a *App) listenWindowSyncTarget(seq int, cancel <-chan struct{}, localCance
 		return err
 	}
 	if err := send("Runtime.evaluate", map[string]any{"expression": source, "awaitPromise": false}); err != nil {
-		return err
-	}
-
-	tabPayload, _ := json.Marshal(windowSyncEvent{
-		Type:        "tabActivated",
-		TargetId:    target.Id,
-		TargetIndex: target.Index,
-		TargetUrl:   target.Url,
-	})
-	activationExpression := fmt.Sprintf(`(() => {
-  const send = () => {
-    try {
-      const fn = window[%q];
-      if (typeof fn === "function") fn(%q);
-    } catch (_) {}
-  };
-  if (document.visibilityState === "visible") send();
-  window.addEventListener("focus", send, true);
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") send();
-  }, true);
-})();`, windowSyncBindingName, string(tabPayload))
-	if err := send("Runtime.evaluate", map[string]any{"expression": activationExpression, "awaitPromise": false}); err != nil {
 		return err
 	}
 
@@ -568,7 +552,7 @@ func (a *App) handleWindowSyncPayload(seq int, payload string) {
 		return
 	}
 
-	isKeyboard := event.Type == "keyDown" || event.Type == "keyUp"
+	isKeyboard := event.Type == "keyDown" || event.Type == "keyUp" || event.Type == "input"
 	isMouse := event.Type == "wheel" || event.Type == "mouseDown" || event.Type == "mouseMove" || event.Type == "mouseUp" || event.Type == "tabActivated"
 	if isKeyboard && !state.SyncKeyboard {
 		return
@@ -594,6 +578,47 @@ func (a *App) handleWindowSyncPayload(seq int, payload string) {
 	}
 }
 
+func (a *App) syncWindowSyncTabs(seq int, masterDebugPort int, lastActiveTab *string) {
+	state := a.WindowSyncGetState()
+	if state == nil || !state.Active || state.Paused || !state.SyncMouse {
+		return
+	}
+	a.windowSyncMu.Lock()
+	currentSeq := a.windowSyncSeq
+	a.windowSyncMu.Unlock()
+	if currentSeq != seq {
+		return
+	}
+
+	masterTargets, err := pageWebSocketTargets(masterDebugPort)
+	if err != nil || len(masterTargets) == 0 {
+		return
+	}
+	activeIndex, activeTarget := activeWindowSyncTarget(masterTargets)
+	if activeIndex < 0 {
+		return
+	}
+	activeKey := fmt.Sprintf("%d:%s:%s", activeIndex, activeTarget.Id, activeTarget.Url)
+	if lastActiveTab != nil && *lastActiveTab == activeKey {
+		return
+	}
+	if lastActiveTab != nil {
+		*lastActiveTab = activeKey
+	}
+
+	for _, item := range state.Windows {
+		if item.ProfileId == state.MasterProfileId || item.DebugPort <= 0 {
+			continue
+		}
+		if err := syncWindowSyncTabsToControlled(item.DebugPort, masterTargets, activeIndex); err != nil {
+			logger.New("WindowSync").Warn("同步标签页失败",
+				logger.F("profile_id", item.ProfileId),
+				logger.F("error", err.Error()),
+			)
+		}
+	}
+}
+
 type windowSyncEvent struct {
 	Type        string  `json:"type"`
 	TargetId    string  `json:"targetId"`
@@ -608,6 +633,7 @@ type windowSyncEvent struct {
 	Key         string  `json:"key"`
 	Code        string  `json:"code"`
 	Text        string  `json:"text"`
+	Value       string  `json:"value"`
 	Modifiers   int     `json:"modifiers"`
 }
 
@@ -702,6 +728,22 @@ func dispatchWindowSyncEventToTarget(wsURL string, event windowSyncEvent) error 
 		}
 		_, err := cdpCallWebSocket(wsURL, "Input.dispatchKeyEvent", params)
 		return err
+	case "input":
+		expression := fmt.Sprintf(`(() => {
+  const el = document.activeElement;
+  if (!el || !("value" in el)) return false;
+  const value = %q;
+  el.focus();
+  el.value = value;
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+  try {
+    if (typeof el.setSelectionRange === "function") el.setSelectionRange(value.length, value.length);
+  } catch (_) {}
+  return true;
+})()`, event.Value)
+		_, err := cdpCallWebSocket(wsURL, "Runtime.evaluate", map[string]any{"expression": expression, "awaitPromise": false})
+		return err
 	default:
 		return nil
 	}
@@ -742,6 +784,45 @@ func activateWindowSyncTarget(debugPort int, target windowSyncTarget) error {
 		_, _ = cdpCallWebSocket(target.WebSocketURL, "Page.bringToFront", nil)
 	}
 	return nil
+}
+
+func syncWindowSyncTabsToControlled(debugPort int, masterTargets []windowSyncTarget, activeIndex int) error {
+	targets, err := pageWebSocketTargets(debugPort)
+	if err != nil {
+		return err
+	}
+	for len(targets) < len(masterTargets) {
+		source := masterTargets[len(targets)]
+		url := strings.TrimSpace(source.Url)
+		if url == "" {
+			url = "about:blank"
+		}
+		if _, err := cdpBrowserCallResult(debugPort, "Target.createTarget", map[string]any{"url": url}); err != nil {
+			return err
+		}
+		targets, err = pageWebSocketTargets(debugPort)
+		if err != nil {
+			return err
+		}
+	}
+	if activeIndex < 0 || activeIndex >= len(targets) {
+		return fmt.Errorf("被控窗口缺少同序标签页：%d", activeIndex+1)
+	}
+	return activateWindowSyncTarget(debugPort, targets[activeIndex])
+}
+
+func activeWindowSyncTarget(targets []windowSyncTarget) (int, windowSyncTarget) {
+	for index, target := range targets {
+		if target.Attached {
+			return index, target
+		}
+	}
+	for index, target := range targets {
+		if strings.TrimSpace(target.Id) != "" {
+			return index, target
+		}
+	}
+	return -1, windowSyncTarget{}
 }
 
 func findWindowSyncTargetForEvent(targets []windowSyncTarget, event windowSyncEvent) windowSyncTarget {
@@ -1148,6 +1229,7 @@ func pageWebSocketTargets(debugPort int) ([]windowSyncTarget, error) {
 			Id:           strings.TrimSpace(target.Id),
 			Title:        strings.TrimSpace(target.Title),
 			Url:          strings.TrimSpace(target.Url),
+			Attached:     target.Attached,
 			WebSocketURL: wsURL,
 		})
 	}
@@ -1163,6 +1245,7 @@ func pageWebSocketTargets(debugPort int) ([]windowSyncTarget, error) {
 			Id:           strings.TrimSpace(target.Id),
 			Title:        strings.TrimSpace(target.Title),
 			Url:          strings.TrimSpace(target.Url),
+			Attached:     target.Attached,
 			WebSocketURL: wsURL,
 		})
 	}
@@ -1226,6 +1309,17 @@ func windowSyncInjectionScript(target windowSyncTarget) string {
     deltaY: event.deltaY,
     modifiers: modifiers(event)
   }), { capture: true, passive: true });
+  window.addEventListener("input", (event) => {
+    const target = event.target;
+    if (!target || !("value" in target)) return;
+    send({
+      type: "input",
+      targetId,
+      targetIndex,
+      targetUrl,
+      value: String(target.value ?? "")
+    });
+  }, true);
   window.addEventListener("keydown", (event) => send({
     type: "keyDown",
     targetId,
