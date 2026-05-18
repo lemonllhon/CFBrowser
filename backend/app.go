@@ -57,6 +57,8 @@ type App struct {
 	windowSyncMu     sync.Mutex
 	windowSyncState  *WindowSyncState
 	windowSyncLayout WindowSyncLayoutSettings
+	windowSyncCancel chan struct{}
+	windowSyncSeq    int
 	stopServicesOnce sync.Once
 	finalizeOnce     sync.Once
 }

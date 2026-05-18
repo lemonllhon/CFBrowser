@@ -1,17 +1,23 @@
 package backend
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"math"
+	"net/http"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 const defaultWindowSyncMasterColor = "#2563eb"
+
+const windowSyncBindingName = "__traceWindowSyncEvent"
 
 type WindowSyncLayoutSettings struct {
 	Mode     string `json:"mode"`
@@ -49,9 +55,17 @@ type WindowSyncState struct {
 	ProfileIds      []string              `json:"profileIds"`
 	Windows         []WindowSyncCandidate `json:"windows"`
 	MasterColor     string                `json:"masterColor"`
+	SyncKeyboard    bool                  `json:"syncKeyboard"`
+	SyncMouse       bool                  `json:"syncMouse"`
 	Layout          WindowSyncLayoutSettings `json:"layout"`
 	StartedAt       string                `json:"startedAt"`
 	UpdatedAt       string                `json:"updatedAt"`
+}
+
+type WindowSyncSettings struct {
+	MasterColor  string `json:"masterColor"`
+	SyncKeyboard bool   `json:"syncKeyboard"`
+	SyncMouse    bool   `json:"syncMouse"`
 }
 
 func (a *App) WindowSyncListCandidates() []WindowSyncCandidate {
@@ -137,12 +151,15 @@ func (a *App) WindowSyncStart(input WindowSyncStartInput) (*WindowSyncState, err
 		ProfileIds:      profileIds,
 		Windows:         windows,
 		MasterColor:     defaultWindowSyncMasterColor,
+		SyncKeyboard:    true,
+		SyncMouse:       true,
 		Layout:          a.normalizedWindowSyncLayoutSettings(a.windowSyncLayout),
 		StartedAt:       now,
 		UpdatedAt:       now,
 	}
 
 	a.windowSyncMu.Lock()
+	a.stopWindowSyncListenerLocked()
 	a.windowSyncState = cloneWindowSyncState(state)
 	a.windowSyncMu.Unlock()
 
@@ -154,6 +171,7 @@ func (a *App) WindowSyncStart(input WindowSyncStartInput) (*WindowSyncState, err
 	}
 
 	a.emitWindowSyncStateChanged(state)
+	a.startWindowSyncListener()
 	return cloneWindowSyncState(state), nil
 }
 
@@ -222,6 +240,7 @@ func (a *App) WindowSyncStop() (*WindowSyncState, error) {
 	}
 	a.windowSyncMu.Lock()
 	previous := cloneWindowSyncState(a.windowSyncState)
+	a.stopWindowSyncListenerLocked()
 	a.windowSyncState = nil
 	a.windowSyncMu.Unlock()
 
@@ -231,6 +250,36 @@ func (a *App) WindowSyncStop() (*WindowSyncState, error) {
 	}
 	a.emitWindowSyncStateChanged(previous)
 	return previous, nil
+}
+
+func (a *App) WindowSyncGetSettings() WindowSyncSettings {
+	state := a.WindowSyncGetState()
+	if state != nil && state.Active {
+		return WindowSyncSettings{
+			MasterColor:  state.MasterColor,
+			SyncKeyboard: state.SyncKeyboard,
+			SyncMouse:    state.SyncMouse,
+		}
+	}
+	return defaultWindowSyncSettings()
+}
+
+func (a *App) WindowSyncSaveSettings(input WindowSyncSettings) (*WindowSyncState, error) {
+	settings := normalizeWindowSyncSettings(input)
+	a.windowSyncMu.Lock()
+	if a.windowSyncState == nil || !a.windowSyncState.Active {
+		a.windowSyncMu.Unlock()
+		return nil, fmt.Errorf("窗口同步未启动")
+	}
+	a.windowSyncState.MasterColor = settings.MasterColor
+	a.windowSyncState.SyncKeyboard = settings.SyncKeyboard
+	a.windowSyncState.SyncMouse = settings.SyncMouse
+	a.windowSyncState.UpdatedAt = time.Now().Format(time.RFC3339)
+	state := cloneWindowSyncState(a.windowSyncState)
+	a.windowSyncMu.Unlock()
+
+	a.emitWindowSyncStateChanged(state)
+	return state, nil
 }
 
 func (a *App) WindowSyncPause() (*WindowSyncState, error) {
@@ -306,6 +355,222 @@ func (a *App) updateWindowSyncPaused(paused bool) (*WindowSyncState, error) {
 
 	a.emitWindowSyncStateChanged(state)
 	return state, nil
+}
+
+func (a *App) startWindowSyncListener() {
+	if a == nil {
+		return
+	}
+	a.windowSyncMu.Lock()
+	if a.windowSyncState == nil || !a.windowSyncState.Active {
+		a.windowSyncMu.Unlock()
+		return
+	}
+	a.windowSyncSeq++
+	seq := a.windowSyncSeq
+	cancel := make(chan struct{})
+	a.windowSyncCancel = cancel
+	a.windowSyncMu.Unlock()
+
+	go a.runWindowSyncListener(seq, cancel)
+}
+
+func (a *App) stopWindowSyncListenerLocked() {
+	if a.windowSyncCancel != nil {
+		close(a.windowSyncCancel)
+		a.windowSyncCancel = nil
+	}
+}
+
+func (a *App) runWindowSyncListener(seq int, cancel <-chan struct{}) {
+	for {
+		select {
+		case <-cancel:
+			return
+		default:
+		}
+
+		state := a.WindowSyncGetState()
+		if state == nil || !state.Active {
+			return
+		}
+		master := findWindowSyncWindow(state.Windows, state.MasterProfileId)
+		if master == nil || master.DebugPort <= 0 {
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+
+		if err := a.listenWindowSyncMaster(seq, cancel, state, master.DebugPort); err != nil {
+			select {
+			case <-cancel:
+				return
+			case <-time.After(700 * time.Millisecond):
+			}
+		}
+	}
+}
+
+func (a *App) listenWindowSyncMaster(seq int, cancel <-chan struct{}, state *WindowSyncState, debugPort int) error {
+	wsURL, err := firstPageWebSocketURL(debugPort)
+	if err != nil {
+		return err
+	}
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	nextID := 1
+	send := func(method string, params map[string]any) error {
+		msg := cdpMessage{Id: nextID, Method: method, Params: params}
+		nextID++
+		return conn.WriteJSON(msg)
+	}
+	if err := send("Runtime.enable", nil); err != nil {
+		return err
+	}
+	if err := send("Page.enable", nil); err != nil {
+		return err
+	}
+	if err := send("Runtime.addBinding", map[string]any{"name": windowSyncBindingName}); err != nil {
+		return err
+	}
+	source := windowSyncInjectionScript()
+	if err := send("Page.addScriptToEvaluateOnNewDocument", map[string]any{"source": source}); err != nil {
+		return err
+	}
+	if err := send("Runtime.evaluate", map[string]any{"expression": source, "awaitPromise": false}); err != nil {
+		return err
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		for {
+			var raw map[string]any
+			if err := conn.ReadJSON(&raw); err != nil {
+				done <- err
+				return
+			}
+			if method, _ := raw["method"].(string); method == "Runtime.bindingCalled" {
+				params, _ := raw["params"].(map[string]any)
+				payload, _ := params["payload"].(string)
+				a.handleWindowSyncPayload(seq, payload)
+			}
+		}
+	}()
+
+	select {
+	case <-cancel:
+		_ = conn.Close()
+		return nil
+	case err := <-done:
+		return err
+	}
+}
+
+func (a *App) handleWindowSyncPayload(seq int, payload string) {
+	if strings.TrimSpace(payload) == "" {
+		return
+	}
+	var event windowSyncEvent
+	if err := json.Unmarshal([]byte(payload), &event); err != nil {
+		return
+	}
+	state := a.WindowSyncGetState()
+	if state == nil || !state.Active || state.Paused {
+		return
+	}
+	a.windowSyncMu.Lock()
+	currentSeq := a.windowSyncSeq
+	a.windowSyncMu.Unlock()
+	if currentSeq != seq {
+		return
+	}
+
+	isKeyboard := event.Type == "keyDown" || event.Type == "keyUp"
+	isMouse := event.Type == "click" || event.Type == "wheel"
+	if isKeyboard && !state.SyncKeyboard {
+		return
+	}
+	if isMouse && !state.SyncMouse {
+		return
+	}
+
+	for _, item := range state.Windows {
+		if item.ProfileId == state.MasterProfileId {
+			continue
+		}
+		if item.DebugPort <= 0 {
+			continue
+		}
+		_ = dispatchWindowSyncEvent(item.DebugPort, event)
+	}
+}
+
+type windowSyncEvent struct {
+	Type      string  `json:"type"`
+	X         float64 `json:"x"`
+	Y         float64 `json:"y"`
+	Button    string  `json:"button"`
+	DeltaX    float64 `json:"deltaX"`
+	DeltaY    float64 `json:"deltaY"`
+	Key       string  `json:"key"`
+	Code      string  `json:"code"`
+	Text      string  `json:"text"`
+	Modifiers int     `json:"modifiers"`
+}
+
+func dispatchWindowSyncEvent(debugPort int, event windowSyncEvent) error {
+	switch event.Type {
+	case "click":
+		button := normalizeWindowSyncMouseButton(event.Button)
+		params := map[string]any{
+			"type":       "mousePressed",
+			"x":          event.X,
+			"y":          event.Y,
+			"button":     button,
+			"clickCount": 1,
+			"modifiers":  event.Modifiers,
+		}
+		if _, err := cdpCall(debugPort, "Input.dispatchMouseEvent", params); err != nil {
+			return err
+		}
+		params["type"] = "mouseReleased"
+		_, err := cdpCall(debugPort, "Input.dispatchMouseEvent", params)
+		return err
+	case "wheel":
+		_, err := cdpCall(debugPort, "Input.dispatchMouseEvent", map[string]any{
+			"type":       "mouseWheel",
+			"x":          event.X,
+			"y":          event.Y,
+			"deltaX":     event.DeltaX,
+			"deltaY":     event.DeltaY,
+			"modifiers":  event.Modifiers,
+		})
+		return err
+	case "keyDown", "keyUp":
+		cdpType := "keyDown"
+		if event.Type == "keyUp" {
+			cdpType = "keyUp"
+		}
+		params := map[string]any{
+			"type":                  cdpType,
+			"key":                   event.Key,
+			"code":                  event.Code,
+			"windowsVirtualKeyCode": windowSyncVirtualKeyCode(event),
+			"nativeVirtualKeyCode":  windowSyncVirtualKeyCode(event),
+			"modifiers":             event.Modifiers,
+		}
+		if event.Type == "keyDown" && strings.TrimSpace(event.Text) != "" {
+			params["text"] = event.Text
+			params["unmodifiedText"] = event.Text
+		}
+		_, err := cdpCall(debugPort, "Input.dispatchKeyEvent", params)
+		return err
+	default:
+		return nil
+	}
 }
 
 func (a *App) requireWindowSyncState() (*WindowSyncState, error) {
@@ -673,6 +938,180 @@ func defaultWindowSyncLayoutSettings() WindowSyncLayoutSettings {
 		GapY:   10,
 		PerRow: 2,
 	}
+}
+
+func firstPageWebSocketURL(debugPort int) (string, error) {
+	resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/json", debugPort))
+	if err != nil {
+		return "", fmt.Errorf("CDP /json 请求失败: %w", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	var targets []cdpTarget
+	if err := json.Unmarshal(body, &targets); err != nil || len(targets) == 0 {
+		return "", fmt.Errorf("CDP targets 解析失败或为空")
+	}
+	for _, target := range targets {
+		if target.Type == "page" && strings.TrimSpace(target.WebSocketDebuggerUrl) != "" {
+			return target.WebSocketDebuggerUrl, nil
+		}
+	}
+	for _, target := range targets {
+		if strings.TrimSpace(target.WebSocketDebuggerUrl) != "" {
+			return target.WebSocketDebuggerUrl, nil
+		}
+	}
+	return "", fmt.Errorf("未找到可用的 WebSocket 调试地址")
+}
+
+func windowSyncInjectionScript() string {
+	return fmt.Sprintf(`(() => {
+  if (window.__traceWindowSyncInstalled) return;
+  window.__traceWindowSyncInstalled = true;
+  const send = (event) => {
+    try {
+      const fn = window[%q];
+      if (typeof fn === "function") fn(JSON.stringify(event));
+    } catch (_) {}
+  };
+  const modifiers = (event) => (event.altKey ? 1 : 0) | (event.ctrlKey ? 2 : 0) | (event.metaKey ? 4 : 0) | (event.shiftKey ? 8 : 0);
+  const textFor = (event) => {
+    if (!event.key || event.ctrlKey || event.metaKey || event.altKey) return "";
+    return event.key.length === 1 ? event.key : "";
+  };
+  window.addEventListener("click", (event) => send({
+    type: "click",
+    x: event.clientX,
+    y: event.clientY,
+    button: event.button === 2 ? "right" : event.button === 1 ? "middle" : "left",
+    modifiers: modifiers(event)
+  }), true);
+  window.addEventListener("wheel", (event) => send({
+    type: "wheel",
+    x: event.clientX,
+    y: event.clientY,
+    deltaX: event.deltaX,
+    deltaY: event.deltaY,
+    modifiers: modifiers(event)
+  }), { capture: true, passive: true });
+  window.addEventListener("keydown", (event) => send({
+    type: "keyDown",
+    key: event.key,
+    code: event.code,
+    text: textFor(event),
+    modifiers: modifiers(event)
+  }), true);
+  window.addEventListener("keyup", (event) => send({
+    type: "keyUp",
+    key: event.key,
+    code: event.code,
+    modifiers: modifiers(event)
+  }), true);
+})();`, windowSyncBindingName)
+}
+
+func normalizeWindowSyncMouseButton(button string) string {
+	switch strings.ToLower(strings.TrimSpace(button)) {
+	case "right":
+		return "right"
+	case "middle":
+		return "middle"
+	default:
+		return "left"
+	}
+}
+
+func windowSyncVirtualKeyCode(event windowSyncEvent) int {
+	key := strings.TrimSpace(event.Key)
+	if len([]rune(key)) == 1 {
+		r := []rune(strings.ToUpper(key))[0]
+		if r >= 'A' && r <= 'Z' {
+			return int(r)
+		}
+		if r >= '0' && r <= '9' {
+			return int(r)
+		}
+	}
+	switch key {
+	case "Backspace":
+		return 8
+	case "Tab":
+		return 9
+	case "Enter":
+		return 13
+	case "Shift":
+		return 16
+	case "Control":
+		return 17
+	case "Alt":
+		return 18
+	case "Escape":
+		return 27
+	case " ":
+		return 32
+	case "ArrowLeft":
+		return 37
+	case "ArrowUp":
+		return 38
+	case "ArrowRight":
+		return 39
+	case "ArrowDown":
+		return 40
+	case "Delete":
+		return 46
+	default:
+		return 0
+	}
+}
+
+func findWindowSyncWindow(windows []WindowSyncCandidate, profileId string) *WindowSyncCandidate {
+	for i := range windows {
+		if windows[i].ProfileId == profileId {
+			item := windows[i]
+			return &item
+		}
+	}
+	return nil
+}
+
+func defaultWindowSyncSettings() WindowSyncSettings {
+	return WindowSyncSettings{
+		MasterColor:  defaultWindowSyncMasterColor,
+		SyncKeyboard: true,
+		SyncMouse:    true,
+	}
+}
+
+func normalizeWindowSyncSettings(input WindowSyncSettings) WindowSyncSettings {
+	out := defaultWindowSyncSettings()
+	out.MasterColor = normalizeWindowSyncMasterColor(input.MasterColor)
+	out.SyncKeyboard = input.SyncKeyboard
+	out.SyncMouse = input.SyncMouse
+	return out
+}
+
+func normalizeWindowSyncMasterColor(color string) string {
+	value := strings.TrimSpace(color)
+	if value == "" {
+		return defaultWindowSyncMasterColor
+	}
+	if !strings.HasPrefix(value, "#") {
+		value = "#" + value
+	}
+	if len(value) == 4 {
+		value = fmt.Sprintf("#%c%c%c%c%c%c", value[1], value[1], value[2], value[2], value[3], value[3])
+	}
+	if len(value) != 7 {
+		return defaultWindowSyncMasterColor
+	}
+	for _, ch := range value[1:] {
+		if (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F') {
+			continue
+		}
+		return defaultWindowSyncMasterColor
+	}
+	return strings.ToLower(value)
 }
 
 func (a *App) emitWindowSyncStateChanged(state *WindowSyncState) {

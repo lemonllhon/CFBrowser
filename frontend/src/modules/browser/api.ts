@@ -1,4 +1,4 @@
-import type { BrowserProfile, BrowserProfileInput, BrowserTab, BrowserSettings, BrowserCore, BrowserCoreInput, BrowserCoreValidateResult, BrowserProxy, BrowserCoreExtended, CookieInfo, CookieImportResult, SnapshotInfo, BrowserBookmark, BrowserStartURL, BrowserGroup, BrowserGroupInput, BrowserGroupWithCount, ProxyIPHealthResult, DefaultContentRule, WindowSyncCandidate, WindowSyncLayoutSettings, WindowSyncStartInput, WindowSyncState } from './types'
+import type { BrowserProfile, BrowserProfileInput, BrowserTab, BrowserSettings, BrowserCore, BrowserCoreInput, BrowserCoreValidateResult, BrowserProxy, BrowserCoreExtended, CookieInfo, CookieImportResult, SnapshotInfo, BrowserBookmark, BrowserStartURL, BrowserGroup, BrowserGroupInput, BrowserGroupWithCount, ProxyIPHealthResult, DefaultContentRule, WindowSyncCandidate, WindowSyncLayoutSettings, WindowSyncSettings, WindowSyncStartInput, WindowSyncState } from './types'
 
 const getBindings = async () => {
   try {
@@ -282,6 +282,8 @@ export async function startWindowSync(input: WindowSyncStartInput): Promise<Wind
       master: item.profileId === input.masterProfileId,
     })),
     masterColor: '#2563eb',
+    syncKeyboard: true,
+    syncMouse: true,
     layout: defaultWindowSyncLayoutSettings(),
     startedAt: now,
     updatedAt: now,
@@ -296,6 +298,38 @@ export async function getWindowSyncState(): Promise<WindowSyncState | null> {
   const goApp = (window as any).go?.main?.App
   if (goApp?.WindowSyncGetState) {
     return (await goApp.WindowSyncGetState()) || null
+  }
+  return null
+}
+
+export function defaultWindowSyncSettings(): WindowSyncSettings {
+  return {
+    masterColor: '#2563eb',
+    syncKeyboard: true,
+    syncMouse: true,
+  }
+}
+
+export async function getWindowSyncSettings(): Promise<WindowSyncSettings> {
+  const bindings: any = await getBindings()
+  if (bindings?.WindowSyncGetSettings) {
+    return (await bindings.WindowSyncGetSettings()) || defaultWindowSyncSettings()
+  }
+  const goApp = (window as any).go?.main?.App
+  if (goApp?.WindowSyncGetSettings) {
+    return (await goApp.WindowSyncGetSettings()) || defaultWindowSyncSettings()
+  }
+  return defaultWindowSyncSettings()
+}
+
+export async function saveWindowSyncSettings(settings: WindowSyncSettings): Promise<WindowSyncState | null> {
+  const bindings: any = await getBindings()
+  if (bindings?.WindowSyncSaveSettings) {
+    return (await bindings.WindowSyncSaveSettings(settings)) || null
+  }
+  const goApp = (window as any).go?.main?.App
+  if (goApp?.WindowSyncSaveSettings) {
+    return (await goApp.WindowSyncSaveSettings(settings)) || null
   }
   return null
 }

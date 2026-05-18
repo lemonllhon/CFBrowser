@@ -217,6 +217,8 @@ export function WindowSyncGetState():Promise<backend.WindowSyncState>;
 
 export function WindowSyncGetLayoutSettings():Promise<backend.WindowSyncLayoutSettings>;
 
+export function WindowSyncGetSettings():Promise<backend.WindowSyncSettings>;
+
 export function WindowSyncListCandidates():Promise<Array<backend.WindowSyncCandidate>>;
 
 export function WindowSyncPause():Promise<backend.WindowSyncState>;
@@ -224,6 +226,8 @@ export function WindowSyncPause():Promise<backend.WindowSyncState>;
 export function WindowSyncResume():Promise<backend.WindowSyncState>;
 
 export function WindowSyncSaveLayoutSettings(arg1:backend.WindowSyncLayoutSettings):Promise<backend.WindowSyncLayoutSettings>;
+
+export function WindowSyncSaveSettings(arg1:backend.WindowSyncSettings):Promise<backend.WindowSyncState>;
 
 export function WindowSyncShowAll():Promise<backend.WindowSyncState>;
 

@@ -232,7 +232,15 @@ export interface WindowSyncState {
   profileIds: string[]
   windows: WindowSyncCandidate[]
   masterColor: string
+  syncKeyboard: boolean
+  syncMouse: boolean
   layout: WindowSyncLayoutSettings
   startedAt: string
   updatedAt: string
+}
+
+export interface WindowSyncSettings {
+  masterColor: string
+  syncKeyboard: boolean
+  syncMouse: boolean
 }

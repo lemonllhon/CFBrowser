@@ -422,6 +422,10 @@ export function WindowSyncGetLayoutSettings() {
   return window['go']['main']['App']['WindowSyncGetLayoutSettings']();
 }
 
+export function WindowSyncGetSettings() {
+  return window['go']['main']['App']['WindowSyncGetSettings']();
+}
+
 export function WindowSyncListCandidates() {
   return window['go']['main']['App']['WindowSyncListCandidates']();
 }
@@ -436,6 +440,10 @@ export function WindowSyncResume() {
 
 export function WindowSyncSaveLayoutSettings(arg1) {
   return window['go']['main']['App']['WindowSyncSaveLayoutSettings'](arg1);
+}
+
+export function WindowSyncSaveSettings(arg1) {
+  return window['go']['main']['App']['WindowSyncSaveSettings'](arg1);
 }
 
 export function WindowSyncShowAll() {

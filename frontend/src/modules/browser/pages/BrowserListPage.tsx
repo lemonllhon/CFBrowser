@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Activity, CheckCircle, ChevronDown, ChevronRight, ChevronUp, Copy, Edit2, FileText, Focus, Key, Layers, MousePointerClick, Pause, Pencil, Play, Plus, RefreshCw, RotateCcw, Settings, Shuffle, Sliders, Square, Star, TextCursorInput, Trash2, XCircle, LayoutGrid, List, MonitorUp } from 'lucide-react'
-import { Badge, Button, Card, ConfirmModal, FormItem, Input, Modal, StatCard, Table, Textarea, toast } from '../../../shared/components'
+import { Badge, Button, Card, ConfirmModal, FormItem, Input, Modal, StatCard, Switch, Table, Textarea, toast } from '../../../shared/components'
 import type { TableColumn } from '../../../shared/components/Table'
-import type { BrowserCore, BrowserCoreInput, BrowserProfile, BrowserProxy, BrowserSettings, BrowserGroupWithCount, WindowSyncCandidate, WindowSyncLayoutSettings, WindowSyncState } from '../types'
+import type { BrowserCore, BrowserCoreInput, BrowserProfile, BrowserProxy, BrowserSettings, BrowserGroupWithCount, WindowSyncCandidate, WindowSyncLayoutSettings, WindowSyncSettings, WindowSyncState } from '../types'
 import { InstanceFilterBar, EMPTY_FILTERS } from '../components/InstanceFilterBar'
 import type { InstanceFilters } from '../components/InstanceFilterBar'
 import { KeywordsModal } from '../components/KeywordsModal'
@@ -14,6 +14,7 @@ import {
   copyBrowserProfile,
   deleteBrowserCore,
   deleteBrowserProfile,
+  defaultWindowSyncSettings,
   defaultWindowSyncLayoutSettings,
   fetchBrowserCores,
   fetchBrowserProfiles,
@@ -22,6 +23,7 @@ import {
   fetchGroups,
   getWindowSyncState,
   getWindowSyncLayoutSettings,
+  getWindowSyncSettings,
   listWindowSyncCandidates,
   pauseWindowSync,
   pinCenterBrowserInstance,
@@ -30,6 +32,7 @@ import {
   restartBrowserInstance,
   saveBrowserCore,
   saveBrowserSettings,
+  saveWindowSyncSettings,
   saveWindowSyncLayoutSettings,
   setBrowserProfileCode,
   setDefaultBrowserCore,
@@ -124,6 +127,7 @@ function WindowSyncControlBar({
   onStop,
   onOpenList,
   onOpenLayout,
+  onOpenSettings,
 }: {
   state: WindowSyncState
   loading: boolean
@@ -132,6 +136,7 @@ function WindowSyncControlBar({
   onStop: () => void
   onOpenList: () => void
   onOpenLayout: () => void
+  onOpenSettings: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const masterName = state.windows.find(item => item.profileId === state.masterProfileId)?.profileName || state.masterProfileId
@@ -194,7 +199,7 @@ function WindowSyncControlBar({
               <Button size="sm" variant="ghost" disabled title="阶段 7 开启">
                 <MousePointerClick className="w-4 h-4" />仿真操作
               </Button>
-              <Button size="sm" variant="ghost" disabled title="阶段 8 开启">
+              <Button size="sm" variant="ghost" onClick={onOpenSettings} title="基础设置">
                 <Settings className="w-4 h-4" />设置
               </Button>
             </div>
@@ -224,6 +229,19 @@ const formatTime = (value?: string) => {
   if (!value) return '-'
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? '-' : date.toLocaleString('zh-CN')
+}
+
+const normalizeWindowSyncColor = (value?: string) => {
+  const raw = (value || '').trim()
+  if (!raw) return '#2563eb'
+  const color = raw.startsWith('#') ? raw : `#${raw}`
+  if (/^#[0-9a-fA-F]{3}$/.test(color)) {
+    return `#${color[1]}${color[1]}${color[2]}${color[2]}${color[3]}${color[3]}`.toLowerCase()
+  }
+  if (/^#[0-9a-fA-F]{6}$/.test(color)) {
+    return color.toLowerCase()
+  }
+  return null
 }
 
 function LaunchCodeCell({ profileId, code, onRefresh }: { profileId: string; code: string; onRefresh: () => void }) {
@@ -428,6 +446,8 @@ export function BrowserListPage() {
   const [windowSyncLoading, setWindowSyncLoading] = useState(false)
   const [windowSyncLayoutModalOpen, setWindowSyncLayoutModalOpen] = useState(false)
   const [windowSyncLayout, setWindowSyncLayout] = useState<WindowSyncLayoutSettings>(() => defaultWindowSyncLayoutSettings())
+  const [windowSyncSettingsModalOpen, setWindowSyncSettingsModalOpen] = useState(false)
+  const [windowSyncSettings, setWindowSyncSettings] = useState<WindowSyncSettings>(() => defaultWindowSyncSettings())
 
   // 关键字弹窗
   const [kwModal, setKwModal] = useState<{ open: boolean; profile: BrowserProfile | null }>({ open: false, profile: null })
@@ -606,6 +626,13 @@ export function BrowserListPage() {
     })
     const offWindowSyncChanged = EventsOn('window-sync:state-changed', (payload: any) => {
       setWindowSyncState(payload?.active ? payload : null)
+      if (payload?.active) {
+        setWindowSyncSettings({
+          masterColor: payload.masterColor || '#2563eb',
+          syncKeyboard: payload.syncKeyboard !== false,
+          syncMouse: payload.syncMouse !== false,
+        })
+      }
     })
 
     void getWindowSyncState().then(state => {
@@ -613,8 +640,16 @@ export function BrowserListPage() {
       if (state?.layout) {
         setWindowSyncLayout(state.layout)
       }
+      if (state?.active) {
+        setWindowSyncSettings({
+          masterColor: state.masterColor || '#2563eb',
+          syncKeyboard: state.syncKeyboard !== false,
+          syncMouse: state.syncMouse !== false,
+        })
+      }
     })
     void getWindowSyncLayoutSettings().then(setWindowSyncLayout)
+    void getWindowSyncSettings().then(setWindowSyncSettings)
 
     const timer = window.setInterval(() => {
       if (document.visibilityState !== 'visible') return
@@ -896,6 +931,13 @@ export function BrowserListPage() {
       if (state?.layout) {
         setWindowSyncLayout(state.layout)
       }
+      if (state?.active) {
+        setWindowSyncSettings({
+          masterColor: state.masterColor || '#2563eb',
+          syncKeyboard: state.syncKeyboard !== false,
+          syncMouse: state.syncMouse !== false,
+        })
+      }
       setWindowSyncModalOpen(false)
       toast.success('窗口同步已创建，主控窗口已定位到左上角')
     } catch (error: any) {
@@ -927,6 +969,13 @@ export function BrowserListPage() {
       if (state?.layout) {
         setWindowSyncLayout(state.layout)
       }
+      if (state?.active) {
+        setWindowSyncSettings({
+          masterColor: state.masterColor || '#2563eb',
+          syncKeyboard: state.syncKeyboard !== false,
+          syncMouse: state.syncMouse !== false,
+        })
+      }
       toast.success(windowSyncState.paused ? '窗口同步已恢复' : '窗口同步已暂停')
     } catch (error: any) {
       toast.error(error?.message || '同步状态切换失败')
@@ -945,6 +994,11 @@ export function BrowserListPage() {
         if (state.layout) {
           setWindowSyncLayout(state.layout)
         }
+        setWindowSyncSettings({
+          masterColor: state.masterColor || '#2563eb',
+          syncKeyboard: state.syncKeyboard !== false,
+          syncMouse: state.syncMouse !== false,
+        })
       }
       toast.success('同步窗口已弹出')
     } catch (error: any) {
@@ -964,8 +1018,22 @@ export function BrowserListPage() {
     setWindowSyncLayoutModalOpen(true)
   }
 
+  const handleOpenWindowSyncSettings = async () => {
+    try {
+      const settings = await getWindowSyncSettings()
+      setWindowSyncSettings(settings)
+    } catch {
+      // 保留当前设置表单值即可。
+    }
+    setWindowSyncSettingsModalOpen(true)
+  }
+
   const updateWindowSyncLayout = (patch: Partial<WindowSyncLayoutSettings>) => {
     setWindowSyncLayout(prev => ({ ...prev, ...patch }))
+  }
+
+  const updateWindowSyncSettings = (patch: Partial<WindowSyncSettings>) => {
+    setWindowSyncSettings(prev => ({ ...prev, ...patch }))
   }
 
   const handleApplyWindowSyncLayout = async (settings?: WindowSyncLayoutSettings) => {
@@ -985,6 +1053,32 @@ export function BrowserListPage() {
       toast.success('窗口布局已应用')
     } catch (error: any) {
       toast.error(error?.message || '应用窗口布局失败')
+    } finally {
+      setWindowSyncLoading(false)
+    }
+  }
+
+  const handleSaveWindowSyncSettings = async () => {
+    const masterColor = normalizeWindowSyncColor(windowSyncSettings.masterColor)
+    if (!masterColor) {
+      toast.error('主控窗口颜色格式应为 #RGB 或 #RRGGBB')
+      return
+    }
+    setWindowSyncLoading(true)
+    try {
+      const state = await saveWindowSyncSettings({ ...windowSyncSettings, masterColor })
+      if (state?.active) {
+        setWindowSyncState(state)
+        setWindowSyncSettings({
+          masterColor: state.masterColor || '#2563eb',
+          syncKeyboard: state.syncKeyboard !== false,
+          syncMouse: state.syncMouse !== false,
+        })
+      }
+      setWindowSyncSettingsModalOpen(false)
+      toast.success('同步基础设置已保存')
+    } catch (error: any) {
+      toast.error(error?.message || '保存同步基础设置失败')
     } finally {
       setWindowSyncLoading(false)
     }
@@ -1484,6 +1578,7 @@ export function BrowserListPage() {
           onStop={handleStopWindowSync}
           onOpenList={handleOpenWindowSyncModal}
           onOpenLayout={handleOpenWindowSyncLayout}
+          onOpenSettings={handleOpenWindowSyncSettings}
         />
       )}
 
@@ -1901,6 +1996,61 @@ export function BrowserListPage() {
                 onChange={e => updateWindowSyncLayout({ perRow: Math.max(1, Number(e.target.value) || 2) })}
               />
             </FormItem>
+          </div>
+        </div>
+      </Modal>
+
+      {/* 窗口同步基础设置弹窗 */}
+      <Modal
+        open={windowSyncSettingsModalOpen}
+        onClose={() => setWindowSyncSettingsModalOpen(false)}
+        title="窗口同步设置"
+        width="460px"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setWindowSyncSettingsModalOpen(false)}>取消</Button>
+            <Button onClick={handleSaveWindowSyncSettings} loading={windowSyncLoading}>保存</Button>
+          </>
+        }
+      >
+        <div className="space-y-5">
+          <FormItem label="主控窗口颜色">
+            <div className="flex items-center gap-3">
+              <input
+                type="color"
+                value={windowSyncSettings.masterColor || '#2563eb'}
+                onChange={e => updateWindowSyncSettings({ masterColor: e.target.value })}
+                className="h-9 w-12 rounded border border-[var(--color-border-default)] bg-transparent"
+              />
+              <Input
+                value={windowSyncSettings.masterColor || '#2563eb'}
+                onChange={e => updateWindowSyncSettings({ masterColor: e.target.value })}
+                placeholder="#2563eb"
+              />
+            </div>
+          </FormItem>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between rounded-lg border border-[var(--color-border-default)] px-3 py-3">
+              <div>
+                <p className="text-sm font-medium text-[var(--color-text-primary)]">同步键盘输入</p>
+                <p className="text-xs text-[var(--color-text-muted)] mt-1">开启后，主控窗口的按键会发送到被控窗口。</p>
+              </div>
+              <Switch
+                checked={windowSyncSettings.syncKeyboard}
+                onChange={checked => updateWindowSyncSettings({ syncKeyboard: checked })}
+              />
+            </div>
+            <div className="flex items-center justify-between rounded-lg border border-[var(--color-border-default)] px-3 py-3">
+              <div>
+                <p className="text-sm font-medium text-[var(--color-text-primary)]">同步鼠标输入</p>
+                <p className="text-xs text-[var(--color-text-muted)] mt-1">开启后，点击和滚动会发送到被控窗口。</p>
+              </div>
+              <Switch
+                checked={windowSyncSettings.syncMouse}
+                onChange={checked => updateWindowSyncSettings({ syncMouse: checked })}
+              />
+            </div>
           </div>
         </div>
       </Modal>

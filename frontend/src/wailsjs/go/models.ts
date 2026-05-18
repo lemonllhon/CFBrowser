@@ -216,6 +216,22 @@ export namespace backend {
 	        this.updatedAt = source["updatedAt"];
 	    }
 	}
+	export class WindowSyncSettings {
+	    masterColor: string;
+	    syncKeyboard: boolean;
+	    syncMouse: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new WindowSyncSettings(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.masterColor = source["masterColor"];
+	        this.syncKeyboard = source["syncKeyboard"];
+	        this.syncMouse = source["syncMouse"];
+	    }
+	}
 	export class WindowSyncState {
 	    sessionId: string;
 	    active: boolean;
@@ -224,6 +240,8 @@ export namespace backend {
 	    profileIds: string[];
 	    windows: WindowSyncCandidate[];
 	    masterColor: string;
+	    syncKeyboard: boolean;
+	    syncMouse: boolean;
 	    layout: WindowSyncLayoutSettings;
 	    startedAt: string;
 	    updatedAt: string;
@@ -241,6 +259,8 @@ export namespace backend {
 	        this.profileIds = source["profileIds"];
 	        this.windows = this.convertValues(source["windows"], WindowSyncCandidate);
 	        this.masterColor = source["masterColor"];
+	        this.syncKeyboard = source["syncKeyboard"];
+	        this.syncMouse = source["syncMouse"];
 	        this.layout = this.convertValues(source["layout"], WindowSyncLayoutSettings);
 	        this.startedAt = source["startedAt"];
 	        this.updatedAt = source["updatedAt"];
