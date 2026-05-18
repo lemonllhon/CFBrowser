@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"ant-chrome/backend/internal/logger"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -18,6 +19,12 @@ import (
 const defaultWindowSyncMasterColor = "#2563eb"
 
 const windowSyncBindingName = "__traceWindowSyncEvent"
+
+type windowSyncTarget struct {
+	Id           string
+	Title        string
+	WebSocketURL string
+}
 
 type WindowSyncLayoutSettings struct {
 	Mode     string `json:"mode"`
@@ -411,11 +418,52 @@ func (a *App) runWindowSyncListener(seq int, cancel <-chan struct{}) {
 }
 
 func (a *App) listenWindowSyncMaster(seq int, cancel <-chan struct{}, state *WindowSyncState, debugPort int) error {
-	wsURL, err := firstPageWebSocketURL(debugPort)
+	targets, err := pageWebSocketTargets(debugPort)
 	if err != nil {
 		return err
 	}
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	localCancel := make(chan struct{})
+	defer close(localCancel)
+	done := make(chan error, 1)
+	connected := 0
+	for _, target := range targets {
+		target := target
+		go func() {
+			if err := a.listenWindowSyncTarget(seq, cancel, localCancel, target); err != nil {
+				select {
+				case done <- err:
+				default:
+				}
+			}
+		}()
+		connected++
+	}
+	logger.New("WindowSync").Info("主控窗口同步监听已启动",
+		logger.F("debug_port", debugPort),
+		logger.F("targets", connected),
+		logger.F("session_id", state.SessionId),
+	)
+	if connected == 0 {
+		return fmt.Errorf("未找到可监听的主控页面")
+	}
+
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-cancel:
+			return nil
+		case err := <-done:
+			logger.New("WindowSync").Warn("主控页面监听中断", logger.F("error", err.Error()))
+			return err
+		case <-ticker.C:
+			return nil
+		}
+	}
+}
+
+func (a *App) listenWindowSyncTarget(seq int, cancel <-chan struct{}, localCancel <-chan struct{}, target windowSyncTarget) error {
+	conn, _, err := websocket.DefaultDialer.Dial(target.WebSocketURL, nil)
 	if err != nil {
 		return err
 	}
@@ -433,7 +481,8 @@ func (a *App) listenWindowSyncMaster(seq int, cancel <-chan struct{}, state *Win
 	if err := send("Page.enable", nil); err != nil {
 		return err
 	}
-	if err := send("Runtime.addBinding", map[string]any{"name": windowSyncBindingName}); err != nil {
+	_ = send("Runtime.removeBinding", map[string]any{"name": windowSyncBindingName})
+	if err := send("Runtime.addBinding", map[string]any{"name": windowSyncBindingName}); err != nil && !strings.Contains(strings.ToLower(err.Error()), "already") {
 		return err
 	}
 	source := windowSyncInjectionScript()
@@ -464,8 +513,11 @@ func (a *App) listenWindowSyncMaster(seq int, cancel <-chan struct{}, state *Win
 	case <-cancel:
 		_ = conn.Close()
 		return nil
+	case <-localCancel:
+		_ = conn.Close()
+		return nil
 	case err := <-done:
-		return err
+		return fmt.Errorf("%s: %w", target.Id, err)
 	}
 }
 
@@ -504,7 +556,13 @@ func (a *App) handleWindowSyncPayload(seq int, payload string) {
 		if item.DebugPort <= 0 {
 			continue
 		}
-		_ = dispatchWindowSyncEvent(item.DebugPort, event)
+		if err := dispatchWindowSyncEvent(item.DebugPort, event); err != nil {
+			logger.New("WindowSync").Warn("同步事件派发失败",
+				logger.F("profile_id", item.ProfileId),
+				logger.F("event_type", event.Type),
+				logger.F("error", err.Error()),
+			)
+		}
 	}
 }
 
@@ -522,6 +580,29 @@ type windowSyncEvent struct {
 }
 
 func dispatchWindowSyncEvent(debugPort int, event windowSyncEvent) error {
+	targets, err := pageWebSocketTargets(debugPort)
+	if err != nil {
+		return err
+	}
+	var lastErr error
+	dispatched := 0
+	for _, target := range targets {
+		if err := dispatchWindowSyncEventToTarget(target.WebSocketURL, event); err != nil {
+			lastErr = err
+			continue
+		}
+		dispatched++
+	}
+	if dispatched == 0 && lastErr != nil {
+		return lastErr
+	}
+	if dispatched == 0 {
+		return fmt.Errorf("未找到可派发的页面")
+	}
+	return nil
+}
+
+func dispatchWindowSyncEventToTarget(wsURL string, event windowSyncEvent) error {
 	switch event.Type {
 	case "click":
 		button := normalizeWindowSyncMouseButton(event.Button)
@@ -533,14 +614,14 @@ func dispatchWindowSyncEvent(debugPort int, event windowSyncEvent) error {
 			"clickCount": 1,
 			"modifiers":  event.Modifiers,
 		}
-		if _, err := cdpCall(debugPort, "Input.dispatchMouseEvent", params); err != nil {
+		if _, err := cdpCallWebSocket(wsURL, "Input.dispatchMouseEvent", params); err != nil {
 			return err
 		}
 		params["type"] = "mouseReleased"
-		_, err := cdpCall(debugPort, "Input.dispatchMouseEvent", params)
+		_, err := cdpCallWebSocket(wsURL, "Input.dispatchMouseEvent", params)
 		return err
 	case "wheel":
-		_, err := cdpCall(debugPort, "Input.dispatchMouseEvent", map[string]any{
+		_, err := cdpCallWebSocket(wsURL, "Input.dispatchMouseEvent", map[string]any{
 			"type":       "mouseWheel",
 			"x":          event.X,
 			"y":          event.Y,
@@ -566,11 +647,34 @@ func dispatchWindowSyncEvent(debugPort int, event windowSyncEvent) error {
 			params["text"] = event.Text
 			params["unmodifiedText"] = event.Text
 		}
-		_, err := cdpCall(debugPort, "Input.dispatchKeyEvent", params)
+		_, err := cdpCallWebSocket(wsURL, "Input.dispatchKeyEvent", params)
 		return err
 	default:
 		return nil
 	}
+}
+
+func cdpCallWebSocket(wsURL string, method string, params map[string]any) (map[string]any, error) {
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("WebSocket 连接失败: %w", err)
+	}
+	defer conn.Close()
+	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+
+	msg := cdpMessage{Id: 1, Method: method, Params: params}
+	if err := conn.WriteJSON(msg); err != nil {
+		return nil, fmt.Errorf("CDP 命令发送失败: %w", err)
+	}
+
+	var cdpResp cdpResponse
+	if err := conn.ReadJSON(&cdpResp); err != nil {
+		return nil, fmt.Errorf("CDP 响应读取失败: %w", err)
+	}
+	if cdpResp.Error != nil {
+		return nil, fmt.Errorf("CDP 错误: %s", cdpResp.Error.Message)
+	}
+	return cdpResp.Result, nil
 }
 
 func (a *App) requireWindowSyncState() (*WindowSyncState, error) {
@@ -940,29 +1044,48 @@ func defaultWindowSyncLayoutSettings() WindowSyncLayoutSettings {
 	}
 }
 
-func firstPageWebSocketURL(debugPort int) (string, error) {
+func pageWebSocketTargets(debugPort int) ([]windowSyncTarget, error) {
 	resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/json", debugPort))
 	if err != nil {
-		return "", fmt.Errorf("CDP /json 请求失败: %w", err)
+		return nil, fmt.Errorf("CDP /json 请求失败: %w", err)
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 
 	var targets []cdpTarget
 	if err := json.Unmarshal(body, &targets); err != nil || len(targets) == 0 {
-		return "", fmt.Errorf("CDP targets 解析失败或为空")
+		return nil, fmt.Errorf("CDP targets 解析失败或为空")
+	}
+	out := make([]windowSyncTarget, 0, len(targets))
+	for _, target := range targets {
+		wsURL := strings.TrimSpace(target.WebSocketDebuggerUrl)
+		if target.Type != "page" || wsURL == "" {
+			continue
+		}
+		out = append(out, windowSyncTarget{
+			Id:           strings.TrimSpace(target.Id),
+			Title:        strings.TrimSpace(target.Title),
+			WebSocketURL: wsURL,
+		})
+	}
+	if len(out) > 0 {
+		return out, nil
 	}
 	for _, target := range targets {
-		if target.Type == "page" && strings.TrimSpace(target.WebSocketDebuggerUrl) != "" {
-			return target.WebSocketDebuggerUrl, nil
+		wsURL := strings.TrimSpace(target.WebSocketDebuggerUrl)
+		if wsURL == "" {
+			continue
 		}
+		out = append(out, windowSyncTarget{
+			Id:           strings.TrimSpace(target.Id),
+			Title:        strings.TrimSpace(target.Title),
+			WebSocketURL: wsURL,
+		})
 	}
-	for _, target := range targets {
-		if strings.TrimSpace(target.WebSocketDebuggerUrl) != "" {
-			return target.WebSocketDebuggerUrl, nil
-		}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("未找到可用的 WebSocket 调试地址")
 	}
-	return "", fmt.Errorf("未找到可用的 WebSocket 调试地址")
+	return out, nil
 }
 
 func windowSyncInjectionScript() string {
