@@ -569,7 +569,7 @@ func (a *App) handleWindowSyncPayload(seq int, payload string) {
 	}
 
 	isKeyboard := event.Type == "keyDown" || event.Type == "keyUp"
-	isMouse := event.Type == "click" || event.Type == "wheel" || event.Type == "tabActivated"
+	isMouse := event.Type == "wheel" || event.Type == "mouseDown" || event.Type == "mouseMove" || event.Type == "mouseUp" || event.Type == "tabActivated"
 	if isKeyboard && !state.SyncKeyboard {
 		return
 	}
@@ -602,6 +602,7 @@ type windowSyncEvent struct {
 	X           float64 `json:"x"`
 	Y           float64 `json:"y"`
 	Button      string  `json:"button"`
+	Buttons     int     `json:"buttons"`
 	DeltaX      float64 `json:"deltaX"`
 	DeltaY      float64 `json:"deltaY"`
 	Key         string  `json:"key"`
@@ -615,19 +616,16 @@ func dispatchWindowSyncEvent(debugPort int, event windowSyncEvent) error {
 	if err != nil {
 		return err
 	}
-	if event.TargetIndex >= 0 && event.TargetIndex < len(targets) {
-		target := targets[event.TargetIndex]
-		if event.Type == "tabActivated" {
-			return activateWindowSyncTarget(debugPort, findWindowSyncTargetForEvent(targets, event))
-		}
-		return dispatchWindowSyncEventToTarget(target.WebSocketURL, event)
-	}
 	if event.Type == "tabActivated" {
 		target := findWindowSyncTargetForEvent(targets, event)
 		if strings.TrimSpace(target.Id) == "" {
 			return fmt.Errorf("被控窗口缺少同序标签页：%d", event.TargetIndex+1)
 		}
 		return activateWindowSyncTarget(debugPort, target)
+	}
+	target := findWindowSyncTargetForEvent(targets, event)
+	if strings.TrimSpace(target.WebSocketURL) != "" {
+		return dispatchWindowSyncEventToTarget(target.WebSocketURL, event)
 	}
 	var lastErr error
 	dispatched := 0
@@ -649,22 +647,32 @@ func dispatchWindowSyncEvent(debugPort int, event windowSyncEvent) error {
 
 func dispatchWindowSyncEventToTarget(wsURL string, event windowSyncEvent) error {
 	switch event.Type {
-	case "click":
+	case "mouseDown", "mouseUp", "mouseMove":
 		button := normalizeWindowSyncMouseButton(event.Button)
+		cdpType := "mouseMoved"
+		switch event.Type {
+		case "mouseDown":
+			cdpType = "mousePressed"
+		case "mouseUp":
+			cdpType = "mouseReleased"
+		}
 		params := map[string]any{
-			"type":       "mousePressed",
+			"type":       cdpType,
 			"x":          event.X,
 			"y":          event.Y,
 			"button":     button,
-			"clickCount": 1,
 			"modifiers":  event.Modifiers,
+		}
+		if event.Buttons > 0 {
+			params["buttons"] = event.Buttons
+		}
+		if event.Type == "mouseDown" || event.Type == "mouseUp" {
+			params["clickCount"] = 1
 		}
 		if _, err := cdpCallWebSocket(wsURL, "Input.dispatchMouseEvent", params); err != nil {
 			return err
 		}
-		params["type"] = "mouseReleased"
-		_, err := cdpCallWebSocket(wsURL, "Input.dispatchMouseEvent", params)
-		return err
+		return nil
 	case "wheel":
 		_, err := cdpCallWebSocket(wsURL, "Input.dispatchMouseEvent", map[string]any{
 			"type":       "mouseWheel",
@@ -737,6 +745,9 @@ func activateWindowSyncTarget(debugPort int, target windowSyncTarget) error {
 }
 
 func findWindowSyncTargetForEvent(targets []windowSyncTarget, event windowSyncEvent) windowSyncTarget {
+	if event.TargetIndex >= 0 && event.TargetIndex < len(targets) {
+		return targets[event.TargetIndex]
+	}
 	targetURL := strings.TrimSpace(event.TargetUrl)
 	if targetURL != "" {
 		for _, target := range targets {
@@ -744,9 +755,6 @@ func findWindowSyncTargetForEvent(targets []windowSyncTarget, event windowSyncEv
 				return target
 			}
 		}
-	}
-	if event.TargetIndex >= 0 && event.TargetIndex < len(targets) {
-		return targets[event.TargetIndex]
 	}
 	return windowSyncTarget{}
 }
@@ -1182,15 +1190,30 @@ func windowSyncInjectionScript(target windowSyncTarget) string {
     if (!event.key || event.ctrlKey || event.metaKey || event.altKey) return "";
     return event.key.length === 1 ? event.key : "";
   };
-  window.addEventListener("click", (event) => send({
-    type: "click",
+  const mouseBase = (event) => ({
     targetId,
     targetIndex,
     targetUrl,
     x: event.clientX,
     y: event.clientY,
     button: event.button === 2 ? "right" : event.button === 1 ? "middle" : "left",
+    buttons: event.buttons || 0,
     modifiers: modifiers(event)
+  });
+  window.addEventListener("mousedown", (event) => send({
+    type: "mouseDown",
+    ...mouseBase(event)
+  }), true);
+  window.addEventListener("mousemove", (event) => {
+    if (!event.buttons) return;
+    send({
+      type: "mouseMove",
+      ...mouseBase(event)
+    });
+  }, true);
+  window.addEventListener("mouseup", (event) => send({
+    type: "mouseUp",
+    ...mouseBase(event)
   }), true);
   window.addEventListener("wheel", (event) => send({
     type: "wheel",
