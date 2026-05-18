@@ -59,6 +59,7 @@ type App struct {
 	windowSyncLayout WindowSyncLayoutSettings
 	windowSyncCancel chan struct{}
 	windowSyncSeq    int
+	windowSyncToolbar windowSyncToolbarController
 	stopServicesOnce sync.Once
 	finalizeOnce     sync.Once
 }

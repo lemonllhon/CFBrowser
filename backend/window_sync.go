@@ -188,6 +188,7 @@ func (a *App) WindowSyncStart(input WindowSyncStartInput) (*WindowSyncState, err
 	}
 
 	a.emitWindowSyncStateChanged(state)
+	a.showWindowSyncToolbar(state)
 	a.startWindowSyncListener()
 	return cloneWindowSyncState(state), nil
 }
@@ -265,6 +266,7 @@ func (a *App) WindowSyncStop() (*WindowSyncState, error) {
 		previous.Active = false
 		previous.UpdatedAt = time.Now().Format(time.RFC3339)
 	}
+	a.hideWindowSyncToolbar()
 	a.emitWindowSyncStateChanged(previous)
 	return previous, nil
 }
@@ -296,6 +298,7 @@ func (a *App) WindowSyncSaveSettings(input WindowSyncSettings) (*WindowSyncState
 	a.windowSyncMu.Unlock()
 
 	a.emitWindowSyncStateChanged(state)
+	a.updateWindowSyncToolbar(state)
 	return state, nil
 }
 
@@ -371,6 +374,7 @@ func (a *App) updateWindowSyncPaused(paused bool) (*WindowSyncState, error) {
 	a.windowSyncMu.Unlock()
 
 	a.emitWindowSyncStateChanged(state)
+	a.updateWindowSyncToolbar(state)
 	return state, nil
 }
 
@@ -1631,6 +1635,27 @@ func (a *App) emitWindowSyncStateChanged(state *WindowSyncState) {
 		return
 	}
 	runtime.EventsEmit(a.ctx, "window-sync:state-changed", state)
+}
+
+func (a *App) showWindowSyncToolbar(state *WindowSyncState) {
+	if a == nil || state == nil || !state.Active {
+		return
+	}
+	_ = a.windowSyncToolbar.Show(a, state)
+}
+
+func (a *App) updateWindowSyncToolbar(state *WindowSyncState) {
+	if a == nil || state == nil || !state.Active {
+		return
+	}
+	_ = a.windowSyncToolbar.Update(state)
+}
+
+func (a *App) hideWindowSyncToolbar() {
+	if a == nil {
+		return
+	}
+	_ = a.windowSyncToolbar.Hide()
 }
 
 func cloneWindowSyncState(state *WindowSyncState) *WindowSyncState {
