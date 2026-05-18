@@ -38,8 +38,10 @@ type windowSyncToolbarController struct {
 }
 
 type windowSyncToolbarCommandInput struct {
-	Command string `json:"command"`
-	Mode    string `json:"mode"`
+	Command string                              `json:"command"`
+	Mode    string                              `json:"mode"`
+	Text    string                              `json:"text"`
+	Items   []WindowSyncBatchInputDifferentItem `json:"items"`
 }
 
 type WindowSyncToolbarConfig struct {
@@ -230,20 +232,24 @@ func (c *windowSyncToolbarController) handleCommand(w http.ResponseWriter, r *ht
 	}
 
 	var (
-		state *WindowSyncState
-		err   error
+		data any
+		err  error
 	)
 	switch strings.TrimSpace(strings.ToLower(input.Command)) {
 	case "show-all":
-		state, err = app.WindowSyncShowAll()
+		data, err = app.WindowSyncShowAll()
 	case "layout":
-		state, err = app.WindowSyncApplyLayout(WindowSyncLayoutSettings{Mode: strings.TrimSpace(strings.ToLower(input.Mode))})
+		data, err = app.WindowSyncApplyLayout(WindowSyncLayoutSettings{Mode: strings.TrimSpace(strings.ToLower(input.Mode))})
 	case "pause":
-		state, err = app.WindowSyncPause()
+		data, err = app.WindowSyncPause()
 	case "resume":
-		state, err = app.WindowSyncResume()
+		data, err = app.WindowSyncResume()
 	case "stop":
-		state, err = app.WindowSyncStop()
+		data, err = app.WindowSyncStop()
+	case "batch-input-same":
+		data, err = app.WindowSyncBatchInputSame(WindowSyncBatchInputSameInput{Text: input.Text})
+	case "batch-input-different":
+		data, err = app.WindowSyncBatchInputDifferent(WindowSyncBatchInputDifferentInput{Items: input.Items})
 	default:
 		writeWindowSyncToolbarCORS(w)
 		http.Error(w, "unknown command", http.StatusBadRequest)
@@ -254,7 +260,7 @@ func (c *windowSyncToolbarController) handleCommand(w http.ResponseWriter, r *ht
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	writeWindowSyncToolbarJSON(w, state)
+	writeWindowSyncToolbarJSON(w, data)
 }
 
 func (c *windowSyncToolbarController) authorize(w http.ResponseWriter, r *http.Request) bool {

@@ -245,3 +245,23 @@ export interface WindowSyncSettings {
   syncKeyboard: boolean
   syncMouse: boolean
 }
+
+export interface WindowSyncBatchInputDifferentItem {
+  profileId: string
+  text: string
+}
+
+export interface WindowSyncBatchInputResultItem {
+  profileId: string
+  profileName: string
+  master: boolean
+  success: boolean
+  error: string
+}
+
+export interface WindowSyncBatchInputResult {
+  total: number
+  success: number
+  failed: number
+  results: WindowSyncBatchInputResultItem[]
+}

@@ -80,6 +80,34 @@ type WindowSyncSettings struct {
 	SyncMouse    bool   `json:"syncMouse"`
 }
 
+type WindowSyncBatchInputSameInput struct {
+	Text string `json:"text"`
+}
+
+type WindowSyncBatchInputDifferentItem struct {
+	ProfileId string `json:"profileId"`
+	Text      string `json:"text"`
+}
+
+type WindowSyncBatchInputDifferentInput struct {
+	Items []WindowSyncBatchInputDifferentItem `json:"items"`
+}
+
+type WindowSyncBatchInputResultItem struct {
+	ProfileId   string `json:"profileId"`
+	ProfileName string `json:"profileName"`
+	Master      bool   `json:"master"`
+	Success     bool   `json:"success"`
+	Error       string `json:"error"`
+}
+
+type WindowSyncBatchInputResult struct {
+	Total   int                              `json:"total"`
+	Success int                              `json:"success"`
+	Failed  int                              `json:"failed"`
+	Results []WindowSyncBatchInputResultItem `json:"results"`
+}
+
 func (a *App) WindowSyncListCandidates() []WindowSyncCandidate {
 	if a == nil || a.browserMgr == nil {
 		return []WindowSyncCandidate{}
@@ -344,6 +372,98 @@ func (a *App) WindowSyncShowAll() (*WindowSyncState, error) {
 	}
 	a.updateWindowSyncToolbar(state)
 	return state, nil
+}
+
+func (a *App) WindowSyncBatchInputSame(input WindowSyncBatchInputSameInput) (*WindowSyncBatchInputResult, error) {
+	state, err := a.requireWindowSyncState()
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(input.Text) == "" {
+		return nil, fmt.Errorf("请输入需要批量填充的文本")
+	}
+	texts := make(map[string]string, len(state.Windows))
+	for _, item := range state.Windows {
+		texts[item.ProfileId] = input.Text
+	}
+	return a.runWindowSyncBatchInput(state, texts)
+}
+
+func (a *App) WindowSyncBatchInputDifferent(input WindowSyncBatchInputDifferentInput) (*WindowSyncBatchInputResult, error) {
+	state, err := a.requireWindowSyncState()
+	if err != nil {
+		return nil, err
+	}
+	if len(input.Items) != len(state.Windows) {
+		return nil, fmt.Errorf("差异文本数量必须与当前同步窗口数量一致：需要 %d 个，当前提交 %d 个", len(state.Windows), len(input.Items))
+	}
+	known := make(map[string]WindowSyncCandidate, len(state.Windows))
+	for _, item := range state.Windows {
+		known[item.ProfileId] = item
+	}
+	texts := make(map[string]string, len(input.Items))
+	for _, item := range input.Items {
+		profileId := strings.TrimSpace(item.ProfileId)
+		if profileId == "" {
+			return nil, fmt.Errorf("差异文本存在缺少实例 ID 的窗口")
+		}
+		window, ok := known[profileId]
+		if !ok {
+			return nil, fmt.Errorf("差异文本包含不在当前同步会话中的窗口：%s", profileId)
+		}
+		if strings.TrimSpace(item.Text) == "" {
+			name := strings.TrimSpace(window.ProfileName)
+			if name == "" {
+				name = profileId
+			}
+			return nil, fmt.Errorf("%s 的差异文本不能为空", name)
+		}
+		if _, exists := texts[profileId]; exists {
+			return nil, fmt.Errorf("差异文本存在重复窗口：%s", profileId)
+		}
+		texts[profileId] = item.Text
+	}
+	for _, item := range state.Windows {
+		if _, ok := texts[item.ProfileId]; !ok {
+			return nil, fmt.Errorf("差异文本缺少窗口：%s", item.ProfileName)
+		}
+	}
+	return a.runWindowSyncBatchInput(state, texts)
+}
+
+func (a *App) runWindowSyncBatchInput(state *WindowSyncState, texts map[string]string) (*WindowSyncBatchInputResult, error) {
+	if state == nil || !state.Active {
+		return nil, fmt.Errorf("窗口同步未启动")
+	}
+	result := &WindowSyncBatchInputResult{
+		Total:   len(state.Windows),
+		Results: make([]WindowSyncBatchInputResultItem, 0, len(state.Windows)),
+	}
+	for _, item := range orderedWindowSyncWindows(state) {
+		entry := WindowSyncBatchInputResultItem{
+			ProfileId:   item.ProfileId,
+			ProfileName: item.ProfileName,
+			Master:      item.Master,
+		}
+		text, ok := texts[item.ProfileId]
+		if !ok {
+			entry.Error = "缺少该窗口的输入内容"
+		} else if strings.TrimSpace(text) == "" {
+			entry.Error = "输入内容不能为空"
+		} else if item.DebugPort <= 0 {
+			entry.Error = "窗口调试端口不可用"
+		} else if err := batchInputWindowSyncText(item.DebugPort, text); err != nil {
+			entry.Error = err.Error()
+		} else {
+			entry.Success = true
+			result.Success++
+		}
+		if !entry.Success {
+			result.Failed++
+		}
+		result.Results = append(result.Results, entry)
+	}
+	return result, nil
 }
 
 func (a *App) ensureWindowSyncProfileMutable(profileId string) error {
@@ -774,6 +894,83 @@ func dispatchWindowSyncEventToTarget(wsURL string, event windowSyncEvent) error 
 	default:
 		return nil
 	}
+}
+
+func batchInputWindowSyncText(debugPort int, text string) error {
+	targets, err := pageWebSocketTargets(debugPort)
+	if err != nil {
+		return err
+	}
+	_, target := activeWindowSyncTarget(targets)
+	if strings.TrimSpace(target.WebSocketURL) == "" {
+		return fmt.Errorf("未找到当前激活标签页")
+	}
+	result, err := cdpCallWebSocket(target.WebSocketURL, "Runtime.evaluate", map[string]any{
+		"expression":    batchInputWindowSyncExpression(text),
+		"awaitPromise":  false,
+		"returnByValue": true,
+	})
+	if err != nil {
+		return err
+	}
+	remote, _ := result["result"].(map[string]any)
+	value, _ := remote["value"].(map[string]any)
+	ok, _ := value["ok"].(bool)
+	if ok {
+		return nil
+	}
+	reason, _ := value["error"].(string)
+	if strings.TrimSpace(reason) == "" {
+		reason = "当前标签页没有可填充的焦点输入框"
+	}
+	return fmt.Errorf("%s", reason)
+}
+
+func batchInputWindowSyncExpression(text string) string {
+	payload, _ := json.Marshal(text)
+	return fmt.Sprintf(`(() => {
+  const value = %s;
+  const el = document.activeElement;
+  if (!el || el === document.body || el === document.documentElement) {
+    return { ok: false, error: "当前标签页没有聚焦输入框" };
+  }
+  const tag = String(el.tagName || "").toLowerCase();
+  const editable = !!el.isContentEditable;
+  const canSetValue = "value" in el && (
+    tag === "input" ||
+    tag === "textarea" ||
+    tag === "select" ||
+    el instanceof HTMLInputElement ||
+    el instanceof HTMLTextAreaElement
+  );
+  if (!canSetValue && !editable) {
+    return { ok: false, error: "当前焦点不是输入框" };
+  }
+  try { el.focus(); } catch (_) {}
+  if (editable) {
+    el.textContent = value;
+    try {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      range.collapse(false);
+      const selection = window.getSelection();
+      if (selection) {
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+    } catch (_) {}
+  } else {
+    el.value = value;
+    try {
+      if (typeof el.setSelectionRange === "function") {
+        el.setSelectionRange(value.length, value.length);
+      }
+    } catch (_) {}
+  }
+  el.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: value }));
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+  return { ok: true };
+})()`, string(payload))
 }
 
 func cdpCallWebSocket(wsURL string, method string, params map[string]any) (map[string]any, error) {

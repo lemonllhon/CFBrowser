@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Eye, GripHorizontal, Pause, Play, Power, RefreshCw, SquareStack } from 'lucide-react'
+import { Eye, GripHorizontal, Keyboard, Pause, Play, Power, RefreshCw, SquareStack, X } from 'lucide-react'
 import { Button, ToastContainer, toast } from '../../../shared/components'
 import { ThemeProvider } from '../../../shared/theme'
-import type { WindowSyncState } from '../types'
-import { WindowSetAlwaysOnTop, WindowSetPosition } from '../../../wailsjs/runtime/runtime'
+import type { WindowSyncBatchInputDifferentItem, WindowSyncBatchInputResult, WindowSyncState } from '../types'
+import { WindowSetAlwaysOnTop, WindowSetPosition, WindowSetSize } from '../../../wailsjs/runtime/runtime'
 
 type ToolbarConfig = {
   port: number
@@ -52,11 +52,30 @@ function profileCount(state: WindowSyncState | null) {
   return state?.windows?.length || state?.profileIds?.length || 0
 }
 
+function orderedWindows(state: WindowSyncState | null) {
+  const windows = [...(state?.windows || [])]
+  return windows.sort((a, b) => {
+    if (a.master && !b.master) return -1
+    if (!a.master && b.master) return 1
+    return 0
+  })
+}
+
+function resultMessage(result: WindowSyncBatchInputResult | null) {
+  if (!result) return '批量输入已执行'
+  return `批量输入完成：成功 ${result.success}/${result.total}${result.failed > 0 ? `，失败 ${result.failed}` : ''}`
+}
+
 export function WindowSyncFloatingToolbar() {
   const [config] = useState<ToolbarConfig>(() => readToolbarConfig())
   const [state, setState] = useState<WindowSyncState | null>(null)
   const [loadingCommand, setLoadingCommand] = useState<string>('')
   const [expanded, setExpanded] = useState(false)
+  const [batchOpen, setBatchOpen] = useState(false)
+  const [batchMode, setBatchMode] = useState<'same' | 'different'>('same')
+  const [sameText, setSameText] = useState('')
+  const [differentTexts, setDifferentTexts] = useState<Record<string, string>>({})
+  const [batchResult, setBatchResult] = useState<WindowSyncBatchInputResult | null>(null)
   const endpoint = useMemo(() => `http://127.0.0.1:${config.port}`, [config.port])
 
   const request = async <T,>(path: string, init?: RequestInit): Promise<T | null> => {
@@ -98,6 +117,42 @@ export function WindowSyncFloatingToolbar() {
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '工具栏操作失败')
+    } finally {
+      setLoadingCommand('')
+    }
+  }
+
+  const runBatchInput = async () => {
+    const windows = orderedWindows(state)
+    if (windows.length === 0) {
+      toast.error('当前没有可批量输入的同步窗口')
+      return
+    }
+    setLoadingCommand(`batch-input:${batchMode}`)
+    try {
+      const payload =
+        batchMode === 'same'
+          ? { command: 'batch-input-same', text: sameText }
+          : {
+              command: 'batch-input-different',
+              items: windows.map<WindowSyncBatchInputDifferentItem>(window => ({
+                profileId: window.profileId,
+                text: differentTexts[window.profileId] || '',
+              })),
+            }
+      const result = await request<WindowSyncBatchInputResult>('/command', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+      setBatchResult(result)
+      if ((result?.failed || 0) > 0) {
+        toast.warning(resultMessage(result))
+      } else {
+        toast.success(resultMessage(result))
+      }
+      await loadState()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '批量输入失败')
     } finally {
       setLoadingCommand('')
     }
@@ -151,91 +206,183 @@ export function WindowSyncFloatingToolbar() {
     }
   }, [])
 
+  useEffect(() => {
+    try {
+      WindowSetSize(batchOpen ? 720 : config.width || fallbackConfig.width, batchOpen ? 430 : config.height || fallbackConfig.height)
+    } catch {
+      // Older runtimes may ignore dynamic toolbar resizing; commands still work.
+    }
+  }, [batchOpen, config.height, config.width])
+
+  useEffect(() => {
+    const windows = orderedWindows(state)
+    setDifferentTexts(prev => {
+      const next: Record<string, string> = {}
+      for (const window of windows) {
+        next[window.profileId] = prev[window.profileId] || ''
+      }
+      return next
+    })
+  }, [state?.sessionId, state?.windows?.length])
+
   const paused = !!state?.paused
   const count = profileCount(state)
+  const windows = orderedWindows(state)
+  const batchLoading = loadingCommand === 'batch-input:same' || loadingCommand === 'batch-input:different'
 
   return (
     <ThemeProvider>
       <main
-        className="window-sync-floating-toolbar"
+        className={`window-sync-floating-toolbar ${batchOpen ? 'is-batch-open' : ''}`}
         onMouseEnter={() => setExpanded(true)}
         onMouseLeave={() => setExpanded(false)}
       >
-        <div className="window-sync-toolbar-drag" title="拖动工具栏">
-          <GripHorizontal className="h-4 w-4" />
-        </div>
-        <div className="flex min-w-0 flex-1 items-center gap-3">
-          <div className={`h-2.5 w-2.5 rounded-full ${paused ? 'bg-[var(--color-warning)]' : 'bg-[var(--color-success)]'}`} />
-          <div className="min-w-0">
-            <div className="truncate text-sm font-semibold text-[var(--color-text-primary)]">
-              {paused ? '窗口同步已暂停' : state?.active ? '窗口同步中' : '等待同步状态'}
-            </div>
-            <div className="truncate text-[11px] text-[var(--color-text-muted)]">
-              {count > 0 ? `${count} 个窗口 · 主控固定` : '连接主程序中'}
+        <div className="window-sync-toolbar-row">
+          <div className="window-sync-toolbar-drag" title="拖动工具栏">
+            <GripHorizontal className="h-4 w-4" />
+          </div>
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <div className={`h-2.5 w-2.5 rounded-full ${paused ? 'bg-[var(--color-warning)]' : 'bg-[var(--color-success)]'}`} />
+            <div className="min-w-0">
+              <div className="truncate text-sm font-semibold text-[var(--color-text-primary)]">
+                {paused ? '窗口同步已暂停' : state?.active ? '窗口同步中' : '等待同步状态'}
+              </div>
+              <div className="truncate text-[11px] text-[var(--color-text-muted)]">
+                {count > 0 ? `${count} 个窗口 · 主控固定` : '连接主程序中'}
+              </div>
             </div>
           </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button
+              size="sm"
+              variant="secondary"
+              title="展示窗口"
+              onClick={() => void runCommand('show-all')}
+              loading={loadingCommand === 'show-all'}
+              className="h-9 w-9 px-0"
+            >
+              <Eye className="h-4 w-4" />
+            </Button>
+            <Button
+              size="sm"
+              variant="danger"
+              title="停止同步"
+              onClick={() => void runCommand('stop')}
+              loading={loadingCommand === 'stop'}
+              className="h-9 w-9 px-0"
+            >
+              <Power className="h-4 w-4" />
+            </Button>
+          </div>
+          <div className={`window-sync-toolbar-expanded ${expanded || batchOpen ? 'is-expanded' : ''}`}>
+            <Button
+              size="sm"
+              variant="secondary"
+              title={paused ? '恢复同步' : '暂停同步'}
+              onClick={() => void runCommand(paused ? 'resume' : 'pause')}
+              loading={loadingCommand === 'pause' || loadingCommand === 'resume'}
+              className="h-9 px-3"
+            >
+              {paused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
+              {paused ? '恢复' : '暂停'}
+            </Button>
+            <Button
+              size="sm"
+              variant={batchOpen ? 'secondary' : 'ghost'}
+              title="批量输入"
+              onClick={() => {
+                setBatchOpen(open => !open)
+                setBatchResult(null)
+              }}
+              className="h-9 px-3"
+            >
+              <Keyboard className="h-4 w-4" />
+              批量输入
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              title="宫格布局"
+              onClick={() => void applyLayout('grid')}
+              loading={loadingCommand === 'layout:grid'}
+              className="h-9 px-3"
+            >
+              <SquareStack className="h-4 w-4" />
+              宫格
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              title="堆叠布局"
+              onClick={() => void applyLayout('stack')}
+              loading={loadingCommand === 'layout:stack'}
+              className="h-9 px-3"
+            >
+              <SquareStack className="h-4 w-4" />
+              堆叠
+            </Button>
+            <Button size="sm" variant="ghost" title="刷新状态" onClick={() => void loadState()} className="h-9 px-3">
+              <RefreshCw className="h-4 w-4" />
+              刷新
+            </Button>
+          </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <Button
-            size="sm"
-            variant="secondary"
-            title="展示窗口"
-            onClick={() => void runCommand('show-all')}
-            loading={loadingCommand === 'show-all'}
-            className="h-9 w-9 px-0"
-          >
-            <Eye className="h-4 w-4" />
-          </Button>
-          <Button
-            size="sm"
-            variant="danger"
-            title="停止同步"
-            onClick={() => void runCommand('stop')}
-            loading={loadingCommand === 'stop'}
-            className="h-9 w-9 px-0"
-          >
-            <Power className="h-4 w-4" />
-          </Button>
-        </div>
-        <div className={`window-sync-toolbar-expanded ${expanded ? 'is-expanded' : ''}`}>
-          <Button
-            size="sm"
-            variant="secondary"
-            title={paused ? '恢复同步' : '暂停同步'}
-            onClick={() => void runCommand(paused ? 'resume' : 'pause')}
-            loading={loadingCommand === 'pause' || loadingCommand === 'resume'}
-            className="h-9 px-3"
-          >
-            {paused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
-            {paused ? '恢复' : '暂停'}
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            title="宫格布局"
-            onClick={() => void applyLayout('grid')}
-            loading={loadingCommand === 'layout:grid'}
-            className="h-9 px-3"
-          >
-            <SquareStack className="h-4 w-4" />
-            宫格
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            title="堆叠布局"
-            onClick={() => void applyLayout('stack')}
-            loading={loadingCommand === 'layout:stack'}
-            className="h-9 px-3"
-          >
-            <SquareStack className="h-4 w-4" />
-            堆叠
-          </Button>
-          <Button size="sm" variant="ghost" title="刷新状态" onClick={() => void loadState()} className="h-9 px-3">
-            <RefreshCw className="h-4 w-4" />
-            刷新
-          </Button>
-        </div>
+        {batchOpen && (
+          <section className="window-sync-batch-panel">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-[var(--color-text-primary)]">批量输入</div>
+                <div className="text-xs text-[var(--color-text-muted)]">当前同步窗口 {windows.length} 个，差异文本必须一窗一项。</div>
+              </div>
+              <Button size="sm" variant="ghost" title="关闭批量输入" onClick={() => setBatchOpen(false)} className="h-8 w-8 px-0">
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <div className="window-sync-batch-tabs">
+              <button type="button" className={batchMode === 'same' ? 'is-active' : ''} onClick={() => setBatchMode('same')}>相同文本</button>
+              <button type="button" className={batchMode === 'different' ? 'is-active' : ''} onClick={() => setBatchMode('different')}>差异文本</button>
+            </div>
+            {batchMode === 'same' ? (
+              <textarea
+                className="window-sync-batch-textarea"
+                value={sameText}
+                onChange={event => setSameText(event.target.value)}
+                placeholder="输入要填充到所有同步窗口当前焦点输入框的文本"
+              />
+            ) : (
+              <div className="window-sync-batch-window-list">
+                {windows.map(window => (
+                  <label key={window.profileId} className="window-sync-batch-window-item">
+                    <span className="window-sync-batch-window-label">
+                      <span className={window.master ? 'text-[var(--color-accent)]' : 'text-[var(--color-text-muted)]'}>
+                        {window.master ? '主控' : '被控'}
+                      </span>
+                      <span className="truncate">{window.profileName || window.profileId}</span>
+                    </span>
+                    <input
+                      value={differentTexts[window.profileId] || ''}
+                      onChange={event => setDifferentTexts(prev => ({ ...prev, [window.profileId]: event.target.value }))}
+                      placeholder="该窗口输入内容"
+                    />
+                  </label>
+                ))}
+              </div>
+            )}
+            {batchResult && (
+              <div className="window-sync-batch-result">
+                {batchResult.results.map(item => (
+                  <div key={item.profileId} className={item.success ? 'text-[var(--color-success)]' : 'text-[var(--color-danger)]'}>
+                    {(item.master ? '主控' : '被控')} · {item.profileName || item.profileId}：{item.success ? '成功' : item.error || '失败'}
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex items-center justify-end gap-2">
+              <Button size="sm" variant="secondary" onClick={() => setBatchResult(null)}>清除结果</Button>
+              <Button size="sm" onClick={() => void runBatchInput()} loading={batchLoading}>输入</Button>
+            </div>
+          </section>
+        )}
       </main>
       <ToastContainer />
     </ThemeProvider>
