@@ -150,7 +150,11 @@ func (a *App) WindowSyncStart(input WindowSyncStartInput) (*WindowSyncState, err
 		return nil, fmt.Errorf("主控窗口必须在已选窗口中")
 	}
 
-	if err := a.ensureWindowSyncProfilesReady(profileIds); err != nil {
+	now := time.Now().Format(time.RFC3339)
+	layout := a.normalizedWindowSyncLayoutSettings(a.windowSyncLayout)
+	layout.Mode = "grid"
+	layout.UpdatedAt = now
+	if err := a.ensureWindowSyncProfilesReady(profileIds, masterProfileId, layout); err != nil {
 		return nil, err
 	}
 
@@ -159,10 +163,6 @@ func (a *App) WindowSyncStart(input WindowSyncStartInput) (*WindowSyncState, err
 		return nil, err
 	}
 
-	now := time.Now().Format(time.RFC3339)
-	layout := a.normalizedWindowSyncLayoutSettings(a.windowSyncLayout)
-	layout.Mode = "grid"
-	layout.UpdatedAt = now
 	state := &WindowSyncState{
 		SessionId:       uuid.NewString(),
 		Active:          true,
@@ -965,7 +965,8 @@ func (a *App) requireWindowSyncState() (*WindowSyncState, error) {
 	return cloneWindowSyncState(a.windowSyncState), nil
 }
 
-func (a *App) ensureWindowSyncProfilesReady(profileIds []string) error {
+func (a *App) ensureWindowSyncProfilesReady(profileIds []string, masterProfileId string, layout WindowSyncLayoutSettings) error {
+	plannedRects := a.plannedWindowSyncStartupRects(profileIds, masterProfileId, layout)
 	for _, profileId := range profileIds {
 		profile, err := a.windowSyncProfileSnapshot(profileId)
 		if err != nil {
@@ -977,14 +978,43 @@ func (a *App) ensureWindowSyncProfilesReady(profileIds []string) error {
 		if profile.Running {
 			return fmt.Errorf("实例调试端口未就绪：%s", profile.ProfileName)
 		}
-		if _, err := a.browserInstanceStartInternal(profileId, nil, nil, false, true); err != nil {
+		launchArgs := windowSyncStartupLaunchArgs(plannedRects[profileId])
+		if _, err := a.browserInstanceStartInternal(profileId, launchArgs, nil, false, true); err != nil {
 			return fmt.Errorf("自动启动实例失败：%s，%w", profile.ProfileName, err)
 		}
 		if err := a.waitWindowSyncProfileReady(profileId, 30*time.Second); err != nil {
 			return err
 		}
+		if rect, ok := plannedRects[profileId]; ok {
+			_ = a.setWindowSyncProfileBounds(profileId, rect)
+		}
 	}
 	return nil
+}
+
+func (a *App) plannedWindowSyncStartupRects(profileIds []string, masterProfileId string, layout WindowSyncLayoutSettings) map[string]workAreaRect {
+	windows := make([]WindowSyncCandidate, 0, len(profileIds))
+	for _, profileId := range profileIds {
+		windows = append(windows, WindowSyncCandidate{
+			ProfileId: profileId,
+			Master:    profileId == masterProfileId,
+		})
+	}
+	state := &WindowSyncState{
+		MasterProfileId: masterProfileId,
+		Windows:         windows,
+	}
+	return calculateWindowSyncLayoutRects(layout, orderedWindowSyncWindows(state), a.windowSyncLayoutWorkArea())
+}
+
+func windowSyncStartupLaunchArgs(rect workAreaRect) []string {
+	if rect.Width <= 0 || rect.Height <= 0 {
+		return nil
+	}
+	return []string{
+		fmt.Sprintf("--window-position=%d,%d", rect.Left, rect.Top),
+		fmt.Sprintf("--window-size=%d,%d", rect.Width, rect.Height),
+	}
 }
 
 func (a *App) windowSyncProfileSnapshot(profileId string) (BrowserProfile, error) {
