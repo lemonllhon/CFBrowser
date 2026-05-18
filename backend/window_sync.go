@@ -193,6 +193,7 @@ func (a *App) WindowSyncStart(input WindowSyncStartInput) (*WindowSyncState, err
 	a.emitWindowSyncStateChanged(state)
 	a.showWindowSyncToolbar(state)
 	a.startWindowSyncListener()
+	go a.reapplyWindowSyncStartupLayout(state.SessionId)
 	return cloneWindowSyncState(state), nil
 }
 
@@ -1244,7 +1245,51 @@ func (a *App) setWindowSyncProfileBounds(profileId string, rect workAreaRect) er
 		return err
 	}
 	_, _ = cdpCall(debugPort, "Page.bringToFront", nil)
+	time.Sleep(120 * time.Millisecond)
+	_ = a.ensureWindowSyncProfileBounds(debugPort, windowID, rect)
 	return nil
+}
+
+func (a *App) ensureWindowSyncProfileBounds(debugPort int, windowID int, rect workAreaRect) error {
+	windowInfo, err := cdpBrowserCallResult(debugPort, "Browser.getWindowBounds", map[string]any{"windowId": windowID})
+	if err != nil {
+		return err
+	}
+	bounds, _ := windowInfo["bounds"].(map[string]any)
+	left, leftOK := numericResult(bounds["left"])
+	top, topOK := numericResult(bounds["top"])
+	width, widthOK := numericResult(bounds["width"])
+	height, heightOK := numericResult(bounds["height"])
+	if leftOK && topOK && widthOK && heightOK &&
+		absInt(left-rect.Left) <= 6 &&
+		absInt(top-rect.Top) <= 6 &&
+		absInt(width-rect.Width) <= 8 &&
+		absInt(height-rect.Height) <= 8 {
+		return nil
+	}
+	_, err = cdpBrowserCallResult(debugPort, "Browser.setWindowBounds", map[string]any{
+		"windowId": windowID,
+		"bounds": map[string]any{
+			"windowState": "normal",
+			"left":        rect.Left,
+			"top":         rect.Top,
+			"width":       rect.Width,
+			"height":      rect.Height,
+		},
+	})
+	return err
+}
+
+func (a *App) reapplyWindowSyncStartupLayout(sessionId string) {
+	for _, delay := range []time.Duration{500 * time.Millisecond, 1200 * time.Millisecond} {
+		time.Sleep(delay)
+		state := a.WindowSyncGetState()
+		if state == nil || !state.Active || state.SessionId != sessionId {
+			return
+		}
+		_ = a.applyWindowSyncLayoutToState(state.Layout, state)
+		a.updateWindowSyncToolbar(state)
+	}
 }
 
 func calculateWindowSyncLayoutRects(settings WindowSyncLayoutSettings, windows []WindowSyncCandidate, area workAreaRect) map[string]workAreaRect {
@@ -1330,6 +1375,13 @@ func bestWindowSyncGrid(count int, area workAreaRect) (int, int) {
 		}
 	}
 	return bestCols, bestRows
+}
+
+func absInt(value int) int {
+	if value < 0 {
+		return -value
+	}
+	return value
 }
 
 func orderedWindowSyncWindows(state *WindowSyncState) []WindowSyncCandidate {
