@@ -50,6 +50,7 @@ type WindowSyncCandidate struct {
 	Role         string `json:"role"`
 	Master       bool   `json:"master"`
 	CanSync      bool   `json:"canSync"`
+	CanAutoStart bool   `json:"canAutoStart"`
 	Unavailable string `json:"unavailable"`
 }
 
@@ -106,9 +107,10 @@ func (a *App) WindowSyncListCandidates() []WindowSyncCandidate {
 			Running:     profile.Running,
 			DebugReady:  profile.DebugReady,
 			CanSync:     profile.Running && profile.DebugReady && profile.DebugPort > 0,
+			CanAutoStart: !profile.Running,
 		}
 		if !profile.Running {
-			item.Unavailable = "实例未运行"
+			item.Unavailable = "未运行，将在开始同步时自动启动"
 		} else if !profile.DebugReady || profile.DebugPort <= 0 {
 			item.Unavailable = "调试端口未就绪"
 		} else if !canConnectDebugPort(profile.DebugPort, 250*time.Millisecond) {
@@ -119,7 +121,7 @@ func (a *App) WindowSyncListCandidates() []WindowSyncCandidate {
 			item.Role = active.Role
 			item.Master = active.Master
 		}
-		if item.CanSync {
+		if item.CanSync || item.CanAutoStart {
 			items = append(items, item)
 		}
 	}
@@ -146,6 +148,10 @@ func (a *App) WindowSyncStart(input WindowSyncStartInput) (*WindowSyncState, err
 	}
 	if !containsString(profileIds, masterProfileId) {
 		return nil, fmt.Errorf("主控窗口必须在已选窗口中")
+	}
+
+	if err := a.ensureWindowSyncProfilesReady(profileIds); err != nil {
+		return nil, err
 	}
 
 	windows, err := a.resolveWindowSyncCandidates(profileIds, masterProfileId)
@@ -947,6 +953,55 @@ func (a *App) requireWindowSyncState() (*WindowSyncState, error) {
 		return nil, fmt.Errorf("窗口同步未启动")
 	}
 	return cloneWindowSyncState(a.windowSyncState), nil
+}
+
+func (a *App) ensureWindowSyncProfilesReady(profileIds []string) error {
+	for _, profileId := range profileIds {
+		profile, err := a.windowSyncProfileSnapshot(profileId)
+		if err != nil {
+			return err
+		}
+		if profile.Running && profile.DebugReady && profile.DebugPort > 0 && canConnectDebugPort(profile.DebugPort, 250*time.Millisecond) {
+			continue
+		}
+		if profile.Running {
+			return fmt.Errorf("实例调试端口未就绪：%s", profile.ProfileName)
+		}
+		if _, err := a.browserInstanceStartInternal(profileId, nil, nil, false, true); err != nil {
+			return fmt.Errorf("自动启动实例失败：%s，%w", profile.ProfileName, err)
+		}
+		if err := a.waitWindowSyncProfileReady(profileId, 30*time.Second); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (a *App) windowSyncProfileSnapshot(profileId string) (BrowserProfile, error) {
+	a.browserMgr.Mutex.Lock()
+	defer a.browserMgr.Mutex.Unlock()
+	profile, exists := a.browserMgr.Profiles[profileId]
+	if !exists || profile == nil {
+		return BrowserProfile{}, fmt.Errorf("实例不存在：%s", profileId)
+	}
+	return *profile, nil
+}
+
+func (a *App) waitWindowSyncProfileReady(profileId string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		profile, err := a.windowSyncProfileSnapshot(profileId)
+		if err != nil {
+			return err
+		}
+		if profile.Running && profile.DebugReady && profile.DebugPort > 0 && canConnectDebugPort(profile.DebugPort, 250*time.Millisecond) {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("自动启动后调试端口未就绪：%s", profile.ProfileName)
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
 }
 
 func (a *App) resolveWindowSyncCandidates(profileIds []string, masterProfileId string) ([]WindowSyncCandidate, error) {

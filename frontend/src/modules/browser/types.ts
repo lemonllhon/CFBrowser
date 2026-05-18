@@ -204,6 +204,7 @@ export interface WindowSyncCandidate {
   role?: 'master' | 'controlled' | string
   master?: boolean
   canSync: boolean
+  canAutoStart?: boolean
   unavailable?: string
 }
 

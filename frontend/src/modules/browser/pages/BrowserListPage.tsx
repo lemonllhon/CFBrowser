@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { Activity, CheckCircle, ChevronDown, ChevronRight, ChevronUp, Copy, Edit2, FileText, Focus, Key, Layers, MousePointerClick, Pause, Pencil, Play, Plus, RefreshCw, RotateCcw, Settings, Shuffle, Sliders, Square, Star, TextCursorInput, Trash2, XCircle, LayoutGrid, List, MonitorUp } from 'lucide-react'
 import { Badge, Button, Card, ConfirmModal, FormItem, Input, Modal, StatCard, Switch, Table, Textarea, toast } from '../../../shared/components'
@@ -66,6 +66,12 @@ const PROFILE_COLUMN_OPTIONS: ColumnOption[] = [
 
 const DEFAULT_PROFILE_COLUMN_KEYS = ['selection', 'profileName', 'running', 'coreId', 'proxyId', 'launchCode', 'actions']
 const PROFILE_COLUMNS_STORAGE_KEY = 'browser:profileTableColumns:v1'
+const WINDOW_SYNC_BAR_POSITION_KEY = 'browser:windowSyncControlBarPosition:v1'
+
+type FloatingPoint = {
+  x: number
+  y: number
+}
 
 function readStoredColumnKeys(storageKey: string, defaults: string[], allowedKeys: readonly string[]) {
   try {
@@ -139,16 +145,72 @@ function WindowSyncControlBar({
   onOpenSettings: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
+  const [position, setPosition] = useState<FloatingPoint | null>(() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(WINDOW_SYNC_BAR_POSITION_KEY) || 'null')
+      if (parsed && typeof parsed.x === 'number' && typeof parsed.y === 'number') {
+        return parsed
+      }
+    } catch { /* ignore */ }
+    return null
+  })
+  const dragRef = useRef<{ pointerId: number; offsetX: number; offsetY: number } | null>(null)
   const masterName = state.windows.find(item => item.profileId === state.masterProfileId)?.profileName || state.masterProfileId
+  const style = position
+    ? { left: position.x, top: position.y }
+    : { left: '50%', top: 16, transform: 'translateX(-50%)' }
+
+  const clampPosition = (x: number, y: number) => ({
+    x: Math.max(8, Math.min(window.innerWidth - 280, x)),
+    y: Math.max(8, Math.min(window.innerHeight - 64, y)),
+  })
+
+  useEffect(() => {
+    if (position) {
+      localStorage.setItem(WINDOW_SYNC_BAR_POSITION_KEY, JSON.stringify(position))
+    }
+  }, [position])
+
+  const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    const next = clampPosition(event.clientX - drag.offsetX, event.clientY - drag.offsetY)
+    setPosition(next)
+  }
+
+  const handlePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    dragRef.current = null
+    event.currentTarget.releasePointerCapture(event.pointerId)
+  }
 
   return (
     <div
-      className="fixed right-5 bottom-5 z-40"
+      className="fixed z-40"
+      style={style}
       onMouseEnter={() => setExpanded(true)}
       onMouseLeave={() => setExpanded(false)}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
     >
       <div className={`rounded-lg border border-[var(--color-accent)]/30 bg-[var(--color-bg-elevated)] shadow-2xl transition-all duration-200 ${expanded ? 'w-[520px]' : 'w-[300px]'}`}>
-        <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--color-border-muted)]">
+        <div
+          className="flex items-center gap-2 px-3 py-2 border-b border-[var(--color-border-muted)] cursor-move select-none"
+          title="拖动移动窗口同步控制栏"
+          onPointerDown={event => {
+            if ((event.target as HTMLElement).closest('button')) return
+            const rect = event.currentTarget.parentElement?.parentElement?.getBoundingClientRect()
+            if (!rect) return
+            dragRef.current = {
+              pointerId: event.pointerId,
+              offsetX: event.clientX - rect.left,
+              offsetY: event.clientY - rect.top,
+            }
+            event.currentTarget.parentElement?.parentElement?.setPointerCapture(event.pointerId)
+          }}
+        >
           <span
             className={`w-2.5 h-2.5 rounded-full ${state.paused ? 'opacity-60' : ''}`}
             style={{ backgroundColor: state.paused ? 'var(--color-warning)' : (state.masterColor || '#2563eb') }}
@@ -867,22 +929,22 @@ export function BrowserListPage() {
     try {
       const items = await listWindowSyncCandidates()
       setWindowSyncCandidates(items)
-      const syncableIds = new Set(items.filter(item => item.canSync).map(item => item.profileId))
+      const selectableIds = new Set(items.filter(item => item.canSync || item.canAutoStart).map(item => item.profileId))
       setWindowSyncSelectedIds(prev => {
-        const next = new Set(Array.from(prev).filter(id => syncableIds.has(id)))
+        const next = new Set(Array.from(prev).filter(id => selectableIds.has(id)))
         if (next.size === 0) {
-          const selectedRunning = Array.from(selectedIds).filter(id => syncableIds.has(id))
-          selectedRunning.forEach(id => next.add(id))
+          const selectedSelectable = Array.from(selectedIds).filter(id => selectableIds.has(id))
+          selectedSelectable.forEach(id => next.add(id))
         }
         return next
       })
       setWindowSyncMasterId(prev => {
-        if (prev && syncableIds.has(prev)) return prev
+        if (prev && selectableIds.has(prev)) return prev
         const activeMaster = items.find(item => item.master && item.canSync)?.profileId
         if (activeMaster) return activeMaster
-        const selectedRunning = Array.from(selectedIds).find(id => syncableIds.has(id))
-        if (selectedRunning) return selectedRunning
-        return items.find(item => item.canSync)?.profileId || ''
+        const selectedSelectable = Array.from(selectedIds).find(id => selectableIds.has(id))
+        if (selectedSelectable) return selectedSelectable
+        return items.find(item => item.canSync || item.canAutoStart)?.profileId || ''
       })
     } finally {
       setWindowSyncLoading(false)
@@ -896,7 +958,7 @@ export function BrowserListPage() {
 
   const toggleWindowSyncCandidate = (profileId: string) => {
     const candidate = windowSyncCandidates.find(item => item.profileId === profileId)
-    if (!candidate?.canSync) return
+    if (!candidate || (!candidate.canSync && !candidate.canAutoStart)) return
     setWindowSyncSelectedIds(prev => {
       const next = new Set(prev)
       if (next.has(profileId)) {
@@ -917,7 +979,7 @@ export function BrowserListPage() {
   const handleStartWindowSync = async () => {
     const profileIds = Array.from(windowSyncSelectedIds)
     if (profileIds.length < 2) {
-      toast.error('至少选择 2 个运行中的窗口')
+      toast.error('至少选择 2 个窗口')
       return
     }
     if (!windowSyncMasterId || !windowSyncSelectedIds.has(windowSyncMasterId)) {
@@ -939,7 +1001,7 @@ export function BrowserListPage() {
         })
       }
       setWindowSyncModalOpen(false)
-      toast.success('窗口同步已创建，主控窗口已定位到左上角')
+      toast.success('窗口同步已创建，未运行实例已自动启动并加入同步')
     } catch (error: any) {
       toast.error(error?.message || '开始窗口同步失败')
     } finally {
@@ -1807,9 +1869,9 @@ export function BrowserListPage() {
           )}
 
           <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-[var(--color-text-primary)]">选择需要同时操控的窗口</p>
-              <p className="text-xs text-[var(--color-text-muted)] mt-1">仅运行中且调试端口就绪的实例可以加入窗口同步。</p>
+              <div>
+                <p className="text-sm font-medium text-[var(--color-text-primary)]">选择需要同时操控的窗口</p>
+              <p className="text-xs text-[var(--color-text-muted)] mt-1">已运行实例会立即加入同步；未运行实例可勾选，并在开始同步时自动启动。</p>
             </div>
             <Button size="sm" variant="secondary" onClick={loadWindowSyncCandidates} loading={windowSyncLoading}>
               <RefreshCw className="w-4 h-4" />刷新
@@ -1833,16 +1895,19 @@ export function BrowserListPage() {
                 windowSyncCandidates.map(candidate => {
                   const checked = windowSyncSelectedIds.has(candidate.profileId)
                   const isMaster = windowSyncMasterId === candidate.profileId
+                  const selectable = candidate.canSync || !!candidate.canAutoStart
+                  const statusLabel = candidate.canSync ? '可同步' : candidate.canAutoStart ? '将启动' : '不可用'
+                  const statusVariant = candidate.canSync ? 'success' : candidate.canAutoStart ? 'info' : 'warning'
                   return (
                     <div
                       key={candidate.profileId}
-                      className={`grid grid-cols-[44px_1.4fr_120px_120px_96px] gap-3 items-center px-3 py-2 text-sm ${candidate.canSync ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-muted)] bg-[var(--color-bg-muted)]/30'}`}
+                      className={`grid grid-cols-[44px_1.4fr_120px_120px_96px] gap-3 items-center px-3 py-2 text-sm ${selectable ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-muted)] bg-[var(--color-bg-muted)]/30'}`}
                     >
                       <input
                         type="checkbox"
                         className="w-4 h-4 accent-[var(--color-accent)]"
                         checked={checked}
-                        disabled={!candidate.canSync || !!windowSyncState?.active}
+                        disabled={!selectable || !!windowSyncState?.active}
                         onChange={() => toggleWindowSyncCandidate(candidate.profileId)}
                       />
                       <div className="min-w-0">
@@ -1850,12 +1915,12 @@ export function BrowserListPage() {
                           <span className="truncate font-medium">{candidate.profileName}</span>
                           {candidate.master && <Badge variant="info" size="sm">当前主控</Badge>}
                         </div>
-                        {!candidate.canSync && (
-                          <div className="text-xs text-[var(--color-error)] mt-0.5">{candidate.unavailable || '不可同步'}</div>
+                        {!candidate.canSync && candidate.unavailable && (
+                          <div className={`text-xs mt-0.5 ${candidate.canAutoStart ? 'text-[var(--color-text-muted)]' : 'text-[var(--color-error)]'}`}>{candidate.unavailable}</div>
                         )}
                       </div>
-                      <Badge variant={candidate.canSync ? 'success' : 'warning'} size="sm" dot>
-                        {candidate.canSync ? '可同步' : '不可用'}
+                      <Badge variant={statusVariant} size="sm" dot>
+                        {statusLabel}
                       </Badge>
                       <label className="inline-flex items-center gap-2">
                         <input
@@ -1863,7 +1928,7 @@ export function BrowserListPage() {
                           name="window-sync-master"
                           className="w-4 h-4 accent-[var(--color-accent)]"
                           checked={isMaster}
-                          disabled={!candidate.canSync || !checked || !!windowSyncState?.active}
+                          disabled={!selectable || !checked || !!windowSyncState?.active}
                           onChange={() => setWindowSyncMasterId(candidate.profileId)}
                         />
                         <span className="text-xs">{isMaster ? '主控' : '设为主控'}</span>
