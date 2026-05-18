@@ -617,7 +617,7 @@ func (a *App) syncWindowSyncTabs(seq int, masterDebugPort int, lastActiveTab *st
 		if item.ProfileId == state.MasterProfileId || item.DebugPort <= 0 {
 			continue
 		}
-		if err := syncWindowSyncTabsToControlled(item.DebugPort, masterTargets, activeIndex); err != nil {
+		if err := syncWindowSyncTabsToControlled(item.DebugPort, masterTargets, activeIndex, activeTarget); err != nil {
 			logger.New("WindowSync").Warn("同步标签页失败",
 				logger.F("profile_id", item.ProfileId),
 				logger.F("error", err.Error()),
@@ -793,7 +793,7 @@ func activateWindowSyncTarget(debugPort int, target windowSyncTarget) error {
 	return nil
 }
 
-func syncWindowSyncTabsToControlled(debugPort int, masterTargets []windowSyncTarget, activeIndex int) error {
+func syncWindowSyncTabsToControlled(debugPort int, masterTargets []windowSyncTarget, activeIndex int, activeTarget windowSyncTarget) error {
 	targets, err := pageWebSocketTargets(debugPort)
 	if err != nil {
 		return err
@@ -804,18 +804,31 @@ func syncWindowSyncTabsToControlled(debugPort int, masterTargets []windowSyncTar
 		if url == "" {
 			url = "about:blank"
 		}
-		if _, err := cdpBrowserCallResult(debugPort, "Target.createTarget", map[string]any{"url": url}); err != nil {
+		created, err := cdpBrowserCallResult(debugPort, "Target.createTarget", map[string]any{"url": url})
+		if err != nil {
 			return err
 		}
 		targets, err = pageWebSocketTargets(debugPort)
 		if err != nil {
 			return err
 		}
+		if createdID, _ := created["targetId"].(string); strings.TrimSpace(createdID) != "" {
+			targets = moveWindowSyncTargetToIndex(targets, createdID, len(targets)-1)
+		}
 	}
 	if activeIndex < 0 || activeIndex >= len(targets) {
 		return fmt.Errorf("被控窗口缺少同序标签页：%d", activeIndex+1)
 	}
-	return activateWindowSyncTarget(debugPort, targets[activeIndex])
+	target := findWindowSyncTargetByURL(targets, activeTarget.Url)
+	if strings.TrimSpace(target.Id) == "" {
+		target = targets[activeIndex]
+	}
+	if shouldSyncWindowSyncNavigation(activeTarget.Url, target.Url) {
+		if _, err := cdpCallWebSocket(target.WebSocketURL, "Page.navigate", map[string]any{"url": activeTarget.Url}); err != nil {
+			return err
+		}
+	}
+	return activateWindowSyncTarget(debugPort, target)
 }
 
 func ensureWindowSyncTargetForEvent(debugPort int, targets []windowSyncTarget, event windowSyncEvent) (windowSyncTarget, error) {
@@ -825,7 +838,8 @@ func ensureWindowSyncTargetForEvent(debugPort int, targets []windowSyncTarget, e
 			if url == "" {
 				url = "about:blank"
 			}
-			if _, err := cdpBrowserCallResult(debugPort, "Target.createTarget", map[string]any{"url": url}); err != nil {
+			created, err := cdpBrowserCallResult(debugPort, "Target.createTarget", map[string]any{"url": url})
+			if err != nil {
 				return windowSyncTarget{}, err
 			}
 			nextTargets, err := pageWebSocketTargets(debugPort)
@@ -833,6 +847,9 @@ func ensureWindowSyncTargetForEvent(debugPort int, targets []windowSyncTarget, e
 				return windowSyncTarget{}, err
 			}
 			targets = nextTargets
+			if createdID, _ := created["targetId"].(string); strings.TrimSpace(createdID) != "" {
+				targets = moveWindowSyncTargetToIndex(targets, createdID, len(targets)-1)
+			}
 		}
 	}
 	target := findWindowSyncTargetForEvent(targets, event)
@@ -844,7 +861,11 @@ func ensureWindowSyncTargetForEvent(debugPort int, targets []windowSyncTarget, e
 
 func activeWindowSyncTarget(targets []windowSyncTarget) (int, windowSyncTarget) {
 	for index, target := range targets {
-		if target.Attached {
+		if target.WebSocketURL == "" {
+			continue
+		}
+		active, err := cdpEvaluateBool(target.WebSocketURL, `document.visibilityState === "visible"`)
+		if err == nil && active {
 			return index, target
 		}
 	}
@@ -856,11 +877,44 @@ func activeWindowSyncTarget(targets []windowSyncTarget) (int, windowSyncTarget) 
 	return -1, windowSyncTarget{}
 }
 
+func cdpEvaluateBool(wsURL string, expression string) (bool, error) {
+	result, err := cdpCallWebSocket(wsURL, "Runtime.evaluate", map[string]any{
+		"expression":    expression,
+		"returnByValue": true,
+	})
+	if err != nil {
+		return false, err
+	}
+	remote, _ := result["result"].(map[string]any)
+	value, _ := remote["value"].(bool)
+	return value, nil
+}
+
+func shouldSyncWindowSyncNavigation(sourceURL string, targetURL string) bool {
+	sourceURL = strings.TrimSpace(sourceURL)
+	targetURL = strings.TrimSpace(targetURL)
+	if sourceURL == "" || strings.EqualFold(sourceURL, targetURL) {
+		return false
+	}
+	lower := strings.ToLower(sourceURL)
+	if strings.HasPrefix(lower, "devtools://") || strings.HasPrefix(lower, "chrome://") || strings.HasPrefix(lower, "edge://") {
+		return false
+	}
+	return true
+}
+
 func findWindowSyncTargetForEvent(targets []windowSyncTarget, event windowSyncEvent) windowSyncTarget {
+	if target := findWindowSyncTargetByURL(targets, event.TargetUrl); strings.TrimSpace(target.Id) != "" {
+		return target
+	}
 	if event.TargetIndex >= 0 && event.TargetIndex < len(targets) {
 		return targets[event.TargetIndex]
 	}
-	targetURL := strings.TrimSpace(event.TargetUrl)
+	return windowSyncTarget{}
+}
+
+func findWindowSyncTargetByURL(targets []windowSyncTarget, targetURL string) windowSyncTarget {
+	targetURL = strings.TrimSpace(targetURL)
 	if targetURL != "" {
 		for _, target := range targets {
 			if strings.EqualFold(strings.TrimSpace(target.Url), targetURL) {
@@ -869,6 +923,30 @@ func findWindowSyncTargetForEvent(targets []windowSyncTarget, event windowSyncEv
 		}
 	}
 	return windowSyncTarget{}
+}
+
+func moveWindowSyncTargetToIndex(targets []windowSyncTarget, targetID string, index int) []windowSyncTarget {
+	if index < 0 || index >= len(targets) || strings.TrimSpace(targetID) == "" {
+		return targets
+	}
+	found := -1
+	for i, target := range targets {
+		if target.Id == targetID {
+			found = i
+			break
+		}
+	}
+	if found < 0 || found == index {
+		return targets
+	}
+	target := targets[found]
+	out := append([]windowSyncTarget{}, targets[:found]...)
+	out = append(out, targets[found+1:]...)
+	if index >= len(out) {
+		return append(out, target)
+	}
+	out = append(out[:index], append([]windowSyncTarget{target}, out[index:]...)...)
+	return out
 }
 
 func (a *App) requireWindowSyncState() (*WindowSyncState, error) {
