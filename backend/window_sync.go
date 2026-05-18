@@ -654,9 +654,6 @@ func dispatchWindowSyncEvent(debugPort int, event windowSyncEvent) error {
 		if err != nil {
 			return err
 		}
-		if err := navigateWindowSyncTargetIfNeeded(target, event.TargetUrl); err != nil {
-			return err
-		}
 		return activateWindowSyncTarget(debugPort, target)
 	}
 	target := findWindowSyncTargetForEvent(targets, event)
@@ -794,15 +791,6 @@ func activateWindowSyncTarget(debugPort int, target windowSyncTarget) error {
 		_, _ = cdpCallWebSocket(target.WebSocketURL, "Page.bringToFront", nil)
 	}
 	return nil
-}
-
-func navigateWindowSyncTargetIfNeeded(target windowSyncTarget, url string) error {
-	url = strings.TrimSpace(url)
-	if url == "" || strings.EqualFold(url, strings.TrimSpace(target.Url)) || strings.TrimSpace(target.WebSocketURL) == "" {
-		return nil
-	}
-	_, err := cdpCallWebSocket(target.WebSocketURL, "Page.navigate", map[string]any{"url": url})
-	return err
 }
 
 func syncWindowSyncTabsToControlled(debugPort int, masterTargets []windowSyncTarget, activeIndex int) error {
