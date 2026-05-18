@@ -1057,7 +1057,6 @@ func (a *App) pinWindowSyncMasterTopLeft(masterProfileId string) error {
 		return fmt.Errorf("主控实例不存在")
 	}
 	debugPort := profile.DebugPort
-	pid := profile.Pid
 	a.browserMgr.Mutex.Unlock()
 
 	targetID, err := firstPageTargetID(debugPort)
@@ -1091,9 +1090,6 @@ func (a *App) pinWindowSyncMasterTopLeft(masterProfileId string) error {
 		return fmt.Errorf("主控窗口移动失败: %w", err)
 	}
 	_, _ = cdpCall(debugPort, "Page.bringToFront", nil)
-	if pid > 0 {
-		_ = setBrowserWindowsTopmostByPID(pid, left, top, width, height)
-	}
 	return nil
 }
 
@@ -1114,7 +1110,6 @@ func (a *App) showWindowSyncProfile(profileId string) error {
 		return fmt.Errorf("实例未运行或调试端口未就绪")
 	}
 	debugPort := profile.DebugPort
-	pid := profile.Pid
 	a.browserMgr.Mutex.Unlock()
 
 	targetID, err := firstPageTargetID(debugPort)
@@ -1145,25 +1140,6 @@ func (a *App) showWindowSyncProfile(profileId string) error {
 		return err
 	}
 	_, _ = cdpCall(debugPort, "Page.bringToFront", nil)
-
-	if pid > 0 {
-		left, top, width, height := 0, 0, 0, 0
-		if value, ok := numericResult(bounds["left"]); ok {
-			left = value
-		}
-		if value, ok := numericResult(bounds["top"]); ok {
-			top = value
-		}
-		if value, ok := numericResult(bounds["width"]); ok {
-			width = value
-		}
-		if value, ok := numericResult(bounds["height"]); ok {
-			height = value
-		}
-		if width > 0 && height > 0 {
-			_ = setBrowserWindowsTopmostByPID(pid, left, top, width, height)
-		}
-	}
 	return nil
 }
 
@@ -1213,7 +1189,6 @@ func (a *App) setWindowSyncProfileBounds(profileId string, rect workAreaRect) er
 		return fmt.Errorf("实例未运行或调试端口未就绪")
 	}
 	debugPort := profile.DebugPort
-	pid := profile.Pid
 	a.browserMgr.Mutex.Unlock()
 
 	targetID, err := firstPageTargetID(debugPort)
@@ -1241,9 +1216,6 @@ func (a *App) setWindowSyncProfileBounds(profileId string, rect workAreaRect) er
 		return err
 	}
 	_, _ = cdpCall(debugPort, "Page.bringToFront", nil)
-	if pid > 0 {
-		_ = setBrowserWindowsTopmostByPID(pid, rect.Left, rect.Top, rect.Width, rect.Height)
-	}
 	return nil
 }
 
