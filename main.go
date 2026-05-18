@@ -118,6 +118,47 @@ func NewApp(appRoot, version string) *App {
 	return &App{App: backend.NewApp(appRoot, version)}
 }
 
+func runWindowSyncToolbar(appRoot string) {
+	cfg := backend.ParseWindowSyncToolbarArgs(os.Args[1:])
+	err := wails.Run(&options.App{
+		Title:         "窗口同步",
+		Width:         cfg.Width,
+		Height:        cfg.Height,
+		MinWidth:      cfg.Width,
+		MinHeight:     cfg.Height,
+		MaxWidth:      cfg.Width,
+		MaxHeight:     cfg.Height,
+		DisableResize: true,
+		Frameless:     true,
+		AlwaysOnTop:   true,
+		AssetServer: &assetserver.Options{
+			Assets: assets,
+			Handler: backend.WindowSyncToolbarHTMLHandler(appRoot, assets),
+			Middleware: backend.WindowSyncToolbarAssetMiddleware,
+		},
+		BackgroundColour: &options.RGBA{R: 245, G: 247, B: 250, A: 0},
+		OnStartup: func(ctx context.Context) {
+			runtime.WindowSetSize(ctx, cfg.Width, cfg.Height)
+			runtime.WindowSetPosition(ctx, cfg.X, cfg.Y)
+			runtime.WindowSetAlwaysOnTop(ctx, true)
+			runtime.EventsEmit(ctx, "window-sync-toolbar:config", cfg)
+		},
+		Windows: &windows.Options{
+			WebviewIsTransparent: true,
+			WindowIsTranslucent:  true,
+			DisableFramelessWindowDecorations: true,
+		},
+		BindingsAllowedOrigins: "http://127.0.0.1:*",
+		Debug: options.Debug{
+			OpenInspectorOnStartup: false,
+		},
+		Bind: []interface{}{},
+	})
+	if err != nil {
+		log.Fatal("启动窗口同步工具栏失败:", err)
+	}
+}
+
 func (a *App) startup(ctx context.Context) {
 	backend.Start(a.App, ctx)
 }
@@ -170,6 +211,11 @@ func main() {
 		} else {
 			appRoot = "."
 		}
+	}
+
+	if backend.IsWindowSyncToolbarProcess(os.Args[1:]) {
+		runWindowSyncToolbar(appRoot)
+		return
 	}
 
 	startupDebugEnabled := envFlagEnabled("ANT_BROWSER_DEBUG_STARTUP")

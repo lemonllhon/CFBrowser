@@ -243,3 +243,62 @@ input, select, textarea {
 .animate-slide-in-bottom {
   animation: slideInBottom 0.3s ease-out;
 }
+
+.window-sync-toolbar-body {
+  background: transparent;
+  overflow: hidden;
+}
+
+.window-sync-toolbar-body #root {
+  width: 100vw;
+  height: 100vh;
+}
+
+.window-sync-floating-toolbar {
+  --wails-draggable: drag;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100vw;
+  height: 100vh;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border-default);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-bg-elevated) 94%, transparent);
+  box-shadow: 0 12px 36px rgb(15 23 42 / 0.18);
+  overflow: hidden;
+}
+
+.window-sync-floating-toolbar button,
+.window-sync-floating-toolbar input,
+.window-sync-floating-toolbar select,
+.window-sync-floating-toolbar textarea {
+  --wails-draggable: no-drag;
+}
+
+.window-sync-toolbar-drag {
+  display: inline-flex;
+  width: 24px;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+}
+
+.window-sync-toolbar-expanded {
+  --wails-draggable: no-drag;
+  display: flex;
+  width: 0;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  opacity: 0;
+  transition: width 0.18s ease, opacity 0.18s ease;
+}
+
+.window-sync-toolbar-expanded.is-expanded {
+  width: 244px;
+  opacity: 1;
+}

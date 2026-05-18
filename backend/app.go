@@ -305,6 +305,7 @@ func (a *App) applyRuntimeConfig(cfg config.RuntimeConfig) {
 
 func (a *App) shutdown(ctx context.Context) {
 	log := logger.New("App")
+	_ = a.windowSyncToolbar.Hide()
 	if a.shouldStopRuntimeServicesOnShutdown() {
 		log.Info("应用正在关闭...")
 		a.stopRuntimeServices()
