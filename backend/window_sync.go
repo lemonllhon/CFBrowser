@@ -23,6 +23,8 @@ const windowSyncBindingName = "__traceWindowSyncEvent"
 type windowSyncTarget struct {
 	Id           string
 	Title        string
+	Url          string
+	Index        int
 	WebSocketURL string
 }
 
@@ -422,6 +424,9 @@ func (a *App) listenWindowSyncMaster(seq int, cancel <-chan struct{}, state *Win
 	if err != nil {
 		return err
 	}
+	for index := range targets {
+		targets[index].Index = index
+	}
 	localCancel := make(chan struct{})
 	defer close(localCancel)
 	done := make(chan error, 1)
@@ -485,11 +490,34 @@ func (a *App) listenWindowSyncTarget(seq int, cancel <-chan struct{}, localCance
 	if err := send("Runtime.addBinding", map[string]any{"name": windowSyncBindingName}); err != nil && !strings.Contains(strings.ToLower(err.Error()), "already") {
 		return err
 	}
-	source := windowSyncInjectionScript()
+	source := windowSyncInjectionScript(target)
 	if err := send("Page.addScriptToEvaluateOnNewDocument", map[string]any{"source": source}); err != nil {
 		return err
 	}
 	if err := send("Runtime.evaluate", map[string]any{"expression": source, "awaitPromise": false}); err != nil {
+		return err
+	}
+
+	tabPayload, _ := json.Marshal(windowSyncEvent{
+		Type:        "tabActivated",
+		TargetId:    target.Id,
+		TargetIndex: target.Index,
+		TargetUrl:   target.Url,
+	})
+	activationExpression := fmt.Sprintf(`(() => {
+  const send = () => {
+    try {
+      const fn = window[%q];
+      if (typeof fn === "function") fn(%q);
+    } catch (_) {}
+  };
+  if (document.visibilityState === "visible") send();
+  window.addEventListener("focus", send, true);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") send();
+  }, true);
+})();`, windowSyncBindingName, string(tabPayload))
+	if err := send("Runtime.evaluate", map[string]any{"expression": activationExpression, "awaitPromise": false}); err != nil {
 		return err
 	}
 
@@ -541,7 +569,7 @@ func (a *App) handleWindowSyncPayload(seq int, payload string) {
 	}
 
 	isKeyboard := event.Type == "keyDown" || event.Type == "keyUp"
-	isMouse := event.Type == "click" || event.Type == "wheel"
+	isMouse := event.Type == "click" || event.Type == "wheel" || event.Type == "tabActivated"
 	if isKeyboard && !state.SyncKeyboard {
 		return
 	}
@@ -567,22 +595,39 @@ func (a *App) handleWindowSyncPayload(seq int, payload string) {
 }
 
 type windowSyncEvent struct {
-	Type      string  `json:"type"`
-	X         float64 `json:"x"`
-	Y         float64 `json:"y"`
-	Button    string  `json:"button"`
-	DeltaX    float64 `json:"deltaX"`
-	DeltaY    float64 `json:"deltaY"`
-	Key       string  `json:"key"`
-	Code      string  `json:"code"`
-	Text      string  `json:"text"`
-	Modifiers int     `json:"modifiers"`
+	Type        string  `json:"type"`
+	TargetId    string  `json:"targetId"`
+	TargetIndex int     `json:"targetIndex"`
+	TargetUrl   string  `json:"targetUrl"`
+	X           float64 `json:"x"`
+	Y           float64 `json:"y"`
+	Button      string  `json:"button"`
+	DeltaX      float64 `json:"deltaX"`
+	DeltaY      float64 `json:"deltaY"`
+	Key         string  `json:"key"`
+	Code        string  `json:"code"`
+	Text        string  `json:"text"`
+	Modifiers   int     `json:"modifiers"`
 }
 
 func dispatchWindowSyncEvent(debugPort int, event windowSyncEvent) error {
 	targets, err := pageWebSocketTargets(debugPort)
 	if err != nil {
 		return err
+	}
+	if event.TargetIndex >= 0 && event.TargetIndex < len(targets) {
+		target := targets[event.TargetIndex]
+		if event.Type == "tabActivated" {
+			return activateWindowSyncTarget(debugPort, findWindowSyncTargetForEvent(targets, event))
+		}
+		return dispatchWindowSyncEventToTarget(target.WebSocketURL, event)
+	}
+	if event.Type == "tabActivated" {
+		target := findWindowSyncTargetForEvent(targets, event)
+		if strings.TrimSpace(target.Id) == "" {
+			return fmt.Errorf("被控窗口缺少同序标签页：%d", event.TargetIndex+1)
+		}
+		return activateWindowSyncTarget(debugPort, target)
 	}
 	var lastErr error
 	dispatched := 0
@@ -675,6 +720,35 @@ func cdpCallWebSocket(wsURL string, method string, params map[string]any) (map[s
 		return nil, fmt.Errorf("CDP 错误: %s", cdpResp.Error.Message)
 	}
 	return cdpResp.Result, nil
+}
+
+func activateWindowSyncTarget(debugPort int, target windowSyncTarget) error {
+	targetID := strings.TrimSpace(target.Id)
+	if targetID == "" {
+		return fmt.Errorf("缺少标签页 target id")
+	}
+	if _, err := cdpBrowserCallResult(debugPort, "Target.activateTarget", map[string]any{"targetId": targetID}); err != nil {
+		return err
+	}
+	if target.WebSocketURL != "" {
+		_, _ = cdpCallWebSocket(target.WebSocketURL, "Page.bringToFront", nil)
+	}
+	return nil
+}
+
+func findWindowSyncTargetForEvent(targets []windowSyncTarget, event windowSyncEvent) windowSyncTarget {
+	targetURL := strings.TrimSpace(event.TargetUrl)
+	if targetURL != "" {
+		for _, target := range targets {
+			if strings.EqualFold(strings.TrimSpace(target.Url), targetURL) {
+				return target
+			}
+		}
+	}
+	if event.TargetIndex >= 0 && event.TargetIndex < len(targets) {
+		return targets[event.TargetIndex]
+	}
+	return windowSyncTarget{}
 }
 
 func (a *App) requireWindowSyncState() (*WindowSyncState, error) {
@@ -1065,6 +1139,7 @@ func pageWebSocketTargets(debugPort int) ([]windowSyncTarget, error) {
 		out = append(out, windowSyncTarget{
 			Id:           strings.TrimSpace(target.Id),
 			Title:        strings.TrimSpace(target.Title),
+			Url:          strings.TrimSpace(target.Url),
 			WebSocketURL: wsURL,
 		})
 	}
@@ -1079,6 +1154,7 @@ func pageWebSocketTargets(debugPort int) ([]windowSyncTarget, error) {
 		out = append(out, windowSyncTarget{
 			Id:           strings.TrimSpace(target.Id),
 			Title:        strings.TrimSpace(target.Title),
+			Url:          strings.TrimSpace(target.Url),
 			WebSocketURL: wsURL,
 		})
 	}
@@ -1088,10 +1164,13 @@ func pageWebSocketTargets(debugPort int) ([]windowSyncTarget, error) {
 	return out, nil
 }
 
-func windowSyncInjectionScript() string {
+func windowSyncInjectionScript(target windowSyncTarget) string {
 	return fmt.Sprintf(`(() => {
   if (window.__traceWindowSyncInstalled) return;
   window.__traceWindowSyncInstalled = true;
+  const targetId = %q;
+  const targetIndex = %d;
+  const targetUrl = %q;
   const send = (event) => {
     try {
       const fn = window[%q];
@@ -1105,6 +1184,9 @@ func windowSyncInjectionScript() string {
   };
   window.addEventListener("click", (event) => send({
     type: "click",
+    targetId,
+    targetIndex,
+    targetUrl,
     x: event.clientX,
     y: event.clientY,
     button: event.button === 2 ? "right" : event.button === 1 ? "middle" : "left",
@@ -1112,6 +1194,9 @@ func windowSyncInjectionScript() string {
   }), true);
   window.addEventListener("wheel", (event) => send({
     type: "wheel",
+    targetId,
+    targetIndex,
+    targetUrl,
     x: event.clientX,
     y: event.clientY,
     deltaX: event.deltaX,
@@ -1120,6 +1205,9 @@ func windowSyncInjectionScript() string {
   }), { capture: true, passive: true });
   window.addEventListener("keydown", (event) => send({
     type: "keyDown",
+    targetId,
+    targetIndex,
+    targetUrl,
     key: event.key,
     code: event.code,
     text: textFor(event),
@@ -1127,11 +1215,14 @@ func windowSyncInjectionScript() string {
   }), true);
   window.addEventListener("keyup", (event) => send({
     type: "keyUp",
+    targetId,
+    targetIndex,
+    targetUrl,
     key: event.key,
     code: event.code,
     modifiers: modifiers(event)
   }), true);
-})();`, windowSyncBindingName)
+})();`, target.Id, target.Index, target.Url, windowSyncBindingName)
 }
 
 func normalizeWindowSyncMouseButton(button string) string {

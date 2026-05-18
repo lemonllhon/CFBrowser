@@ -36,6 +36,7 @@ type CookieImportResult struct {
 type cdpTarget struct {
 	Id                   string `json:"id"`
 	Title                string `json:"title"`
+	Url                  string `json:"url"`
 	WebSocketDebuggerUrl string `json:"webSocketDebuggerUrl"`
 	Type                 string `json:"type"`
 }
