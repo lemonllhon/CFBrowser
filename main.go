@@ -120,14 +120,18 @@ func NewApp(appRoot, version string) *App {
 
 func runWindowSyncToolbar(appRoot string) {
 	cfg := backend.ParseWindowSyncToolbarArgs(os.Args[1:])
+	const (
+		toolbarExpandedWidth  = 720
+		toolbarExpandedHeight = 430
+	)
 	err := wails.Run(&options.App{
 		Title:         "窗口同步",
 		Width:         cfg.Width,
 		Height:        cfg.Height,
 		MinWidth:      cfg.Width,
 		MinHeight:     cfg.Height,
-		MaxWidth:      cfg.Width,
-		MaxHeight:     cfg.Height,
+		MaxWidth:      toolbarExpandedWidth,
+		MaxHeight:     toolbarExpandedHeight,
 		DisableResize: true,
 		Frameless:     true,
 		AlwaysOnTop:   true,
