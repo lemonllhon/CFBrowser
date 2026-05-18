@@ -61,7 +61,10 @@ func (c *windowSyncToolbarController) Show(app *App, state *WindowSyncState) err
 }
 
 func (c *windowSyncToolbarController) Update(state *WindowSyncState) error {
-	return nil
+	if state == nil || !state.Active {
+		return nil
+	}
+	return c.ensureProcess(c.app)
 }
 
 func (c *windowSyncToolbarController) Hide() error {

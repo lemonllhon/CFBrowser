@@ -213,6 +213,7 @@ func (a *App) WindowSyncApplyLayout(input WindowSyncLayoutSettings) (*WindowSync
 		return state, err
 	}
 	a.emitWindowSyncStateChanged(state)
+	a.updateWindowSyncToolbar(state)
 	return state, nil
 }
 
@@ -337,6 +338,7 @@ func (a *App) WindowSyncShowAll() (*WindowSyncState, error) {
 	if len(failures) > 0 {
 		return state, fmt.Errorf("部分窗口弹出失败：%s", strings.Join(failures, "；"))
 	}
+	a.updateWindowSyncToolbar(state)
 	return state, nil
 }
 

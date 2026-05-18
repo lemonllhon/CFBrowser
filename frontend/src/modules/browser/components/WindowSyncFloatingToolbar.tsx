@@ -105,6 +105,14 @@ export function WindowSyncFloatingToolbar() {
 
   useEffect(() => {
     document.body.classList.add('window-sync-toolbar-body')
+    const keepTopmost = () => {
+      try {
+        WindowSetAlwaysOnTop(false)
+        WindowSetAlwaysOnTop(true)
+      } catch {
+        // The toolbar can still work if the OS ignores a transient topmost refresh.
+      }
+    }
     try {
       WindowSetAlwaysOnTop(true)
       WindowSetPosition(Math.max(0, config.x || 0), Math.max(0, config.y || 0))
@@ -114,10 +122,17 @@ export function WindowSyncFloatingToolbar() {
     void loadState()
     const timer = window.setInterval(() => {
       void loadState()
+      keepTopmost()
     }, 900)
+    const topmostTimer = window.setInterval(keepTopmost, 1800)
+    window.addEventListener('focus', keepTopmost)
+    window.addEventListener('pointerdown', keepTopmost)
     return () => {
       document.body.classList.remove('window-sync-toolbar-body')
       window.clearInterval(timer)
+      window.clearInterval(topmostTimer)
+      window.removeEventListener('focus', keepTopmost)
+      window.removeEventListener('pointerdown', keepTopmost)
     }
   }, [])
 
