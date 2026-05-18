@@ -504,6 +504,13 @@ func (a *App) listenWindowSyncTarget(seq int, cancel <-chan struct{}, localCance
 	if err := send("Runtime.evaluate", map[string]any{"expression": source, "awaitPromise": false}); err != nil {
 		return err
 	}
+	activationSource := windowSyncActivationScript(target)
+	if err := send("Page.addScriptToEvaluateOnNewDocument", map[string]any{"source": activationSource}); err != nil {
+		return err
+	}
+	if err := send("Runtime.evaluate", map[string]any{"expression": activationSource, "awaitPromise": false}); err != nil {
+		return err
+	}
 
 	done := make(chan error, 1)
 	go func() {
@@ -643,9 +650,12 @@ func dispatchWindowSyncEvent(debugPort int, event windowSyncEvent) error {
 		return err
 	}
 	if event.Type == "tabActivated" {
-		target := findWindowSyncTargetForEvent(targets, event)
-		if strings.TrimSpace(target.Id) == "" {
-			return fmt.Errorf("被控窗口缺少同序标签页：%d", event.TargetIndex+1)
+		target, err := ensureWindowSyncTargetForEvent(debugPort, targets, event)
+		if err != nil {
+			return err
+		}
+		if err := navigateWindowSyncTargetIfNeeded(target, event.TargetUrl); err != nil {
+			return err
 		}
 		return activateWindowSyncTarget(debugPort, target)
 	}
@@ -786,6 +796,15 @@ func activateWindowSyncTarget(debugPort int, target windowSyncTarget) error {
 	return nil
 }
 
+func navigateWindowSyncTargetIfNeeded(target windowSyncTarget, url string) error {
+	url = strings.TrimSpace(url)
+	if url == "" || strings.EqualFold(url, strings.TrimSpace(target.Url)) || strings.TrimSpace(target.WebSocketURL) == "" {
+		return nil
+	}
+	_, err := cdpCallWebSocket(target.WebSocketURL, "Page.navigate", map[string]any{"url": url})
+	return err
+}
+
 func syncWindowSyncTabsToControlled(debugPort int, masterTargets []windowSyncTarget, activeIndex int) error {
 	targets, err := pageWebSocketTargets(debugPort)
 	if err != nil {
@@ -809,6 +828,30 @@ func syncWindowSyncTabsToControlled(debugPort int, masterTargets []windowSyncTar
 		return fmt.Errorf("被控窗口缺少同序标签页：%d", activeIndex+1)
 	}
 	return activateWindowSyncTarget(debugPort, targets[activeIndex])
+}
+
+func ensureWindowSyncTargetForEvent(debugPort int, targets []windowSyncTarget, event windowSyncEvent) (windowSyncTarget, error) {
+	if event.TargetIndex >= 0 {
+		for len(targets) <= event.TargetIndex {
+			url := strings.TrimSpace(event.TargetUrl)
+			if url == "" {
+				url = "about:blank"
+			}
+			if _, err := cdpBrowserCallResult(debugPort, "Target.createTarget", map[string]any{"url": url}); err != nil {
+				return windowSyncTarget{}, err
+			}
+			nextTargets, err := pageWebSocketTargets(debugPort)
+			if err != nil {
+				return windowSyncTarget{}, err
+			}
+			targets = nextTargets
+		}
+	}
+	target := findWindowSyncTargetForEvent(targets, event)
+	if strings.TrimSpace(target.Id) == "" {
+		return windowSyncTarget{}, fmt.Errorf("被控窗口缺少同序标签页：%d", event.TargetIndex+1)
+	}
+	return target, nil
 }
 
 func activeWindowSyncTarget(targets []windowSyncTarget) (int, windowSyncTarget) {
@@ -1276,7 +1319,7 @@ func windowSyncInjectionScript(target windowSyncTarget) string {
   const mouseBase = (event) => ({
     targetId,
     targetIndex,
-    targetUrl,
+    targetUrl: window.location.href,
     x: event.clientX,
     y: event.clientY,
     button: event.button === 2 ? "right" : event.button === 1 ? "middle" : "left",
@@ -1302,7 +1345,7 @@ func windowSyncInjectionScript(target windowSyncTarget) string {
     type: "wheel",
     targetId,
     targetIndex,
-    targetUrl,
+    targetUrl: window.location.href,
     x: event.clientX,
     y: event.clientY,
     deltaX: event.deltaX,
@@ -1316,7 +1359,7 @@ func windowSyncInjectionScript(target windowSyncTarget) string {
       type: "input",
       targetId,
       targetIndex,
-      targetUrl,
+      targetUrl: window.location.href,
       value: String(target.value ?? "")
     });
   }, true);
@@ -1324,7 +1367,7 @@ func windowSyncInjectionScript(target windowSyncTarget) string {
     type: "keyDown",
     targetId,
     targetIndex,
-    targetUrl,
+    targetUrl: window.location.href,
     key: event.key,
     code: event.code,
     text: textFor(event),
@@ -1334,12 +1377,41 @@ func windowSyncInjectionScript(target windowSyncTarget) string {
     type: "keyUp",
     targetId,
     targetIndex,
-    targetUrl,
+    targetUrl: window.location.href,
     key: event.key,
     code: event.code,
     modifiers: modifiers(event)
   }), true);
 })();`, target.Id, target.Index, target.Url, windowSyncBindingName)
+}
+
+func windowSyncActivationScript(target windowSyncTarget) string {
+	payload, _ := json.Marshal(windowSyncEvent{
+		Type:        "tabActivated",
+		TargetId:    target.Id,
+		TargetIndex: target.Index,
+	})
+	return fmt.Sprintf(`(() => {
+  if (window.__traceWindowSyncActivationInstalled) return;
+  window.__traceWindowSyncActivationInstalled = true;
+  const basePayload = %s;
+  let timer = null;
+  const send = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      if (document.visibilityState !== "visible") return;
+      try {
+        const fn = window[%q];
+        if (typeof fn === "function") {
+          fn(JSON.stringify({ ...basePayload, targetUrl: window.location.href }));
+        }
+      } catch (_) {}
+    }, 150);
+  };
+  if (document.visibilityState === "visible") send();
+  window.addEventListener("focus", send, true);
+  document.addEventListener("visibilitychange", send, true);
+})();`, string(payload), windowSyncBindingName)
 }
 
 func normalizeWindowSyncMouseButton(button string) string {
