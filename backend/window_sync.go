@@ -7,6 +7,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -601,11 +602,14 @@ func (a *App) syncWindowSyncTabs(seq int, masterDebugPort int, lastActiveTab *st
 	if err != nil || len(masterTargets) == 0 {
 		return
 	}
-	activeIndex, activeTarget := activeWindowSyncTarget(masterTargets)
-	if activeIndex < 0 {
+	_, activeTarget := activeWindowSyncTarget(masterTargets)
+	if strings.TrimSpace(activeTarget.Id) == "" {
 		return
 	}
-	activeKey := fmt.Sprintf("%d:%s:%s", activeIndex, activeTarget.Id, activeTarget.Url)
+	activeKey := normalizeWindowSyncTargetURL(activeTarget.Url)
+	if activeKey == "" {
+		activeKey = strings.TrimSpace(activeTarget.Id)
+	}
 	if lastActiveTab != nil && *lastActiveTab == activeKey {
 		return
 	}
@@ -617,7 +621,7 @@ func (a *App) syncWindowSyncTabs(seq int, masterDebugPort int, lastActiveTab *st
 		if item.ProfileId == state.MasterProfileId || item.DebugPort <= 0 {
 			continue
 		}
-		if err := syncWindowSyncTabsToControlled(item.DebugPort, masterTargets, activeIndex, activeTarget); err != nil {
+		if err := syncWindowSyncTabsToControlled(item.DebugPort, activeTarget); err != nil {
 			logger.New("WindowSync").Warn("同步标签页失败",
 				logger.F("profile_id", item.ProfileId),
 				logger.F("error", err.Error()),
@@ -793,38 +797,15 @@ func activateWindowSyncTarget(debugPort int, target windowSyncTarget) error {
 	return nil
 }
 
-func syncWindowSyncTabsToControlled(debugPort int, masterTargets []windowSyncTarget, activeIndex int, activeTarget windowSyncTarget) error {
+func syncWindowSyncTabsToControlled(debugPort int, activeTarget windowSyncTarget) error {
 	targets, err := pageWebSocketTargets(debugPort)
 	if err != nil {
 		return err
 	}
-	for len(targets) < len(masterTargets) {
-		source := masterTargets[len(targets)]
-		url := strings.TrimSpace(source.Url)
-		if url == "" {
-			url = "about:blank"
-		}
-		created, err := cdpBrowserCallResult(debugPort, "Target.createTarget", map[string]any{"url": url})
-		if err != nil {
-			return err
-		}
-		targets, err = pageWebSocketTargets(debugPort)
-		if err != nil {
-			return err
-		}
-		if createdID, _ := created["targetId"].(string); strings.TrimSpace(createdID) != "" {
-			targets = moveWindowSyncTargetToIndex(targets, createdID, len(targets)-1)
-		}
-	}
-	if activeIndex < 0 || activeIndex >= len(targets) {
-		return fmt.Errorf("被控窗口缺少同序标签页：%d", activeIndex+1)
-	}
 	target := findWindowSyncTargetByURL(targets, activeTarget.Url)
 	if strings.TrimSpace(target.Id) == "" {
-		target = targets[activeIndex]
-	}
-	if shouldSyncWindowSyncNavigation(activeTarget.Url, target.Url) {
-		if _, err := cdpCallWebSocket(target.WebSocketURL, "Page.navigate", map[string]any{"url": activeTarget.Url}); err != nil {
+		target, err = createWindowSyncTarget(debugPort, activeTarget.Url)
+		if err != nil {
 			return err
 		}
 	}
@@ -832,24 +813,19 @@ func syncWindowSyncTabsToControlled(debugPort int, masterTargets []windowSyncTar
 }
 
 func ensureWindowSyncTargetForEvent(debugPort int, targets []windowSyncTarget, event windowSyncEvent) (windowSyncTarget, error) {
+	if target := findWindowSyncTargetByURL(targets, event.TargetUrl); strings.TrimSpace(target.Id) != "" {
+		return target, nil
+	}
+	if strings.TrimSpace(event.TargetUrl) != "" {
+		return createWindowSyncTarget(debugPort, event.TargetUrl)
+	}
 	if event.TargetIndex >= 0 {
 		for len(targets) <= event.TargetIndex {
-			url := strings.TrimSpace(event.TargetUrl)
-			if url == "" {
-				url = "about:blank"
-			}
-			created, err := cdpBrowserCallResult(debugPort, "Target.createTarget", map[string]any{"url": url})
+			target, err := createWindowSyncTarget(debugPort, "about:blank")
 			if err != nil {
 				return windowSyncTarget{}, err
 			}
-			nextTargets, err := pageWebSocketTargets(debugPort)
-			if err != nil {
-				return windowSyncTarget{}, err
-			}
-			targets = nextTargets
-			if createdID, _ := created["targetId"].(string); strings.TrimSpace(createdID) != "" {
-				targets = moveWindowSyncTargetToIndex(targets, createdID, len(targets)-1)
-			}
+			targets = append(targets, target)
 		}
 	}
 	target := findWindowSyncTargetForEvent(targets, event)
@@ -890,19 +866,6 @@ func cdpEvaluateBool(wsURL string, expression string) (bool, error) {
 	return value, nil
 }
 
-func shouldSyncWindowSyncNavigation(sourceURL string, targetURL string) bool {
-	sourceURL = strings.TrimSpace(sourceURL)
-	targetURL = strings.TrimSpace(targetURL)
-	if sourceURL == "" || strings.EqualFold(sourceURL, targetURL) {
-		return false
-	}
-	lower := strings.ToLower(sourceURL)
-	if strings.HasPrefix(lower, "devtools://") || strings.HasPrefix(lower, "chrome://") || strings.HasPrefix(lower, "edge://") {
-		return false
-	}
-	return true
-}
-
 func findWindowSyncTargetForEvent(targets []windowSyncTarget, event windowSyncEvent) windowSyncTarget {
 	if target := findWindowSyncTargetByURL(targets, event.TargetUrl); strings.TrimSpace(target.Id) != "" {
 		return target
@@ -914,39 +877,64 @@ func findWindowSyncTargetForEvent(targets []windowSyncTarget, event windowSyncEv
 }
 
 func findWindowSyncTargetByURL(targets []windowSyncTarget, targetURL string) windowSyncTarget {
-	targetURL = strings.TrimSpace(targetURL)
-	if targetURL != "" {
-		for _, target := range targets {
-			if strings.EqualFold(strings.TrimSpace(target.Url), targetURL) {
-				return target
-			}
+	normalizedURL := normalizeWindowSyncTargetURL(targetURL)
+	if normalizedURL == "" {
+		return windowSyncTarget{}
+	}
+	for _, target := range targets {
+		if normalizeWindowSyncTargetURL(target.Url) == normalizedURL {
+			return target
 		}
 	}
 	return windowSyncTarget{}
 }
 
-func moveWindowSyncTargetToIndex(targets []windowSyncTarget, targetID string, index int) []windowSyncTarget {
-	if index < 0 || index >= len(targets) || strings.TrimSpace(targetID) == "" {
-		return targets
+func createWindowSyncTarget(debugPort int, rawURL string) (windowSyncTarget, error) {
+	targetURL := strings.TrimSpace(rawURL)
+	if targetURL == "" {
+		targetURL = "about:blank"
 	}
-	found := -1
-	for i, target := range targets {
-		if target.Id == targetID {
-			found = i
-			break
+	created, err := cdpBrowserCallResult(debugPort, "Target.createTarget", map[string]any{"url": targetURL})
+	if err != nil {
+		return windowSyncTarget{}, err
+	}
+	createdID, _ := created["targetId"].(string)
+	targets, err := pageWebSocketTargets(debugPort)
+	if err != nil {
+		return windowSyncTarget{}, err
+	}
+	for _, target := range targets {
+		if target.Id == createdID {
+			return target, nil
 		}
 	}
-	if found < 0 || found == index {
-		return targets
+	if target := findWindowSyncTargetByURL(targets, targetURL); strings.TrimSpace(target.Id) != "" {
+		return target, nil
 	}
-	target := targets[found]
-	out := append([]windowSyncTarget{}, targets[:found]...)
-	out = append(out, targets[found+1:]...)
-	if index >= len(out) {
-		return append(out, target)
+	return windowSyncTarget{}, fmt.Errorf("新建标签页后未找到目标：%s", targetURL)
+}
+
+func normalizeWindowSyncTargetURL(rawURL string) string {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return ""
 	}
-	out = append(out[:index], append([]windowSyncTarget{target}, out[index:]...)...)
-	return out
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Scheme == "" {
+		return strings.TrimRight(strings.ToLower(rawURL), "/")
+	}
+	parsed.Scheme = strings.ToLower(parsed.Scheme)
+	parsed.Host = strings.ToLower(parsed.Host)
+	if (parsed.Scheme == "https" && strings.HasSuffix(parsed.Host, ":443")) || (parsed.Scheme == "http" && strings.HasSuffix(parsed.Host, ":80")) {
+		host, _, splitErr := strings.Cut(parsed.Host, ":")
+		if splitErr {
+			parsed.Host = host
+		}
+	}
+	if parsed.Path == "/" {
+		parsed.Path = ""
+	}
+	return strings.TrimRight(parsed.String(), "/")
 }
 
 func (a *App) requireWindowSyncState() (*WindowSyncState, error) {
