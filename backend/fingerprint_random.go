@@ -27,6 +27,9 @@ func resolveFingerprintArgsForLaunch(args []string) []string {
 			autoHardware = strings.EqualFold(strings.TrimSpace(item.val), "true")
 			continue
 		}
+		if item.key == "--fingerprint-region" {
+			continue
+		}
 		if item.key == "--lang" {
 			lang = strings.TrimSpace(item.val)
 		}

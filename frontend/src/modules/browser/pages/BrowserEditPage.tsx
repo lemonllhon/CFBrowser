@@ -143,6 +143,7 @@ export function BrowserEditPage() {
     if (!code) {
       const nextFingerprint = {
         ...current,
+        region: undefined,
         lang: undefined,
         timezone: undefined,
       }
@@ -154,6 +155,7 @@ export function BrowserEditPage() {
     if (!preset) return
     const nextFingerprint = {
       ...current,
+      region: preset.code,
       lang: preset.lang,
       timezone: pickRegionTimezone(code) || preset.timezone,
     }
@@ -202,7 +204,9 @@ export function BrowserEditPage() {
   const proxyGroupOptions = Array.from(new Set(proxies.map(p => (p.groupName || '').trim()).filter(Boolean))).sort()
   const autoProxySwitchEnabled = !!formData.autoProxySwitchEnabled
   const currentFingerprint = deserializeFingerprint(formData.fingerprintArgs)
-  const selectedRegionCode = findRegionPresetByLocale(currentFingerprint.lang, currentFingerprint.timezone)?.code || ''
+  const selectedRegionCode = currentFingerprint.region && findRegionPreset(currentFingerprint.region)
+    ? currentFingerprint.region
+    : findRegionPresetByLocale(currentFingerprint.lang, currentFingerprint.timezone)?.code || ''
   const selectedRegion = selectedRegionCode ? findRegionPreset(selectedRegionCode) : undefined
   const selectedRegionTimezones = selectedRegion ? regionTimezones(selectedRegion) : []
 

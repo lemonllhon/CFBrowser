@@ -431,6 +431,7 @@ export function FingerprintPanel({ value, onChange }: FingerprintPanelProps) {
       const next: FingerprintConfig = {
         ...config,
         ...AUTO_HARDWARE_CONFIG,
+        region: config.region,
         lang: config.lang,
         timezone: config.timezone,
         unknownArgs: config.unknownArgs,
@@ -446,6 +447,7 @@ export function FingerprintPanel({ value, onChange }: FingerprintPanelProps) {
       ...preset.config,
       seed: randomFingerprintSeed(),
       autoHardware: false,
+      region: undefined,
       unknownArgs: config.unknownArgs,
     }
     setConfig(next)
@@ -463,6 +465,7 @@ export function FingerprintPanel({ value, onChange }: FingerprintPanelProps) {
     const next = {
       ...randomHardwareFingerprint(config),
       autoHardware: false,
+      region: config.region,
       lang: config.lang,
       timezone: config.timezone,
       unknownArgs: config.unknownArgs,
@@ -475,6 +478,7 @@ export function FingerprintPanel({ value, onChange }: FingerprintPanelProps) {
     const next: FingerprintConfig = {
       ...config,
       ...AUTO_HARDWARE_CONFIG,
+      region: config.region,
       lang: config.lang,
       timezone: config.timezone,
       unknownArgs: config.unknownArgs,
@@ -606,10 +610,10 @@ export function FingerprintPanel({ value, onChange }: FingerprintPanelProps) {
             <Select value={config.platform ?? ''} onChange={e => update({ platform: e.target.value || undefined, autoHardware: e.target.value ? false : true })} options={PLATFORM_OPTIONS} />
           </FormItem>
           <FormItem label="语言">
-            <Select value={config.lang ?? ''} onChange={e => update({ lang: e.target.value || undefined })} options={ALL_LANG_OPTIONS} />
+            <Select value={config.lang ?? ''} onChange={e => update({ region: undefined, lang: e.target.value || undefined })} options={ALL_LANG_OPTIONS} />
           </FormItem>
           <FormItem label="时区">
-            <Select value={config.timezone ?? ''} onChange={e => update({ timezone: e.target.value || undefined })} options={ALL_TIMEZONE_OPTIONS.map(opt =>
+            <Select value={config.timezone ?? ''} onChange={e => update({ region: undefined, timezone: e.target.value || undefined })} options={ALL_TIMEZONE_OPTIONS.map(opt =>
               opt.value === 'system'
                 ? { ...opt, label: `跟随系统时区 (当前: ${getSystemTimezone()})` }
                 : opt

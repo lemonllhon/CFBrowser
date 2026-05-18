@@ -22,6 +22,7 @@ export interface FingerprintConfig {
   // 基础身份
   brand?: string           // --fingerprint-brand=
   platform?: string        // --fingerprint-platform=
+  region?: string          // --fingerprint-region= 仅用于配置页记住地区国家联动选择
   lang?: string            // --lang=
   timezone?: string        // --timezone=
 
@@ -64,6 +65,7 @@ export const KEY_MAP: Record<string, keyof FingerprintConfig> = {
   '--fingerprint': 'seed',
   '--fingerprint-brand': 'brand',
   '--fingerprint-platform': 'platform',
+  '--fingerprint-region': 'region',
   '--lang': 'lang',
   '--timezone': 'timezone',
   '--window-size': 'resolution',
@@ -88,6 +90,7 @@ export function serialize(config: FingerprintConfig): string[] {
   if (config.seed) args.push(`--fingerprint=${config.seed}`)
   if (config.brand) args.push(`--fingerprint-brand=${config.brand}`)
   if (config.platform) args.push(`--fingerprint-platform=${config.platform}`)
+  if (config.region) args.push(`--fingerprint-region=${config.region}`)
   if (config.lang) args.push(`--lang=${config.lang}`)
   if (config.timezone) {
     // 如果是 system，替换为实际系统时区

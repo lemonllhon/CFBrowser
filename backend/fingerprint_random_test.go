@@ -8,12 +8,16 @@ import (
 func TestResolveFingerprintArgsForLaunchAutoHardwareKeepsLocaleAndLocalizesFonts(t *testing.T) {
 	got := resolveFingerprintArgsForLaunch([]string{
 		"--fingerprint-auto-hardware=true",
+		"--fingerprint-region=JP",
 		"--lang=ja-JP",
 		"--timezone=Asia/Tokyo",
 	})
 
 	if containsLaunchArg(got, "--fingerprint-auto-hardware=true") {
 		t.Fatalf("auto hardware marker should not be passed to browser: %v", got)
+	}
+	if containsLaunchArg(got, "--fingerprint-region=JP") {
+		t.Fatalf("region marker should not be passed to browser: %v", got)
 	}
 	if !containsLaunchArg(got, "--lang=ja-JP") || !containsLaunchArg(got, "--timezone=Asia/Tokyo") {
 		t.Fatalf("locale args should be preserved: %v", got)
