@@ -245,6 +245,15 @@ export function WindowSyncFloatingToolbar() {
     setTabResult(null)
   }
 
+  const closePanelsForCollapse = () => {
+    setBatchOpen(false)
+    setTabPanelOpen(false)
+    setListPanelOpen(false)
+    setSettingsPanelOpen(false)
+    setBatchResult(null)
+    setTabResult(null)
+  }
+
   const saveSettings = async () => {
     setLoadingCommand('save-settings')
     try {
@@ -341,7 +350,10 @@ export function WindowSyncFloatingToolbar() {
       <main
         className={`window-sync-floating-toolbar ${panelOpen ? 'is-panel-open' : ''}`}
         onMouseEnter={() => setExpanded(true)}
-        onMouseLeave={() => setExpanded(false)}
+        onMouseLeave={() => {
+          setExpanded(false)
+          closePanelsForCollapse()
+        }}
       >
         <div className="window-sync-toolbar-row">
           <div className="window-sync-toolbar-drag" title="拖动工具栏">
