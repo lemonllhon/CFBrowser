@@ -1,4 +1,4 @@
-import type { BrowserProfile, BrowserProfileInput, BrowserTab, BrowserSettings, BrowserCore, BrowserCoreInput, BrowserCoreValidateResult, BrowserProxy, BrowserCoreExtended, CookieInfo, CookieImportResult, SnapshotInfo, BrowserBookmark, BrowserStartURL, BrowserGroup, BrowserGroupInput, BrowserGroupWithCount, ProxyIPHealthResult, DefaultContentRule, WindowSyncCandidate, WindowSyncLayoutSettings, WindowSyncSettings, WindowSyncStartInput, WindowSyncState } from './types'
+import type { BrowserProfile, BrowserProfileInput, BrowserTab, BrowserSettings, BrowserCore, BrowserCoreInput, BrowserCoreValidateResult, BrowserProxy, BrowserCoreExtended, BrowserExtension, CookieInfo, CookieImportResult, SnapshotInfo, BrowserBookmark, BrowserStartURL, BrowserGroup, BrowserGroupInput, BrowserGroupWithCount, ProxyIPHealthResult, DefaultContentRule, WindowSyncCandidate, WindowSyncLayoutSettings, WindowSyncSettings, WindowSyncStartInput, WindowSyncState } from './types'
 
 const getBindings = async () => {
   try {
@@ -38,6 +38,8 @@ let mockProxies: BrowserProxy[] = []
 let mockGroups: BrowserGroup[] = []
 
 let mockDefaultContentRules: DefaultContentRule[] = []
+
+let mockExtensions: BrowserExtension[] = []
 
 // ============================================================================
 // Profile API
@@ -527,6 +529,40 @@ export async function BrowserCoreDownload(coreName: string, url: string, proxyCo
     await bindings.BrowserCoreDownload(coreName, url, proxyConfig || '')
     return true
   }
+  return true
+}
+
+// ============================================================================
+// Extension API
+// ============================================================================
+
+export async function fetchBrowserExtensions(): Promise<BrowserExtension[]> {
+  const bindings: any = await getBindings()
+  if (bindings?.BrowserExtensionList) {
+    return (await bindings.BrowserExtensionList()) || []
+  }
+  return mockExtensions
+}
+
+export async function fetchBrowserExtension(extensionId: string): Promise<BrowserExtension | null> {
+  const bindings: any = await getBindings()
+  if (bindings?.BrowserExtensionGet) {
+    return (await bindings.BrowserExtensionGet(extensionId)) || null
+  }
+  return mockExtensions.find(item => item.extensionId === extensionId) || null
+}
+
+export async function deleteBrowserExtension(extensionId: string): Promise<boolean> {
+  const bindings: any = await getBindings()
+  if (bindings?.BrowserExtensionDelete) {
+    await bindings.BrowserExtensionDelete(extensionId)
+    return true
+  }
+  const extension = mockExtensions.find(item => item.extensionId === extensionId)
+  if (extension && extension.boundCount > 0) {
+    throw new Error(`扩展插件已绑定 ${extension.boundCount} 个实例，不能删除`)
+  }
+  mockExtensions = mockExtensions.filter(item => item.extensionId !== extensionId)
   return true
 }
 

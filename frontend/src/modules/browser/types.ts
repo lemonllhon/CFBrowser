@@ -130,6 +130,22 @@ export interface BrowserCoreExtended {
   instanceCount: number
 }
 
+export interface BrowserExtension {
+  extensionId: string
+  name: string
+  version: string
+  manifestVersion: number
+  description: string
+  sourceType: string
+  sourceUrl: string
+  installDir: string
+  packagePath: string
+  manifestJson: string
+  boundCount: number
+  createdAt: string
+  updatedAt: string
+}
+
 export interface CookieInfo {
   name: string
   value: string

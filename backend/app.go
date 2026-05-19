@@ -181,6 +181,7 @@ func (a *App) startup(ctx context.Context) {
 	a.browserMgr.CoreDAO = browser.NewSQLiteCoreDAO(conn)
 	a.browserMgr.BookmarkDAO = browser.NewSQLiteBookmarkDAO(conn)
 	a.browserMgr.GroupDAO = browser.NewSQLiteGroupDAO(conn)
+	a.browserMgr.ExtensionDAO = browser.NewSQLiteExtensionDAO(conn)
 
 	// 一次性迁移：若 SQLite 表为空则从旧文件导入
 	a.migrateToSQLite()
@@ -670,6 +671,7 @@ type BrowserCore = browser.Core
 type BrowserCoreInput = browser.CoreInput
 type BrowserCoreValidateResult = browser.CoreValidateResult
 type BrowserCoreExtendedInfo = browser.CoreExtendedInfo
+type BrowserExtension = browser.Extension
 
 // ============================================================================
 // 浏览器配置 API

@@ -542,6 +542,42 @@ export namespace browser {
 	        this.instanceCount = source["instanceCount"];
 	    }
 	}
+	export class Extension {
+	    extensionId: string;
+	    name: string;
+	    version: string;
+	    manifestVersion: number;
+	    description: string;
+	    sourceType: string;
+	    sourceUrl: string;
+	    installDir: string;
+	    packagePath: string;
+	    manifestJson: string;
+	    boundCount: number;
+	    createdAt: string;
+	    updatedAt: string;
+
+	    static createFrom(source: any = {}) {
+	        return new Extension(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.extensionId = source["extensionId"];
+	        this.name = source["name"];
+	        this.version = source["version"];
+	        this.manifestVersion = source["manifestVersion"];
+	        this.description = source["description"];
+	        this.sourceType = source["sourceType"];
+	        this.sourceUrl = source["sourceUrl"];
+	        this.installDir = source["installDir"];
+	        this.packagePath = source["packagePath"];
+	        this.manifestJson = source["manifestJson"];
+	        this.boundCount = source["boundCount"];
+	        this.createdAt = source["createdAt"];
+	        this.updatedAt = source["updatedAt"];
+	    }
+	}
 	export class Profile {
 	    profileId: string;
 	    profileName: string;

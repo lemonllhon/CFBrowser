@@ -53,6 +53,12 @@ export function BrowserCoreSetDefault(arg1:string):Promise<void>;
 
 export function BrowserCoreValidate(arg1:string):Promise<browser.CoreValidateResult>;
 
+export function BrowserExtensionDelete(arg1:string):Promise<void>;
+
+export function BrowserExtensionGet(arg1:string):Promise<browser.Extension>;
+
+export function BrowserExtensionList():Promise<Array<browser.Extension>>;
+
 export function BrowserExportCookies(arg1:string):Promise<string>;
 
 export function BrowserGetAllTags():Promise<Array<string>>;

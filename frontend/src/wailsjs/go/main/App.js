@@ -94,6 +94,18 @@ export function BrowserCoreValidate(arg1) {
   return window['go']['main']['App']['BrowserCoreValidate'](arg1);
 }
 
+export function BrowserExtensionDelete(arg1) {
+  return window['go']['main']['App']['BrowserExtensionDelete'](arg1);
+}
+
+export function BrowserExtensionGet(arg1) {
+  return window['go']['main']['App']['BrowserExtensionGet'](arg1);
+}
+
+export function BrowserExtensionList() {
+  return window['go']['main']['App']['BrowserExtensionList']();
+}
+
 export function BrowserExportCookies(arg1) {
   return window['go']['main']['App']['BrowserExportCookies'](arg1);
 }

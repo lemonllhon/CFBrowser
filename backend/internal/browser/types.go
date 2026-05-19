@@ -99,6 +99,23 @@ type CoreExtendedInfo struct {
 	InstanceCount int    `json:"instanceCount"`
 }
 
+// Extension 浏览器扩展插件基础信息。
+type Extension struct {
+	ExtensionId     string `json:"extensionId"`
+	Name            string `json:"name"`
+	Version         string `json:"version"`
+	ManifestVersion int    `json:"manifestVersion"`
+	Description     string `json:"description"`
+	SourceType      string `json:"sourceType"`
+	SourceURL       string `json:"sourceUrl"`
+	InstallDir      string `json:"installDir"`
+	PackagePath     string `json:"packagePath"`
+	ManifestJSON    string `json:"manifestJson"`
+	BoundCount      int    `json:"boundCount"`
+	CreatedAt       string `json:"createdAt"`
+	UpdatedAt       string `json:"updatedAt"`
+}
+
 // Group 实例分组
 type Group struct {
 	GroupId   string `json:"groupId"`
@@ -145,11 +162,12 @@ type Manager struct {
 	CodeProvider     CodeProvider
 
 	// DAO 层（注入后使用 SQLite 存储，未注入时降级到 config.yaml）
-	ProfileDAO  ProfileDAO
-	ProxyDAO    ProxyDAO
-	CoreDAO     CoreDAO
-	BookmarkDAO BookmarkDAO
-	GroupDAO    GroupDAO
+	ProfileDAO   ProfileDAO
+	ProxyDAO     ProxyDAO
+	CoreDAO      CoreDAO
+	BookmarkDAO  BookmarkDAO
+	GroupDAO     GroupDAO
+	ExtensionDAO ExtensionDAO
 }
 
 // XrayBridge Xray 桥接进程

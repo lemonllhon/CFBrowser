@@ -8,6 +8,7 @@ export {
   BrowserLogsPage,
   ProxyPoolPage,
   CoreManagementPage,
+  ExtensionManagementPage,
   BookmarkSettingsPage,
   LaunchApiDocsPage,
   AutomationPage,

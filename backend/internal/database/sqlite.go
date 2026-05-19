@@ -152,6 +152,42 @@ var migrations = []migration{
 			`ALTER TABLE browser_profiles ADD COLUMN auto_proxy_switch_mode TEXT NOT NULL DEFAULT 'interval'`,
 		},
 	},
+	{
+		version: 9,
+		desc:    "添加浏览器扩展插件管理表",
+		stmts: []string{
+			`CREATE TABLE IF NOT EXISTS browser_extensions (
+				extension_id     TEXT PRIMARY KEY,
+				name             TEXT NOT NULL DEFAULT '',
+				version          TEXT NOT NULL DEFAULT '',
+				manifest_version INTEGER NOT NULL DEFAULT 0,
+				description      TEXT NOT NULL DEFAULT '',
+				source_type      TEXT NOT NULL DEFAULT '',
+				source_url       TEXT NOT NULL DEFAULT '',
+				install_dir      TEXT NOT NULL DEFAULT '',
+				package_path     TEXT NOT NULL DEFAULT '',
+				manifest_json    TEXT NOT NULL DEFAULT '',
+				created_at       TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				updated_at       TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+			)`,
+			`CREATE INDEX IF NOT EXISTS idx_browser_extensions_updated_at ON browser_extensions(updated_at)`,
+			`CREATE INDEX IF NOT EXISTS idx_browser_extensions_source_type ON browser_extensions(source_type)`,
+			`CREATE TABLE IF NOT EXISTS browser_profile_extensions (
+				id            INTEGER PRIMARY KEY AUTOINCREMENT,
+				profile_id    TEXT NOT NULL,
+				extension_id  TEXT NOT NULL,
+				mode          TEXT NOT NULL DEFAULT 'shared',
+				enabled       INTEGER NOT NULL DEFAULT 1,
+				exclusive_dir TEXT NOT NULL DEFAULT '',
+				created_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				updated_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				UNIQUE(profile_id, extension_id),
+				FOREIGN KEY(extension_id) REFERENCES browser_extensions(extension_id) ON DELETE CASCADE
+			)`,
+			`CREATE INDEX IF NOT EXISTS idx_browser_profile_extensions_profile_id ON browser_profile_extensions(profile_id)`,
+			`CREATE INDEX IF NOT EXISTS idx_browser_profile_extensions_extension_id ON browser_profile_extensions(extension_id)`,
+		},
+	},
 	// ── 新版本在此追加，格式：
 	// {
 	//     version: 4,
