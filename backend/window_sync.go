@@ -237,6 +237,7 @@ func (a *App) WindowSyncStart(input WindowSyncStartInput) (*WindowSyncState, err
 		return nil, err
 	}
 
+	a.applyWindowSyncMasterMarker(state)
 	a.emitWindowSyncStateChanged(state)
 	a.showWindowSyncToolbar(state)
 	a.startWindowSyncListener()
@@ -353,6 +354,7 @@ func (a *App) WindowSyncSaveSettings(input WindowSyncSettings) (*WindowSyncState
 	state := cloneWindowSyncState(a.windowSyncState)
 	a.windowSyncMu.Unlock()
 
+	a.applyWindowSyncMasterMarker(state)
 	a.emitWindowSyncStateChanged(state)
 	a.updateWindowSyncToolbar(state)
 	return state, nil
@@ -721,6 +723,9 @@ func (a *App) listenWindowSyncMaster(seq int, cancel <-chan struct{}, state *Win
 			return err
 		case <-ticker.C:
 			refreshAfter++
+			if refreshAfter%2 == 0 {
+				a.applyWindowSyncMasterMarker(state)
+			}
 			a.syncWindowSyncTabs(seq, debugPort, lastActiveTab)
 			if refreshAfter >= 4 {
 				return nil
@@ -1266,6 +1271,55 @@ func closeWindowSyncTarget(debugPort int, targetID string) error {
 	}
 	_, err := cdpBrowserCallResult(debugPort, "Target.closeTarget", map[string]any{"targetId": targetID})
 	return err
+}
+
+func (a *App) applyWindowSyncMasterMarker(state *WindowSyncState) {
+	if state == nil || !state.Active {
+		return
+	}
+	master := findWindowSyncWindow(state.Windows, state.MasterProfileId)
+	if master == nil || master.DebugPort <= 0 {
+		return
+	}
+	targets, err := pageWebSocketTargets(master.DebugPort)
+	if err != nil {
+		return
+	}
+	color := normalizeWindowSyncMasterColor(state.MasterColor)
+	for _, target := range targets {
+		if strings.TrimSpace(target.WebSocketURL) == "" {
+			continue
+		}
+		_, _ = cdpCallWebSocket(target.WebSocketURL, "Runtime.evaluate", map[string]any{
+			"expression":    windowSyncMasterMarkerScript(color),
+			"awaitPromise":  false,
+			"returnByValue": false,
+		})
+	}
+}
+
+func windowSyncMasterMarkerScript(color string) string {
+	payload, _ := json.Marshal(color)
+	return fmt.Sprintf(`(() => {
+  const color = %s;
+  let marker = document.getElementById("__trace_window_sync_master_marker__");
+  if (!marker) {
+    marker = document.createElement("div");
+    marker.id = "__trace_window_sync_master_marker__";
+    marker.setAttribute("aria-hidden", "true");
+    document.documentElement.appendChild(marker);
+  }
+  marker.style.cssText = [
+    "position: fixed",
+    "inset: 0",
+    "z-index: 2147483647",
+    "pointer-events: none",
+    "box-sizing: border-box",
+    "border: 4px solid " + color,
+    "box-shadow: inset 0 0 0 1px rgba(255,255,255,.72)",
+    "border-radius: 2px"
+  ].join(";");
+})()`, string(payload))
 }
 
 func ensureWindowSyncTargetForEvent(debugPort int, targets []windowSyncTarget, event windowSyncEvent) (windowSyncTarget, error) {

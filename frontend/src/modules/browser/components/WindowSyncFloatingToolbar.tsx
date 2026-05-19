@@ -17,11 +17,13 @@ type ToolbarConfig = {
 const fallbackConfig: ToolbarConfig = {
   port: 0,
   token: '',
-  width: 980,
+  width: 360,
   height: 76,
   x: 360,
   y: 18,
 }
+
+const expandedToolbarWidth = 780
 
 function readToolbarConfig(): ToolbarConfig {
   const params = new URLSearchParams(window.location.search)
@@ -302,13 +304,13 @@ export function WindowSyncFloatingToolbar() {
   useEffect(() => {
     try {
       WindowSetSize(
-        batchOpen || tabPanelOpen || listPanelOpen || settingsPanelOpen ? 980 : config.width || fallbackConfig.width,
+        panelOpen || expanded ? expandedToolbarWidth : config.width || fallbackConfig.width,
         batchOpen || tabPanelOpen || listPanelOpen || settingsPanelOpen ? 430 : config.height || fallbackConfig.height,
       )
     } catch {
       // Older runtimes may ignore dynamic toolbar resizing; commands still work.
     }
-  }, [batchOpen, config.height, config.width, listPanelOpen, settingsPanelOpen, tabPanelOpen])
+  }, [batchOpen, config.height, config.width, expanded, listPanelOpen, settingsPanelOpen, tabPanelOpen])
 
   useEffect(() => {
     const windows = orderedWindows(state)
@@ -332,6 +334,7 @@ export function WindowSyncFloatingToolbar() {
   const windows = orderedWindows(state)
   const batchLoading = loadingCommand === 'batch-input:same' || loadingCommand === 'batch-input:different'
   const panelOpen = batchOpen || tabPanelOpen || listPanelOpen || settingsPanelOpen
+  const masterColor = normalizeColor(state?.masterColor || settingsDraft.masterColor || '#2563eb')
 
   return (
     <ThemeProvider>
@@ -345,7 +348,10 @@ export function WindowSyncFloatingToolbar() {
             <GripHorizontal className="h-4 w-4" />
           </div>
           <div className="flex min-w-0 flex-1 items-center gap-3">
-            <div className={`h-2.5 w-2.5 rounded-full ${paused ? 'bg-[var(--color-warning)]' : 'bg-[var(--color-success)]'}`} />
+            <div
+              className="h-2.5 w-2.5 rounded-full"
+              style={{ backgroundColor: paused ? 'var(--color-warning)' : masterColor }}
+            />
             <div className="min-w-0">
               <div className="truncate text-sm font-semibold text-[var(--color-text-primary)]">
                 {paused ? '窗口同步已暂停' : state?.active ? '窗口同步中' : '等待同步状态'}
@@ -394,17 +400,17 @@ export function WindowSyncFloatingToolbar() {
               variant={batchOpen ? 'secondary' : 'ghost'}
               title="批量输入"
               onClick={() => openSinglePanel('batch')}
-              className="h-9 px-3"
+              className="window-sync-toolbar-command"
             >
               <Keyboard className="h-4 w-4" />
-              批量输入
+              输入
             </Button>
             <Button
               size="sm"
               variant={tabPanelOpen ? 'secondary' : 'ghost'}
               title="标签控制"
               onClick={() => openSinglePanel('tab')}
-              className="h-9 px-3"
+              className="window-sync-toolbar-command"
             >
               <Link className="h-4 w-4" />
               标签
@@ -414,7 +420,7 @@ export function WindowSyncFloatingToolbar() {
               variant={listPanelOpen ? 'secondary' : 'ghost'}
               title="同步窗口列表"
               onClick={() => openSinglePanel('list')}
-              className="h-9 px-3"
+              className="window-sync-toolbar-command"
             >
               <List className="h-4 w-4" />
               列表
@@ -424,7 +430,7 @@ export function WindowSyncFloatingToolbar() {
               variant={settingsPanelOpen ? 'secondary' : 'ghost'}
               title="同步设置"
               onClick={() => openSinglePanel('settings')}
-              className="h-9 px-3"
+              className="window-sync-toolbar-command"
             >
               <Settings className="h-4 w-4" />
               设置
@@ -435,7 +441,7 @@ export function WindowSyncFloatingToolbar() {
               title="宫格布局"
               onClick={() => void applyLayout('grid')}
               loading={loadingCommand === 'layout:grid'}
-              className="h-9 px-3"
+              className="window-sync-toolbar-command"
             >
               <SquareStack className="h-4 w-4" />
               宫格
@@ -446,14 +452,13 @@ export function WindowSyncFloatingToolbar() {
               title="堆叠布局"
               onClick={() => void applyLayout('stack')}
               loading={loadingCommand === 'layout:stack'}
-              className="h-9 px-3"
+              className="window-sync-toolbar-command"
             >
               <SquareStack className="h-4 w-4" />
               堆叠
             </Button>
-            <Button size="sm" variant="ghost" title="刷新状态" onClick={() => void loadState()} className="h-9 px-3">
+            <Button size="sm" variant="ghost" title="刷新状态" onClick={() => void loadState()} className="h-9 w-9 px-0">
               <RefreshCw className="h-4 w-4" />
-              刷新
             </Button>
           </div>
         </div>
@@ -587,7 +592,10 @@ export function WindowSyncFloatingToolbar() {
                 <div key={window.profileId} className="window-sync-window-list-item">
                   <div className="min-w-0">
                     <div className="flex min-w-0 items-center gap-2">
-                      <span className={window.master ? 'window-sync-role-badge is-master' : 'window-sync-role-badge'}>
+                      <span
+                        className={window.master ? 'window-sync-role-badge is-master' : 'window-sync-role-badge'}
+                        style={window.master ? { color: masterColor, backgroundColor: `${masterColor}1f` } : undefined}
+                      >
                         {window.master ? '主控' : '被控'}
                       </span>
                       <span className="truncate text-sm font-medium text-[var(--color-text-primary)]">{window.profileName || window.profileId}</span>

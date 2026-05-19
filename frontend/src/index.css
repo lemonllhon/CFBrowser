@@ -262,7 +262,7 @@ input, select, textarea {
   gap: 10px;
   width: 100vw;
   height: 100vh;
-  padding: 10px 12px;
+  padding: 9px 10px;
   border: 1px solid var(--color-border-default);
   border-radius: 8px;
   background: color-mix(in srgb, var(--color-bg-elevated) 94%, transparent);
@@ -275,7 +275,7 @@ input, select, textarea {
   width: 100%;
   min-height: 54px;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
 
 .window-sync-floating-toolbar button,
@@ -287,7 +287,7 @@ input, select, textarea {
 
 .window-sync-toolbar-drag {
   display: inline-flex;
-  width: 24px;
+  width: 20px;
   height: 40px;
   align-items: center;
   justify-content: center;
@@ -301,24 +301,30 @@ input, select, textarea {
   width: 0;
   min-width: 0;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
   overflow: hidden;
   opacity: 0;
   transition: width 0.18s ease, opacity 0.18s ease;
 }
 
 .window-sync-toolbar-expanded.is-expanded {
-  width: 700px;
+  width: 522px;
   opacity: 1;
 }
 
 .window-sync-floating-toolbar.is-panel-open .window-sync-toolbar-expanded.is-expanded {
-  width: 700px;
+  width: 522px;
 }
 
 .window-sync-toolbar-expanded button {
   white-space: nowrap;
   word-break: keep-all;
+}
+
+.window-sync-toolbar-command {
+  height: 36px;
+  padding-left: 8px;
+  padding-right: 8px;
 }
 
 .window-sync-batch-panel {
