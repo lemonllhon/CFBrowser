@@ -882,6 +882,12 @@ type ProxyTestResult struct {
 	Error     string `json:"error"`
 }
 
+// ProxyPreviewTestInput 导入预览阶段的临时代理测试输入。
+type ProxyPreviewTestInput struct {
+	ProxyId     string `json:"proxyId"`
+	ProxyConfig string `json:"proxyConfig"`
+}
+
 // ProxyIPHealthResult 代理出口 IP 健康信息（透传第三方接口结果）
 type ProxyIPHealthResult struct {
 	ProxyId        string                 `json:"proxyId"`
@@ -977,6 +983,52 @@ func (a *App) BrowserProxyBatchTestSpeed(proxyIds []string, concurrency int) []P
 	return results
 }
 
+// BrowserProxyPreviewBatchTestSpeed 批量测试导入预览里的临时代理，不持久化结果。
+func (a *App) BrowserProxyPreviewBatchTestSpeed(items []ProxyPreviewTestInput, concurrency int) []ProxyTestResult {
+	if len(items) == 0 {
+		return []ProxyTestResult{}
+	}
+	if concurrency <= 0 {
+		concurrency = 20
+	}
+	if concurrency > len(items) {
+		concurrency = len(items)
+	}
+
+	proxies := append([]config.BrowserProxy{}, a.getLatestProxies()...)
+	proxies = append(proxies, previewInputsToBrowserProxies(items)...)
+	results := make([]ProxyTestResult, len(items))
+	type speedJob struct {
+		Idx     int
+		ProxyId string
+	}
+	jobs := make(chan speedJob, len(items))
+	var wg sync.WaitGroup
+
+	for worker := 0; worker < concurrency; worker++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for job := range jobs {
+				r := proxy.SpeedTest(job.ProxyId, proxies, a.xrayMgr, a.singboxMgr, nil)
+				result := ProxyTestResult{ProxyId: r.ProxyId, Ok: r.Ok, LatencyMs: r.LatencyMs, Error: r.Error}
+				results[job.Idx] = result
+				if a.ctx != nil {
+					runtime.EventsEmit(a.ctx, "proxy:preview:speed:result", result)
+				}
+			}
+		}()
+	}
+
+	for i, item := range items {
+		jobs <- speedJob{Idx: i, ProxyId: strings.TrimSpace(item.ProxyId)}
+	}
+	close(jobs)
+
+	wg.Wait()
+	return results
+}
+
 // BrowserProxyCheckIPHealth 检测单个代理的出口 IP 健康信息（通过 IPPure 接口）
 func (a *App) BrowserProxyCheckIPHealth(proxyId string) ProxyIPHealthResult {
 	proxies := a.getLatestProxies()
@@ -1033,6 +1085,67 @@ func (a *App) BrowserProxyBatchCheckIPHealth(proxyIds []string, concurrency int)
 
 	wg.Wait()
 	return results
+}
+
+// BrowserProxyPreviewBatchCheckIPHealth 批量检测导入预览里的临时代理出口 IP，不持久化结果。
+func (a *App) BrowserProxyPreviewBatchCheckIPHealth(items []ProxyPreviewTestInput, concurrency int) []ProxyIPHealthResult {
+	if len(items) == 0 {
+		return []ProxyIPHealthResult{}
+	}
+	if concurrency <= 0 {
+		concurrency = 10
+	}
+	if concurrency > len(items) {
+		concurrency = len(items)
+	}
+
+	proxies := append([]config.BrowserProxy{}, a.getLatestProxies()...)
+	proxies = append(proxies, previewInputsToBrowserProxies(items)...)
+	results := make([]ProxyIPHealthResult, len(items))
+	type healthJob struct {
+		Idx     int
+		ProxyId string
+	}
+	jobs := make(chan healthJob, len(items))
+	var wg sync.WaitGroup
+
+	for worker := 0; worker < concurrency; worker++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for job := range jobs {
+				data, err := proxy.FetchIPPureInfo(job.ProxyId, proxies, a.xrayMgr, a.singboxMgr)
+				result := buildProxyIPHealthResult(job.ProxyId, data, err)
+				results[job.Idx] = result
+				if a.ctx != nil {
+					runtime.EventsEmit(a.ctx, "proxy:preview:iphealth:result", result)
+				}
+			}
+		}()
+	}
+
+	for i, item := range items {
+		jobs <- healthJob{Idx: i, ProxyId: strings.TrimSpace(item.ProxyId)}
+	}
+	close(jobs)
+
+	wg.Wait()
+	return results
+}
+
+func previewInputsToBrowserProxies(items []ProxyPreviewTestInput) []config.BrowserProxy {
+	proxies := make([]config.BrowserProxy, 0, len(items))
+	for _, item := range items {
+		proxyId := strings.TrimSpace(item.ProxyId)
+		if proxyId == "" {
+			continue
+		}
+		proxies = append(proxies, config.BrowserProxy{
+			ProxyId:     proxyId,
+			ProxyConfig: strings.TrimSpace(item.ProxyConfig),
+		})
+	}
+	return proxies
 }
 
 func buildProxyIPHealthResult(proxyId string, data map[string]interface{}, err error) ProxyIPHealthResult {

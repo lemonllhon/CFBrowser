@@ -3,7 +3,7 @@ import { Sliders } from 'lucide-react'
 import { Button, Card, ConfirmModal, FormItem, Input, Modal, Select, Switch, Table, Textarea, toast } from '../../../shared/components'
 import type { SortOrder, TableColumn } from '../../../shared/components/Table'
 import type { BrowserProxy, ProxyIPHealthResult } from '../types'
-import { fetchBrowserProxies, fetchBrowserProxyGroups, saveBrowserProxies, browserProxyTestSpeed, browserProxyBatchTestSpeed, browserProxyCheckIPHealth, browserProxyBatchCheckIPHealth, fetchClashImportFromURL } from '../api'
+import { fetchBrowserProxies, fetchBrowserProxyGroups, saveBrowserProxies, browserProxyTestSpeed, browserProxyBatchTestSpeed, browserProxyPreviewBatchTestSpeed, browserProxyCheckIPHealth, browserProxyBatchCheckIPHealth, browserProxyPreviewBatchCheckIPHealth, fetchClashImportFromURL } from '../api'
 import { EventsOn } from '../../../wailsjs/runtime/runtime'
 import yaml from 'js-yaml'
 
@@ -78,6 +78,29 @@ interface ClashProxy {
 
 type ProxyImportMode = 'clash' | 'direct'
 type ProxyResourceView = 'proxies' | 'sources'
+type PreviewLatencyFilter = 'all' | 'untested' | 'testing' | 'ok' | 'fast' | 'slow' | 'timeout' | 'unsupported'
+type PreviewHealthFilter = 'all' | 'untested' | 'ok' | 'failed' | 'highRisk' | 'residential' | 'datacenter'
+
+const PREVIEW_LATENCY_FILTER_OPTIONS: { value: PreviewLatencyFilter; label: string }[] = [
+  { value: 'all', label: '全部延迟' },
+  { value: 'untested', label: '未测速' },
+  { value: 'testing', label: '测速中' },
+  { value: 'ok', label: '可用' },
+  { value: 'fast', label: '低延迟' },
+  { value: 'slow', label: '高延迟' },
+  { value: 'timeout', label: '超时' },
+  { value: 'unsupported', label: '不支持' },
+]
+
+const PREVIEW_HEALTH_FILTER_OPTIONS: { value: PreviewHealthFilter; label: string }[] = [
+  { value: 'all', label: '全部健康' },
+  { value: 'untested', label: '未检测' },
+  { value: 'ok', label: '检测通过' },
+  { value: 'failed', label: '检测失败' },
+  { value: 'highRisk', label: '高风险' },
+  { value: 'residential', label: '住宅IP' },
+  { value: 'datacenter', label: '机房IP' },
+]
 
 interface DirectImportForm {
   proxyName: string
@@ -1110,6 +1133,33 @@ function writeIPHealthCache(data: Record<string, ProxyIPHealthResult>) {
   }
 }
 
+function normalizePreviewSearchText(value: unknown): string {
+  return String(value || '').trim().toLowerCase()
+}
+
+function previewLatencyMatchesFilter(latency: number | undefined, filter: PreviewLatencyFilter): boolean {
+  if (filter === 'all') return true
+  if (filter === 'untested') return latency === undefined
+  if (filter === 'testing') return latency === -1
+  if (filter === 'timeout') return latency === -2
+  if (filter === 'unsupported') return latency === -3
+  if (filter === 'ok') return typeof latency === 'number' && latency >= 0
+  if (filter === 'fast') return typeof latency === 'number' && latency >= 0 && latency < 200
+  if (filter === 'slow') return typeof latency === 'number' && latency >= 500
+  return true
+}
+
+function previewHealthMatchesFilter(result: ProxyIPHealthResult | undefined, checking: boolean, filter: PreviewHealthFilter): boolean {
+  if (filter === 'all') return true
+  if (filter === 'untested') return !checking && !result
+  if (filter === 'ok') return !!result?.ok
+  if (filter === 'failed') return !!result && !result.ok
+  if (filter === 'highRisk') return !!result?.ok && (result.fraudScore >= 70 || result.isBroadcast)
+  if (filter === 'residential') return !!result?.ok && result.isResidential
+  if (filter === 'datacenter') return !!result?.ok && !result.isResidential
+  return true
+}
+
 export function ProxyPoolPage() {
   const [proxies, setProxies] = useState<BrowserProxy[]>([])
   const [displayList, setDisplayList] = useState<ProxyDisplayInfo[]>([])
@@ -1146,6 +1196,16 @@ export function ProxyPoolPage() {
   const [directImportText, setDirectImportText] = useState('')
   const [previewModalOpen, setPreviewModalOpen] = useState(false)
   const [previewList, setPreviewList] = useState<ProxyDisplayInfo[]>([])
+  const [previewSelectedIds, setPreviewSelectedIds] = useState<Set<string>>(new Set())
+  const [previewKeyword, setPreviewKeyword] = useState('')
+  const [previewLatencyFilter, setPreviewLatencyFilter] = useState<PreviewLatencyFilter>('all')
+  const [previewHealthFilter, setPreviewHealthFilter] = useState<PreviewHealthFilter>('all')
+  const [previewCountryFilter, setPreviewCountryFilter] = useState('all')
+  const [previewLatencyMap, setPreviewLatencyMap] = useState<Record<string, number>>({})
+  const [previewIPHealthMap, setPreviewIPHealthMap] = useState<Record<string, ProxyIPHealthResult>>({})
+  const [previewCheckingIPHealthIds, setPreviewCheckingIPHealthIds] = useState<Set<string>>(new Set())
+  const [previewTestingAll, setPreviewTestingAll] = useState(false)
+  const [previewCheckingAllIPHealth, setPreviewCheckingAllIPHealth] = useState(false)
   const [removedPreviewProxyNames, setRemovedPreviewProxyNames] = useState<string[]>([])
   const [importing, setImporting] = useState(false)
   const [fetchingImportUrl, setFetchingImportUrl] = useState(false)
@@ -1482,6 +1542,77 @@ export function ProxyPoolPage() {
       .map(p => p.proxyId)
   }, [proxies, latencyMap])
 
+  const previewCountryOptions = useMemo(() => {
+    const countries = new Set<string>()
+    Object.values(previewIPHealthMap).forEach(result => {
+      const country = (result?.country || '').trim()
+      if (result?.ok && country) countries.add(country)
+    })
+    return [
+      { value: 'all', label: '全部地区' },
+      ...Array.from(countries).sort((a, b) => a.localeCompare(b)).map(country => ({ value: country, label: country })),
+    ]
+  }, [previewIPHealthMap])
+
+  const filteredPreviewList = useMemo(() => {
+    const keyword = normalizePreviewSearchText(previewKeyword)
+    return previewList.filter(item => {
+      const latency = previewLatencyMap[item.proxyId]
+      if (!previewLatencyMatchesFilter(latency, previewLatencyFilter)) return false
+
+      const health = previewIPHealthMap[item.proxyId]
+      const checking = previewCheckingIPHealthIds.has(item.proxyId)
+      if (!previewHealthMatchesFilter(health, checking, previewHealthFilter)) return false
+
+      if (previewCountryFilter !== 'all' && (health?.country || '') !== previewCountryFilter) return false
+
+      if (!keyword) return true
+      const searchText = [
+        item.proxyName,
+        item.groupName,
+        item.type,
+        item.server,
+        item.port,
+        health?.ip,
+        health?.country,
+        health?.region,
+        health?.city,
+        health?.asOrganization,
+        health?.fraudScore,
+        health?.isResidential ? '住宅 residential' : '机房 datacenter',
+      ].map(normalizePreviewSearchText).join(' ')
+      return searchText.includes(keyword)
+    })
+  }, [
+    previewList,
+    previewKeyword,
+    previewLatencyFilter,
+    previewHealthFilter,
+    previewCountryFilter,
+    previewLatencyMap,
+    previewIPHealthMap,
+    previewCheckingIPHealthIds,
+  ])
+
+  const previewSelectedCount = previewSelectedIds.size
+  const previewAllFilteredSelected = filteredPreviewList.length > 0 && filteredPreviewList.every(p => previewSelectedIds.has(p.proxyId))
+  const previewSomeFilteredSelected = filteredPreviewList.some(p => previewSelectedIds.has(p.proxyId))
+  const previewHasActiveFilter = !!previewKeyword.trim() || previewLatencyFilter !== 'all' || previewHealthFilter !== 'all' || previewCountryFilter !== 'all'
+  const previewTestableList = filteredPreviewList.filter(p => p.proxyConfig !== 'direct://')
+
+  const resetPreviewDetectionState = () => {
+    setPreviewSelectedIds(new Set())
+    setPreviewKeyword('')
+    setPreviewLatencyFilter('all')
+    setPreviewHealthFilter('all')
+    setPreviewCountryFilter('all')
+    setPreviewLatencyMap({})
+    setPreviewIPHealthMap({})
+    setPreviewCheckingIPHealthIds(new Set())
+    setPreviewTestingAll(false)
+    setPreviewCheckingAllIPHealth(false)
+  }
+
   const handleToggleAll = () => {
     if (allFilteredSelected) {
       setSelectedIds(prev => {
@@ -1662,6 +1793,181 @@ export function ProxyPoolPage() {
     }
   }
 
+  const handleToggleAllPreview = () => {
+    if (previewAllFilteredSelected) {
+      setPreviewSelectedIds(prev => {
+        const next = new Set(prev)
+        filteredPreviewList.forEach(p => next.delete(p.proxyId))
+        return next
+      })
+    } else {
+      setPreviewSelectedIds(prev => {
+        const next = new Set(prev)
+        filteredPreviewList.forEach(p => next.add(p.proxyId))
+        return next
+      })
+    }
+  }
+
+  const handleTogglePreviewOne = (proxyId: string) => {
+    setPreviewSelectedIds(prev => {
+      const next = new Set(prev)
+      next.has(proxyId) ? next.delete(proxyId) : next.add(proxyId)
+      return next
+    })
+  }
+
+  const handleSelectOnlyFilteredPreview = () => {
+    if (filteredPreviewList.length === 0) {
+      toast.info('当前筛选没有可选择的代理')
+      return
+    }
+    setPreviewSelectedIds(new Set(filteredPreviewList.map(item => item.proxyId)))
+  }
+
+  const removePreviewItems = (removeIds: Set<string>) => {
+    if (removeIds.size === 0) return
+    const removedNames = previewList
+      .filter(item => removeIds.has(item.proxyId))
+      .map(item => item.proxyName)
+    setPreviewList(prev => prev.filter(item => !removeIds.has(item.proxyId)))
+    setPreviewSelectedIds(prev => {
+      const next = new Set(prev)
+      removeIds.forEach(id => next.delete(id))
+      return next
+    })
+    setPreviewLatencyMap(prev => {
+      const next = { ...prev }
+      removeIds.forEach(id => { delete next[id] })
+      return next
+    })
+    setPreviewIPHealthMap(prev => {
+      const next = { ...prev }
+      removeIds.forEach(id => { delete next[id] })
+      return next
+    })
+    setPreviewCheckingIPHealthIds(prev => {
+      const next = new Set(prev)
+      removeIds.forEach(id => next.delete(id))
+      return next
+    })
+    setRemovedPreviewProxyNames(prev => [...prev, ...removedNames])
+  }
+
+  const handleRemoveFilteredPreview = () => {
+    if (filteredPreviewList.length === 0) {
+      toast.info('当前筛选没有可删除的代理')
+      return
+    }
+    removePreviewItems(new Set(filteredPreviewList.map(item => item.proxyId)))
+  }
+
+  const handleKeepFilteredPreview = () => {
+    if (filteredPreviewList.length === 0) {
+      toast.info('当前筛选没有可保留的代理')
+      return
+    }
+    const keepIds = new Set(filteredPreviewList.map(item => item.proxyId))
+    const removeIds = new Set(previewList.filter(item => !keepIds.has(item.proxyId)).map(item => item.proxyId))
+    removePreviewItems(removeIds)
+    setPreviewSelectedIds(keepIds)
+  }
+
+  const handlePreviewTestAll = async () => {
+    const testable = previewTestableList
+    if (testable.length === 0) {
+      toast.info('当前筛选没有可测速的代理')
+      return
+    }
+    setPreviewTestingAll(true)
+    const init: Record<string, number> = {}
+    testable.forEach(p => { init[p.proxyId] = -1 })
+    setPreviewLatencyMap(prev => ({ ...prev, ...init }))
+
+    const idSet = new Set(testable.map(p => p.proxyId))
+    const off = EventsOn('proxy:preview:speed:result', (data: { proxyId: string; ok: boolean; latencyMs: number; error: string }) => {
+      if (!data?.proxyId || !idSet.has(data.proxyId)) return
+      setPreviewLatencyMap(prev => ({ ...prev, [data.proxyId]: toLatencyValue(data.ok, data.latencyMs, data.error) }))
+    })
+
+    try {
+      const results = await browserProxyPreviewBatchTestSpeed(
+        testable.map(p => ({ proxyId: p.proxyId, proxyConfig: p.proxyConfig })),
+        20
+      )
+      setPreviewLatencyMap(prev => {
+        const next = { ...prev }
+        results.forEach(result => {
+          if (result?.proxyId && idSet.has(result.proxyId)) {
+            next[result.proxyId] = toLatencyValue(result.ok, result.latencyMs, result.error)
+          }
+        })
+        return next
+      })
+      const failed = results.filter(result => !result.ok).length
+      if (failed > 0) {
+        toast.info(`预览测速完成：可用 ${results.length - failed}，异常 ${failed}`)
+      } else {
+        toast.success(`预览测速完成：共 ${results.length} 条`)
+      }
+    } finally {
+      off()
+      setPreviewTestingAll(false)
+    }
+  }
+
+  const handlePreviewCheckIPHealth = async () => {
+    const testable = previewTestableList
+    if (testable.length === 0) {
+      toast.info('当前筛选没有可检测的代理')
+      return
+    }
+    setPreviewCheckingAllIPHealth(true)
+    const ids = testable.map(p => p.proxyId)
+    const idSet = new Set(ids)
+    setPreviewCheckingIPHealthIds(prev => new Set([...Array.from(prev), ...ids]))
+
+    const off = EventsOn('proxy:preview:iphealth:result', (data: ProxyIPHealthResult) => {
+      if (!data?.proxyId || !idSet.has(data.proxyId)) return
+      setPreviewIPHealthMap(prev => ({ ...prev, [data.proxyId]: data }))
+      setPreviewCheckingIPHealthIds(prev => {
+        const next = new Set(prev)
+        next.delete(data.proxyId)
+        return next
+      })
+    })
+
+    try {
+      const results = await browserProxyPreviewBatchCheckIPHealth(
+        testable.map(p => ({ proxyId: p.proxyId, proxyConfig: p.proxyConfig })),
+        10
+      )
+      setPreviewIPHealthMap(prev => {
+        const next = { ...prev }
+        results.forEach(result => {
+          if (result?.proxyId && idSet.has(result.proxyId)) {
+            next[result.proxyId] = result
+          }
+        })
+        return next
+      })
+      const failed = results.filter(result => !result.ok).length
+      if (failed > 0) {
+        toast.info(`预览 IP 健康检测完成：成功 ${results.length - failed}，失败 ${failed}`)
+      } else {
+        toast.success(`预览 IP 健康检测完成：共 ${results.length} 条`)
+      }
+    } finally {
+      off()
+      setPreviewCheckingIPHealthIds(prev => {
+        const next = new Set(prev)
+        ids.forEach(id => next.delete(id))
+        return next
+      })
+      setPreviewCheckingAllIPHealth(false)
+    }
+  }
+
   const renderLatency = (record: ProxyDisplayInfo) => {
     if (record.proxyConfig === 'direct://') {
       return <span className="text-[var(--color-text-muted)] text-xs">不适用</span>
@@ -1711,6 +2017,59 @@ export function ProxyPoolPage() {
           </div>
         </div>
         <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); openIPHealthDetail(record.proxyId) }}>原始</Button>
+      </div>
+    )
+  }
+
+  const renderPreviewLatency = (record: ProxyDisplayInfo) => {
+    if (record.proxyConfig === 'direct://') {
+      return <span className="text-[var(--color-text-muted)] text-xs">不适用</span>
+    }
+    const val = previewLatencyMap[record.proxyId]
+    if (val === undefined) return <span className="text-[var(--color-text-muted)] text-xs">-</span>
+    if (val === -1) return <span className="text-[var(--color-text-muted)] text-xs animate-pulse">测速中...</span>
+    if (val === -2) return <span className="text-red-500 text-xs">超时</span>
+    if (val === -3) return <span className="text-gray-400 text-xs">不支持</span>
+    const color = val < 200 ? 'text-green-500' : val < 500 ? 'text-yellow-500' : 'text-red-500'
+    return <span className={`text-xs font-medium ${color}`}>{val} ms</span>
+  }
+
+  const openPreviewIPHealthDetail = (proxyId: string) => {
+    const result = previewIPHealthMap[proxyId]
+    if (!result) return
+    setCurrentIPHealthDetail(result)
+    setIPHealthDetailOpen(true)
+  }
+
+  const renderPreviewIPHealth = (record: ProxyDisplayInfo) => {
+    if (record.proxyConfig === 'direct://') {
+      return <span className="text-[var(--color-text-muted)] text-xs">不适用</span>
+    }
+    if (previewCheckingIPHealthIds.has(record.proxyId)) {
+      return <span className="text-[var(--color-text-muted)] text-xs animate-pulse">检测中...</span>
+    }
+
+    const result = previewIPHealthMap[record.proxyId]
+    if (!result) return <span className="text-[var(--color-text-muted)] text-xs">-</span>
+    if (!result.ok) {
+      return (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-red-500 truncate max-w-[120px]" title={result.error || '检测失败'}>失败</span>
+          <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); openPreviewIPHealthDetail(record.proxyId) }}>原始</Button>
+        </div>
+      )
+    }
+
+    const location = [result.country, result.region, result.city].filter(Boolean).join(' / ')
+    return (
+      <div className="flex items-center gap-2 min-w-0">
+        <div className="min-w-0">
+          <div className="text-xs text-[var(--color-text-primary)] truncate">{result.ip || '-'}</div>
+          <div className="text-[11px] text-[var(--color-text-muted)] truncate">
+            {`fraud ${result.fraudScore} | ${result.isResidential ? '住宅' : '机房'}${location ? ` | ${location}` : ''}`}
+          </div>
+        </div>
+        <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); openPreviewIPHealthDetail(record.proxyId) }}>原始</Button>
       </div>
     )
   }
@@ -1826,17 +2185,60 @@ export function ProxyPoolPage() {
   ]
 
   const handleRemovePreviewProxy = (proxyId: string) => {
-    const target = previewList.find(item => item.proxyId === proxyId)
-    if (!target) return
-    setPreviewList(prev => prev.filter(item => item.proxyId !== proxyId))
-    setRemovedPreviewProxyNames(prev => [...prev, target.proxyName])
+    removePreviewItems(new Set([proxyId]))
   }
 
   const previewColumns: TableColumn<ProxyDisplayInfo>[] = [
-    { key: 'proxyName', title: '代理名称', width: '200px' },
-    { key: 'type', title: '类型', width: '100px' },
-    { key: 'server', title: '服务器', width: '200px' },
-    { key: 'port', title: '端口', width: '100px', render: (val) => val || '-' },
+    {
+      key: 'checkbox',
+      title: (
+        <input
+          type="checkbox"
+          checked={previewAllFilteredSelected}
+          ref={el => { if (el) el.indeterminate = previewSomeFilteredSelected && !previewAllFilteredSelected }}
+          onChange={handleToggleAllPreview}
+          onClick={e => e.stopPropagation()}
+          className="w-4 h-4 rounded border-[var(--color-border)] accent-[var(--color-primary)] cursor-pointer"
+          title="选择当前筛选结果"
+        />
+      ),
+      width: '44px',
+      render: (_, record) => (
+        <input
+          type="checkbox"
+          checked={previewSelectedIds.has(record.proxyId)}
+          onChange={() => handleTogglePreviewOne(record.proxyId)}
+          onClick={e => e.stopPropagation()}
+          className="w-4 h-4 rounded border-[var(--color-border)] accent-[var(--color-primary)] cursor-pointer"
+        />
+      ),
+    },
+    {
+      key: 'proxyName',
+      title: '代理名称',
+      width: '220px',
+      render: (_, record) => (
+        <div className="min-w-0">
+          <div className="truncate text-[var(--color-text-primary)]" title={record.proxyName}>{record.proxyName}</div>
+          {record.groupName && <div className="text-[11px] text-[var(--color-text-muted)] truncate">{record.groupName}</div>}
+        </div>
+      ),
+    },
+    { key: 'type', title: '类型', width: '80px' },
+    { key: 'server', title: '服务器', width: '170px', render: (val) => <span className="truncate block max-w-[170px]" title={String(val || '-')}>{val || '-'}</span> },
+    { key: 'port', title: '端口', width: '70px', render: (val) => val || '-' },
+    {
+      key: 'latency',
+      title: '延迟',
+      width: '90px',
+      render: (_, record) => renderPreviewLatency(record),
+    },
+    {
+      key: 'ipHealth',
+      title: 'IP健康',
+      width: '280px',
+      render: (_, record) => renderPreviewIPHealth(record),
+    },
     {
       key: 'actions',
       title: '操作',
@@ -2035,8 +2437,10 @@ export function ProxyPoolPage() {
         return
       }
       const preview = buildImportPreview(candidates, importGroupName.trim())
+      resetPreviewDetectionState()
       setRemovedPreviewProxyNames([])
       setPreviewList(preview)
+      setPreviewSelectedIds(new Set(preview.map(item => item.proxyId)))
       setImportModalOpen(false)
       setPreviewModalOpen(true)
     } catch (error: any) {
@@ -2045,8 +2449,9 @@ export function ProxyPoolPage() {
   }
 
   const handleConfirmImport = async () => {
-    if (previewList.length === 0) {
-      toast.error('请至少保留 1 个代理后再导入')
+    const selectedPreviewList = previewList.filter(item => previewSelectedIds.has(item.proxyId))
+    if (selectedPreviewList.length === 0) {
+      toast.error('请至少选择 1 个代理后再导入')
       return
     }
     setImporting(true)
@@ -2063,7 +2468,7 @@ export function ProxyPoolPage() {
         : []
       const pickExistingID = createExistingProxyIDPicker(oldSourceProxies)
 
-      const newProxies: BrowserProxy[] = previewList.map((p) => ({
+      const newProxies: BrowserProxy[] = selectedPreviewList.map((p) => ({
         proxyId: pickExistingID(p.proxyName, p.proxyConfig) || nextProxyID(),
         proxyName: p.proxyName,
         proxyConfig: p.proxyConfig,
@@ -2080,8 +2485,12 @@ export function ProxyPoolPage() {
         ? proxies.filter(item => (item.sourceId || '').trim() !== sourceID).concat(newProxies)
         : [...proxies, ...newProxies]
       await saveProxies(allProxies)
-      if (isURLImport && removedPreviewProxyNames.length > 0) {
-        appendSourceIgnoredProxyNames(sourceID, removedPreviewProxyNames)
+      const unselectedPreviewProxyNames = previewList
+        .filter(item => !previewSelectedIds.has(item.proxyId))
+        .map(item => item.proxyName)
+      const ignoredProxyNames = [...removedPreviewProxyNames, ...unselectedPreviewProxyNames]
+      if (isURLImport && ignoredProxyNames.length > 0) {
+        appendSourceIgnoredProxyNames(sourceID, ignoredProxyNames)
       }
       setPreviewModalOpen(false)
       setImportUrl('')
@@ -2093,6 +2502,7 @@ export function ProxyPoolPage() {
       setDirectImportForm({ ...INITIAL_DIRECT_IMPORT_FORM })
       setDirectImportText('')
       setPreviewList([])
+      resetPreviewDetectionState()
       setRemovedPreviewProxyNames([])
       toast.success(`成功导入 ${newProxies.length} 个代理`)
     } catch (error: any) {
@@ -2525,16 +2935,47 @@ export function ProxyPoolPage() {
         </div>
       </Modal>
 
-      <Modal open={previewModalOpen} onClose={() => setPreviewModalOpen(false)} title="确认导入以下代理" width="700px"
-        footer={<><Button variant="secondary" onClick={() => { setPreviewModalOpen(false); setImportModalOpen(true) }}>返回修改</Button><Button onClick={handleConfirmImport} loading={importing} disabled={previewList.length === 0}>确认导入</Button></>}>
+      <Modal open={previewModalOpen} onClose={() => setPreviewModalOpen(false)} title="确认导入以下代理" width="980px"
+        footer={<><Button variant="secondary" onClick={() => { setPreviewModalOpen(false); setImportModalOpen(true) }}>返回修改</Button><Button onClick={handleConfirmImport} loading={importing} disabled={previewSelectedCount === 0}>导入选中{previewSelectedCount > 0 ? ` (${previewSelectedCount})` : ''}</Button></>}>
         <div className="space-y-3">
           {importMode === 'clash' && importDnsServers.trim() && (
             <p className="text-xs text-[var(--color-text-muted)] bg-[var(--color-bg-secondary)] px-3 py-2 rounded">已配置批量 DNS，将应用到以下所有代理</p>
           )}
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(240px,1fr)_150px_150px_150px] gap-2">
+            <Input
+              value={previewKeyword}
+              onChange={e => setPreviewKeyword(e.target.value)}
+              placeholder="搜索名称、服务器、国家、地区、IP、运营商"
+            />
+            <Select
+              value={previewLatencyFilter}
+              onChange={e => setPreviewLatencyFilter(e.target.value as PreviewLatencyFilter)}
+              options={PREVIEW_LATENCY_FILTER_OPTIONS}
+            />
+            <Select
+              value={previewHealthFilter}
+              onChange={e => setPreviewHealthFilter(e.target.value as PreviewHealthFilter)}
+              options={PREVIEW_HEALTH_FILTER_OPTIONS}
+            />
+            <Select
+              value={previewCountryFilter}
+              onChange={e => setPreviewCountryFilter(e.target.value)}
+              options={previewCountryOptions}
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" variant="secondary" onClick={handlePreviewTestAll} loading={previewTestingAll} disabled={previewTestableList.length === 0}>检测延迟</Button>
+            <Button size="sm" variant="secondary" onClick={handlePreviewCheckIPHealth} loading={previewCheckingAllIPHealth} disabled={previewTestableList.length === 0}>检测IP健康</Button>
+            <Button size="sm" variant="ghost" onClick={handleSelectOnlyFilteredPreview} disabled={filteredPreviewList.length === 0}>只选择当前筛选</Button>
+            <Button size="sm" variant="ghost" onClick={() => setPreviewSelectedIds(new Set(previewList.map(item => item.proxyId)))} disabled={previewList.length === 0}>全选</Button>
+            <Button size="sm" variant="ghost" onClick={() => setPreviewSelectedIds(new Set())} disabled={previewSelectedCount === 0}>清空选择</Button>
+            <Button size="sm" variant="secondary" onClick={handleKeepFilteredPreview} disabled={!previewHasActiveFilter || filteredPreviewList.length === 0}>只保留筛选</Button>
+            <Button size="sm" variant="danger" onClick={handleRemoveFilteredPreview} disabled={filteredPreviewList.length === 0}>删除筛选</Button>
+          </div>
           <p className="text-xs text-[var(--color-text-muted)]">
-            保留 {previewList.length} 条，删除 {removedPreviewProxyNames.length} 条。删除项不会进入后续比较环节。
+            共 {previewList.length} 条，当前显示 {filteredPreviewList.length} 条，已选择 {previewSelectedCount} 条，已删除 {removedPreviewProxyNames.length} 条。确认导入只会导入已选择的代理。
           </p>
-          <Table columns={previewColumns} data={previewList} rowKey="proxyId" maxHeight="380px" emptyText="无代理数据" />
+          <Table columns={previewColumns} data={filteredPreviewList} rowKey="proxyId" maxHeight="420px" emptyText="无代理数据" tableMinWidth="1040px" />
         </div>
       </Modal>
 

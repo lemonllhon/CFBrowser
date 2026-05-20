@@ -785,6 +785,15 @@ export async function browserProxyBatchTestSpeed(proxyIds: string[], concurrency
   return proxyIds.map(id => ({ proxyId: id, ok: true, latencyMs: Math.floor(100 + Math.random() * 400), error: '' }))
 }
 
+export async function browserProxyPreviewBatchTestSpeed(items: { proxyId: string; proxyConfig: string }[], concurrency: number = 20): Promise<{ proxyId: string; ok: boolean; latencyMs: number; error: string }[]> {
+  const bindings: any = await getBindings()
+  if (bindings?.BrowserProxyPreviewBatchTestSpeed) {
+    return (await bindings.BrowserProxyPreviewBatchTestSpeed(items, concurrency)) || []
+  }
+  await new Promise(r => setTimeout(r, 1000))
+  return items.map(item => ({ proxyId: item.proxyId, ok: true, latencyMs: Math.floor(100 + Math.random() * 400), error: '' }))
+}
+
 export async function browserProxyCheckIPHealth(proxyId: string): Promise<ProxyIPHealthResult> {
   const bindings: any = await getBindings()
   if (bindings?.BrowserProxyCheckIPHealth) {
@@ -832,6 +841,30 @@ export async function browserProxyBatchCheckIPHealth(proxyIds: string[], concurr
   await new Promise(r => setTimeout(r, 1200))
   return proxyIds.map(proxyId => ({
     proxyId,
+    ok: true,
+    source: 'ippure',
+    error: '',
+    ip: '127.0.0.1',
+    fraudScore: Math.floor(Math.random() * 100),
+    isResidential: Math.random() > 0.5,
+    isBroadcast: false,
+    country: 'Mock',
+    region: 'Mock',
+    city: 'Mock',
+    asOrganization: 'Mock ISP',
+    rawData: {},
+    updatedAt: new Date().toISOString(),
+  }))
+}
+
+export async function browserProxyPreviewBatchCheckIPHealth(items: { proxyId: string; proxyConfig: string }[], concurrency: number = 10): Promise<ProxyIPHealthResult[]> {
+  const bindings: any = await getBindings()
+  if (bindings?.BrowserProxyPreviewBatchCheckIPHealth) {
+    return (await bindings.BrowserProxyPreviewBatchCheckIPHealth(items, concurrency)) || []
+  }
+  await new Promise(r => setTimeout(r, 1200))
+  return items.map(item => ({
+    proxyId: item.proxyId,
     ok: true,
     source: 'ippure',
     error: '',
