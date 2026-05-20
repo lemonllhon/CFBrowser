@@ -217,6 +217,278 @@ function normalizeImportedProxyArray(payload: unknown): ClashProxy[] | null {
   return null
 }
 
+function safeDecodeURIComponent(value: string): string {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
+}
+
+function decodeBase64ImportText(raw: string): string | null {
+  const candidate = raw.trim().replace(/\s+/g, '')
+  if (!candidate || !/^[A-Za-z0-9+/_-]+={0,2}$/.test(candidate)) return null
+
+  const variants = new Set<string>()
+  variants.add(candidate)
+  const mod = candidate.length % 4
+  if (mod !== 0) {
+    variants.add(candidate + '='.repeat(4 - mod))
+  }
+
+  for (const variant of variants) {
+    const normalized = variant.replace(/-/g, '+').replace(/_/g, '/')
+    try {
+      const binary = atob(normalized)
+      const bytes = Uint8Array.from(binary, ch => ch.charCodeAt(0))
+      const decoded = new TextDecoder().decode(bytes).replace(/\r\n/g, '\n').trim()
+      if (decoded) return decoded
+    } catch {
+      // try next variant
+    }
+  }
+  return null
+}
+
+function collectClashImportTextAttempts(input: string): string[] {
+  const attempts: string[] = []
+  const seen = new Set<string>()
+  const append = (value: string | null | undefined) => {
+    const text = (value || '').replace(/\uFEFF/g, '').replace(/\r\n/g, '\n').trim()
+    if (!text || seen.has(text)) return
+    seen.add(text)
+    attempts.push(text)
+  }
+
+  append(input)
+  append(safeDecodeURIComponent(input))
+
+  for (const text of [...attempts]) {
+    append(decodeBase64ImportText(text))
+  }
+  return attempts
+}
+
+function stringValue(value: unknown): string {
+  if (value === null || value === undefined) return ''
+  return String(value).trim()
+}
+
+function numberValue(value: unknown): number {
+  const n = Number(stringValue(value))
+  if (!Number.isFinite(n)) return 0
+  return Math.round(n)
+}
+
+function firstText(...values: Array<string | null | undefined>): string {
+  for (const value of values) {
+    const text = (value || '').trim()
+    if (text) return text
+  }
+  return ''
+}
+
+function setStringField(target: ClashProxy, key: string, value: string | null | undefined) {
+  const text = (value || '').trim()
+  if (text) target[key] = text
+}
+
+function isTruthyParam(value: string | null): boolean {
+  const text = (value || '').trim().toLowerCase()
+  return text === '1' || text === 'true' || text === 'yes'
+}
+
+function shareURLName(url: URL, index: number): string {
+  const raw = url.hash ? url.hash.replace(/^#/, '') : ''
+  return safeDecodeURIComponent(raw).trim() || `导入代理 ${index + 1}`
+}
+
+function applyTransportParams(proxy: ClashProxy, networkValue: string, path = '', host = '', serviceName = '') {
+  const network = networkValue.trim().toLowerCase()
+  if (!network) return
+  proxy.network = network
+
+  if (network === 'ws') {
+    const wsOpts: Record<string, unknown> = {}
+    if (path.trim()) wsOpts.path = path.trim()
+    if (host.trim()) wsOpts.headers = { Host: host.trim() }
+    if (Object.keys(wsOpts).length > 0) proxy['ws-opts'] = wsOpts
+  }
+
+  if (network === 'grpc') {
+    const grpcOpts: Record<string, unknown> = {}
+    if (serviceName.trim()) grpcOpts['grpc-service-name'] = serviceName.trim()
+    if (Object.keys(grpcOpts).length > 0) proxy['grpc-opts'] = grpcOpts
+  }
+}
+
+function parseVmessShareURI(raw: string, index: number): ClashProxy | null {
+  const decoded = decodeBase64ImportText(raw.slice('vmess://'.length))
+  if (!decoded) return null
+
+  let payload: Record<string, unknown>
+  try {
+    payload = JSON.parse(decoded) as Record<string, unknown>
+  } catch {
+    return null
+  }
+
+  const server = stringValue(payload.add)
+  const port = numberValue(payload.port)
+  const uuid = stringValue(payload.id)
+  if (!server || !port || !uuid) return null
+
+  const proxy: ClashProxy = {
+    name: firstText(stringValue(payload.ps), `导入代理 ${index + 1}`),
+    type: 'vmess',
+    server,
+    port,
+    uuid,
+    alterId: numberValue(payload.aid),
+    cipher: firstText(stringValue(payload.scy), stringValue(payload.cipher), 'auto'),
+  }
+
+  const tls = stringValue(payload.tls).toLowerCase()
+  if (tls && tls !== 'none') {
+    proxy.tls = true
+    setStringField(proxy, 'servername', firstText(stringValue(payload.sni), stringValue(payload.host)))
+  }
+  setStringField(proxy, 'client-fingerprint', stringValue(payload.fp))
+  applyTransportParams(proxy, firstText(stringValue(payload.net), stringValue(payload.network)), stringValue(payload.path), stringValue(payload.host), stringValue(payload.serviceName))
+  return proxy
+}
+
+function parseUserInfoShareURI(raw: string, index: number, protocol: 'vless' | 'trojan'): ClashProxy | null {
+  let parsed: URL
+  try {
+    parsed = new URL(raw)
+  } catch {
+    return null
+  }
+
+  const server = parsed.hostname
+  const port = Number(parsed.port)
+  const user = safeDecodeURIComponent(parsed.username)
+  if (!server || !Number.isFinite(port) || port <= 0 || !user) return null
+
+  const q = parsed.searchParams
+  const proxy: ClashProxy = {
+    name: shareURLName(parsed, index),
+    type: protocol,
+    server,
+    port,
+  }
+  if (protocol === 'vless') {
+    proxy.uuid = user
+    setStringField(proxy, 'flow', q.get('flow'))
+  } else {
+    proxy.password = user
+  }
+
+  const security = (q.get('security') || '').toLowerCase()
+  if (security === 'tls' || security === 'reality') {
+    proxy.tls = true
+    setStringField(proxy, 'servername', firstText(q.get('sni'), q.get('peer'), q.get('servername')))
+    if (security === 'reality') {
+      const realityOpts: Record<string, string> = {}
+      if (q.get('pbk')) realityOpts['public-key'] = q.get('pbk') || ''
+      if (q.get('sid')) realityOpts['short-id'] = q.get('sid') || ''
+      if (Object.keys(realityOpts).length > 0) proxy['reality-opts'] = realityOpts
+    }
+  }
+  setStringField(proxy, 'client-fingerprint', q.get('fp'))
+  if (isTruthyParam(q.get('allowInsecure')) || isTruthyParam(q.get('skip-cert-verify'))) {
+    proxy['skip-cert-verify'] = true
+  }
+
+  applyTransportParams(proxy, firstText(q.get('type'), q.get('network')), q.get('path') || '', q.get('host') || '', q.get('serviceName') || '')
+  return proxy
+}
+
+function parseSSHostPort(hostPart: string): { server: string; port: number } | null {
+  try {
+    const parsed = new URL(`ss://${hostPart}`)
+    const port = Number(parsed.port)
+    if (!parsed.hostname || !Number.isFinite(port) || port <= 0) return null
+    return { server: parsed.hostname, port }
+  } catch {
+    return null
+  }
+}
+
+function parseSSShareURI(raw: string, index: number): ClashProxy | null {
+  let body = raw.slice('ss://'.length).trim()
+  let fragment = ''
+  const hashIndex = body.indexOf('#')
+  if (hashIndex >= 0) {
+    fragment = body.slice(hashIndex + 1)
+    body = body.slice(0, hashIndex)
+  }
+  const queryIndex = body.indexOf('?')
+  if (queryIndex >= 0) {
+    body = body.slice(0, queryIndex)
+  }
+
+  let method = ''
+  let password = ''
+  let endpoint: { server: string; port: number } | null = null
+
+  if (body.includes('@')) {
+    const at = body.lastIndexOf('@')
+    let userPart = body.slice(0, at)
+    const hostPart = body.slice(at + 1)
+    userPart = decodeBase64ImportText(userPart) || safeDecodeURIComponent(userPart)
+    const parts = userPart.split(/:(.*)/s).filter(Boolean)
+    if (parts.length < 2) return null
+    method = parts[0].trim()
+    password = parts[1].trim()
+    endpoint = parseSSHostPort(hostPart)
+  } else {
+    const decoded = decodeBase64ImportText(body)
+    if (!decoded) return null
+    const at = decoded.lastIndexOf('@')
+    if (at < 0) return null
+    const userPart = decoded.slice(0, at)
+    const hostPart = decoded.slice(at + 1)
+    const parts = userPart.split(/:(.*)/s).filter(Boolean)
+    if (parts.length < 2) return null
+    method = parts[0].trim()
+    password = parts[1].trim()
+    endpoint = parseSSHostPort(hostPart)
+  }
+
+  if (!method || !password || !endpoint) return null
+  return {
+    name: safeDecodeURIComponent(fragment).trim() || `导入代理 ${index + 1}`,
+    type: 'ss',
+    server: endpoint.server,
+    port: endpoint.port,
+    cipher: method,
+    password,
+  }
+}
+
+function parseShareURIToClashProxy(raw: string, index: number): ClashProxy | null {
+  const value = raw.trim()
+  const lower = value.toLowerCase()
+  if (lower.startsWith('vmess://')) return parseVmessShareURI(value, index)
+  if (lower.startsWith('vless://')) return parseUserInfoShareURI(value, index, 'vless')
+  if (lower.startsWith('trojan://')) return parseUserInfoShareURI(value, index, 'trojan')
+  if (lower.startsWith('ss://')) return parseSSShareURI(value, index)
+  return null
+}
+
+function parseShareSubscriptionText(raw: string): ClashProxy[] | null {
+  const proxies: ClashProxy[] = []
+  raw.replace(/\r\n/g, '\n').split('\n').forEach(line => {
+    const value = line.trim()
+    if (!value || value.startsWith('#')) return
+    const proxy = parseShareURIToClashProxy(value, proxies.length)
+    if (proxy) proxies.push(proxy)
+  })
+  return proxies.length > 0 ? proxies : null
+}
+
 function normalizeLooseClashImportText(raw: string): string {
   const normalizedNewline = raw.replace(/\uFEFF/g, '').replace(/\r\n/g, '\n').trim()
   if (!normalizedNewline) return normalizedNewline
@@ -252,32 +524,39 @@ function normalizeLooseClashImportText(raw: string): string {
 function parseClashImportText(raw: string): ClashProxy[] {
   const input = raw.trim()
   if (!input) {
-    throw new Error('请输入 YAML 内容')
-  }
-
-  const attempts = [input]
-  const normalized = normalizeLooseClashImportText(input)
-  if (normalized && normalized !== input) {
-    attempts.push(normalized)
+    throw new Error('请输入 YAML 或订阅内容')
   }
 
   let lastError: unknown = null
-  for (const text of attempts) {
-    try {
-      const parsed = yaml.load(text)
-      const proxies = normalizeImportedProxyArray(parsed)
-      if (proxies) {
-        return proxies
+  for (const sourceText of collectClashImportTextAttempts(input)) {
+    const attempts = [sourceText]
+    const normalized = normalizeLooseClashImportText(sourceText)
+    if (normalized && normalized !== sourceText) {
+      attempts.push(normalized)
+    }
+
+    const shareProxies = parseShareSubscriptionText(sourceText)
+    if (shareProxies) {
+      return shareProxies
+    }
+
+    for (const text of attempts) {
+      try {
+        const parsed = yaml.load(text)
+        const proxies = normalizeImportedProxyArray(parsed)
+        if (proxies) {
+          return proxies
+        }
+      } catch (error) {
+        lastError = error
       }
-    } catch (error) {
-      lastError = error
     }
   }
 
   if (lastError && typeof lastError === 'object' && lastError !== null && 'message' in lastError) {
     throw new Error(String((lastError as { message?: string }).message || '解析失败'))
   }
-  throw new Error('无效的 YAML 格式，需要包含 proxies 数组')
+  throw new Error('无效的订阅格式，需要包含 proxies 数组，或 Base64/分享链接节点')
 }
 
 function normalizeDirectProxyConfig(raw: string): string {
@@ -2092,7 +2371,10 @@ export function ProxyPoolPage() {
               variant={importMode === 'clash' ? undefined : 'secondary'}
               onClick={() => handleImportModeChange('clash')}
             >
-              Clash 订阅 / YAML
+              <span className="flex flex-col items-center leading-tight">
+                <span>订阅 / YAML</span>
+                <span className="text-[11px] opacity-80">Clash、Base64、分享链接</span>
+              </span>
             </Button>
             <Button
               variant={importMode === 'direct' ? undefined : 'secondary'}
@@ -2103,7 +2385,7 @@ export function ProxyPoolPage() {
           </div>
           <p className="text-sm text-[var(--color-text-muted)]">
             {importMode === 'clash'
-              ? '支持管理 Clash 订阅 URL，也支持直接粘贴 YAML；通过 URL 导入后会进入订阅管理，可统一刷新'
+              ? '支持管理 Clash 订阅 URL、直接粘贴 YAML，也支持 v2rayN Base64 订阅/分享链接；通过 URL 导入后会进入订阅管理，可统一刷新'
               : '支持批量粘贴 HTTP / HTTPS / SOCKS5 代理，也可以用表单补充单条带认证代理'}
           </p>
           {importMode === 'clash' && (
@@ -2136,13 +2418,13 @@ export function ProxyPoolPage() {
                     已绑定订阅：{importResolvedUrl}
                   </p>
                 )}
-                <p className="text-xs text-[var(--color-text-muted)] mt-1">获取成功后会自动回填 YAML 文本，并尝试自动填充 DNS 与建议分组；自动刷新时间请在列表顶部统一配置</p>
+                <p className="text-xs text-[var(--color-text-muted)] mt-1">获取成功后会自动回填可解析文本，并尝试自动填充 DNS 与建议分组；自动刷新时间请在列表顶部统一配置</p>
               </FormItem>
               <Textarea
                 value={importText}
                 onChange={e => setImportText(e.target.value)}
                 rows={12}
-                placeholder={`proxies:\n  - name: vless-v6\n    type: vless\n    server: example.com\n    port: 443\n    uuid: your-uuid\n    ...`}
+                placeholder={`proxies:\n  - name: vless-v6\n    type: vless\n    server: example.com\n    port: 443\n    uuid: your-uuid\n    ...\n\n或粘贴 Base64 订阅 / vless:// / vmess:// / trojan:// 节点`}
               />
             </>
           )}

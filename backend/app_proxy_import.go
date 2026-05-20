@@ -2,10 +2,12 @@ package backend
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -90,35 +92,57 @@ func normalizeClashSubscriptionContent(body []byte) (string, interface{}, error)
 		return "", nil, fmt.Errorf("订阅内容为空")
 	}
 
-	tryTexts := make([]string, 0, 4)
-	tryTexts = append(tryTexts, baseText)
-
-	if unescaped, err := url.QueryUnescape(baseText); err == nil {
-		unescaped = strings.TrimSpace(strings.ReplaceAll(unescaped, "\r\n", "\n"))
-		if unescaped != "" && unescaped != baseText {
-			tryTexts = append(tryTexts, unescaped)
-		}
-	}
-
-	if decoded, ok := decodeBase64Text(baseText); ok {
-		tryTexts = append(tryTexts, decoded)
-	}
+	tryTexts := collectClashImportTextVariants(baseText)
 
 	for _, text := range tryTexts {
 		payload, ok := parseClashPayload(text)
-		if !ok {
-			continue
-		}
-		if clashProxyCount(payload) > 0 {
+		if ok && clashProxyCount(payload) > 0 {
 			return text, payload, nil
+		}
+
+		if payload, ok := parseShareSubscriptionPayload(text); ok {
+			content, err := marshalClashPayload(payload)
+			if err != nil {
+				return "", nil, err
+			}
+			return content, payload, nil
 		}
 	}
 
-	return "", nil, fmt.Errorf("URL 内容不是有效 Clash YAML（需包含 proxies）")
+	return "", nil, fmt.Errorf("URL 内容不是有效 Clash YAML 或 Base64 分享订阅（需包含可导入节点）")
+}
+
+func collectClashImportTextVariants(baseText string) []string {
+	tryTexts := make([]string, 0, 6)
+	seen := map[string]struct{}{}
+	appendText := func(text string) {
+		text = strings.TrimSpace(strings.ReplaceAll(text, "\r\n", "\n"))
+		if text == "" {
+			return
+		}
+		if _, exists := seen[text]; exists {
+			return
+		}
+		seen[text] = struct{}{}
+		tryTexts = append(tryTexts, text)
+	}
+
+	appendText(baseText)
+	if unescaped, err := url.QueryUnescape(baseText); err == nil {
+		appendText(unescaped)
+	}
+
+	for _, text := range append([]string(nil), tryTexts...) {
+		if decoded, ok := decodeBase64Text(text); ok {
+			appendText(decoded)
+		}
+	}
+
+	return tryTexts
 }
 
 func decodeBase64Text(raw string) (string, bool) {
-	candidate := strings.TrimSpace(raw)
+	candidate := strings.Join(strings.Fields(raw), "")
 	if candidate == "" {
 		return "", false
 	}
@@ -151,12 +175,288 @@ func decodeBase64Text(raw string) (string, bool) {
 	return "", false
 }
 
+func marshalClashPayload(payload interface{}) (string, error) {
+	data, err := yaml.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("订阅内容转换失败: %w", err)
+	}
+	return strings.TrimSpace(string(data)), nil
+}
+
 func parseClashPayload(text string) (interface{}, bool) {
 	var payload interface{}
 	if err := yaml.Unmarshal([]byte(text), &payload); err != nil {
 		return nil, false
 	}
 	return payload, true
+}
+
+func parseShareSubscriptionPayload(text string) (interface{}, bool) {
+	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	proxies := make([]interface{}, 0, len(lines))
+	for _, line := range lines {
+		node := strings.TrimSpace(line)
+		if node == "" || strings.HasPrefix(node, "#") {
+			continue
+		}
+		proxy, ok := parseShareURIToClashProxy(node, len(proxies))
+		if ok {
+			proxies = append(proxies, proxy)
+		}
+	}
+	if len(proxies) == 0 {
+		return nil, false
+	}
+	return map[string]interface{}{
+		"proxies": proxies,
+	}, true
+}
+
+func parseShareURIToClashProxy(raw string, index int) (map[string]interface{}, bool) {
+	lower := strings.ToLower(strings.TrimSpace(raw))
+	switch {
+	case strings.HasPrefix(lower, "vmess://"):
+		return parseVmessShareToClashProxy(raw, index)
+	case strings.HasPrefix(lower, "vless://"):
+		return parseUserInfoShareToClashProxy(raw, index, "vless")
+	case strings.HasPrefix(lower, "trojan://"):
+		return parseUserInfoShareToClashProxy(raw, index, "trojan")
+	case strings.HasPrefix(lower, "ss://"):
+		return parseSSShareToClashProxy(raw, index)
+	default:
+		return nil, false
+	}
+}
+
+func parseVmessShareToClashProxy(raw string, index int) (map[string]interface{}, bool) {
+	encoded := trimSharePrefix(raw, "vmess://")
+	decoded, ok := decodeBase64Text(encoded)
+	if !ok {
+		return nil, false
+	}
+
+	var item map[string]interface{}
+	if err := json.Unmarshal([]byte(decoded), &item); err != nil {
+		return nil, false
+	}
+
+	server := getMapString(item, "add")
+	port := getMapInt(item, "port")
+	uuid := getMapString(item, "id")
+	if server == "" || port <= 0 || uuid == "" {
+		return nil, false
+	}
+
+	node := map[string]interface{}{
+		"name":    firstNonEmpty(getMapString(item, "ps"), fmt.Sprintf("导入代理 %d", index+1)),
+		"type":    "vmess",
+		"server":  server,
+		"port":    port,
+		"uuid":    uuid,
+		"alterId": getMapInt(item, "aid"),
+		"cipher":  firstNonEmpty(getMapString(item, "scy"), getMapString(item, "cipher"), "auto"),
+	}
+
+	if tlsMode := strings.ToLower(getMapString(item, "tls")); tlsMode != "" && tlsMode != "none" {
+		node["tls"] = true
+		putStringIfNotEmpty(node, "servername", firstNonEmpty(getMapString(item, "sni"), getMapString(item, "host")))
+	}
+	putStringIfNotEmpty(node, "client-fingerprint", getMapString(item, "fp"))
+	applyClashTransportOptions(node, firstNonEmpty(getMapString(item, "net"), getMapString(item, "network")), getMapString(item, "path"), getMapString(item, "host"), getMapString(item, "serviceName"))
+	return node, true
+}
+
+func parseUserInfoShareToClashProxy(raw string, index int, protocol string) (map[string]interface{}, bool) {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return nil, false
+	}
+
+	server := parsed.Hostname()
+	port, _ := strconv.Atoi(parsed.Port())
+	user := parsed.User.Username()
+	if server == "" || port <= 0 || user == "" {
+		return nil, false
+	}
+
+	q := parsed.Query()
+	node := map[string]interface{}{
+		"name":   shareNodeName(parsed, index),
+		"type":   protocol,
+		"server": server,
+		"port":   port,
+	}
+	if protocol == "vless" {
+		node["uuid"] = user
+		putStringIfNotEmpty(node, "flow", q.Get("flow"))
+	} else {
+		node["password"] = user
+	}
+
+	security := strings.ToLower(q.Get("security"))
+	if security == "tls" || security == "reality" {
+		node["tls"] = true
+		putStringIfNotEmpty(node, "servername", firstNonEmpty(q.Get("sni"), q.Get("peer"), q.Get("servername")))
+		if security == "reality" {
+			realityOpts := map[string]interface{}{}
+			putStringIfNotEmpty(realityOpts, "public-key", q.Get("pbk"))
+			putStringIfNotEmpty(realityOpts, "short-id", q.Get("sid"))
+			if len(realityOpts) > 0 {
+				node["reality-opts"] = realityOpts
+			}
+		}
+	}
+	putStringIfNotEmpty(node, "client-fingerprint", q.Get("fp"))
+	if isTruthyQueryValue(q.Get("allowInsecure")) || isTruthyQueryValue(q.Get("skip-cert-verify")) {
+		node["skip-cert-verify"] = true
+	}
+
+	network := firstNonEmpty(q.Get("type"), q.Get("network"))
+	applyClashTransportOptions(node, network, q.Get("path"), q.Get("host"), q.Get("serviceName"))
+	return node, true
+}
+
+func parseSSShareToClashProxy(raw string, index int) (map[string]interface{}, bool) {
+	body := trimSharePrefix(raw, "ss://")
+	fragment := ""
+	if hashIndex := strings.Index(body, "#"); hashIndex >= 0 {
+		fragment = body[hashIndex+1:]
+		body = body[:hashIndex]
+	}
+	if queryIndex := strings.Index(body, "?"); queryIndex >= 0 {
+		body = body[:queryIndex]
+	}
+
+	var method, password, server string
+	var port int
+	if strings.Contains(body, "@") {
+		at := strings.LastIndex(body, "@")
+		userPart := body[:at]
+		hostPart := body[at+1:]
+		if decoded, ok := decodeBase64Text(userPart); ok {
+			userPart = decoded
+		} else if unescaped, err := url.QueryUnescape(userPart); err == nil {
+			userPart = unescaped
+		}
+		parts := strings.SplitN(userPart, ":", 2)
+		if len(parts) != 2 {
+			return nil, false
+		}
+		method = parts[0]
+		password = parts[1]
+		parsedHost, err := url.Parse("ss://" + hostPart)
+		if err != nil {
+			return nil, false
+		}
+		server = parsedHost.Hostname()
+		port, _ = strconv.Atoi(parsedHost.Port())
+	} else {
+		decoded, ok := decodeBase64Text(body)
+		if !ok {
+			return nil, false
+		}
+		at := strings.LastIndex(decoded, "@")
+		if at < 0 {
+			return nil, false
+		}
+		parts := strings.SplitN(decoded[:at], ":", 2)
+		if len(parts) != 2 {
+			return nil, false
+		}
+		method = parts[0]
+		password = parts[1]
+		parsedHost, err := url.Parse("ss://" + decoded[at+1:])
+		if err != nil {
+			return nil, false
+		}
+		server = parsedHost.Hostname()
+		port, _ = strconv.Atoi(parsedHost.Port())
+	}
+
+	if method == "" || password == "" || server == "" || port <= 0 {
+		return nil, false
+	}
+	name := strings.TrimSpace(fragment)
+	if unescaped, err := url.QueryUnescape(name); err == nil {
+		name = strings.TrimSpace(unescaped)
+	}
+	if name == "" {
+		name = fmt.Sprintf("导入代理 %d", index+1)
+	}
+	return map[string]interface{}{
+		"name":     name,
+		"type":     "ss",
+		"server":   server,
+		"port":     port,
+		"cipher":   method,
+		"password": password,
+	}, true
+}
+
+func trimSharePrefix(raw string, prefix string) string {
+	raw = strings.TrimSpace(raw)
+	if len(raw) >= len(prefix) && strings.EqualFold(raw[:len(prefix)], prefix) {
+		return strings.TrimSpace(raw[len(prefix):])
+	}
+	return strings.TrimSpace(strings.TrimPrefix(raw, prefix))
+}
+
+func shareNodeName(parsed *url.URL, index int) string {
+	name := strings.TrimSpace(parsed.Fragment)
+	if unescaped, err := url.QueryUnescape(name); err == nil {
+		name = strings.TrimSpace(unescaped)
+	}
+	if name == "" {
+		name = fmt.Sprintf("导入代理 %d", index+1)
+	}
+	return name
+}
+
+func applyClashTransportOptions(node map[string]interface{}, network string, path string, host string, serviceName string) {
+	network = strings.TrimSpace(strings.ToLower(network))
+	if network == "" {
+		return
+	}
+	node["network"] = network
+	switch network {
+	case "ws":
+		wsOpts := map[string]interface{}{}
+		putStringIfNotEmpty(wsOpts, "path", path)
+		if strings.TrimSpace(host) != "" {
+			wsOpts["headers"] = map[string]interface{}{
+				"Host": strings.TrimSpace(host),
+			}
+		}
+		if len(wsOpts) > 0 {
+			node["ws-opts"] = wsOpts
+		}
+	case "grpc":
+		grpcOpts := map[string]interface{}{}
+		putStringIfNotEmpty(grpcOpts, "grpc-service-name", serviceName)
+		if len(grpcOpts) > 0 {
+			node["grpc-opts"] = grpcOpts
+		}
+	}
+}
+
+func putStringIfNotEmpty(m map[string]interface{}, key string, value string) {
+	if strings.TrimSpace(value) != "" {
+		m[key] = strings.TrimSpace(value)
+	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func isTruthyQueryValue(value string) bool {
+	value = strings.ToLower(strings.TrimSpace(value))
+	return value == "1" || value == "true" || value == "yes"
 }
 
 func clashProxyCount(payload interface{}) int {
@@ -244,5 +544,29 @@ func getMapString(m map[string]interface{}, key string) string {
 		return v
 	default:
 		return fmt.Sprint(v)
+	}
+}
+
+func getMapInt(m map[string]interface{}, key string) int {
+	if m == nil {
+		return 0
+	}
+	value, ok := m[key]
+	if !ok || value == nil {
+		return 0
+	}
+	switch v := value.(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case float64:
+		return int(v)
+	case string:
+		n, _ := strconv.Atoi(strings.TrimSpace(v))
+		return n
+	default:
+		n, _ := strconv.Atoi(strings.TrimSpace(fmt.Sprint(v)))
+		return n
 	}
 }
