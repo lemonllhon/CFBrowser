@@ -116,6 +116,21 @@ type Extension struct {
 	UpdatedAt       string `json:"updatedAt"`
 }
 
+// ExtensionBinding 浏览器实例与扩展插件的绑定关系。
+type ExtensionBinding struct {
+	Id               int64  `json:"id"`
+	ProfileId        string `json:"profileId"`
+	ProfileName      string `json:"profileName"`
+	ExtensionId      string `json:"extensionId"`
+	ExtensionName    string `json:"extensionName"`
+	ExtensionVersion string `json:"extensionVersion"`
+	Mode             string `json:"mode"`
+	Enabled          bool   `json:"enabled"`
+	ExclusiveDir     string `json:"exclusiveDir"`
+	CreatedAt        string `json:"createdAt"`
+	UpdatedAt        string `json:"updatedAt"`
+}
+
 // Group 实例分组
 type Group struct {
 	GroupId   string `json:"groupId"`

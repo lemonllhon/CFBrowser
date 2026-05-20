@@ -45,6 +45,20 @@ type BrowserExtensionImportResult struct {
 	Extension *BrowserExtension `json:"extension,omitempty"`
 }
 
+// BrowserExtensionAssignInput 扩展绑定实例输入。
+type BrowserExtensionAssignInput struct {
+	ExtensionId string   `json:"extensionId"`
+	ProfileIds  []string `json:"profileIds"`
+	Mode        string   `json:"mode"`
+	Enabled     bool     `json:"enabled"`
+}
+
+// BrowserExtensionUnassignInput 扩展解绑实例输入。
+type BrowserExtensionUnassignInput struct {
+	ExtensionId string   `json:"extensionId"`
+	ProfileIds  []string `json:"profileIds"`
+}
+
 // BrowserExtensionList 获取扩展插件列表。
 func (a *App) BrowserExtensionList() ([]BrowserExtension, error) {
 	if err := a.syncExtensionLibraryDirectories(); err != nil {
@@ -71,6 +85,38 @@ func (a *App) BrowserExtensionGet(extensionId string) (*BrowserExtension, error)
 		return nil, fmt.Errorf("扩展插件 ID 不能为空")
 	}
 	return dao.Get(extensionId)
+}
+
+// BrowserExtensionListProfileBindings 获取扩展绑定的实例列表。
+func (a *App) BrowserExtensionListProfileBindings(extensionId string) ([]BrowserExtensionBinding, error) {
+	dao, err := a.extensionDAO()
+	if err != nil {
+		return nil, err
+	}
+	extensionId = strings.TrimSpace(extensionId)
+	if extensionId == "" {
+		return nil, fmt.Errorf("扩展插件 ID 不能为空")
+	}
+	if _, err := dao.Get(extensionId); err != nil {
+		return nil, err
+	}
+	return dao.ListBindings(extensionId)
+}
+
+// BrowserExtensionListForProfile 获取实例绑定的扩展列表。
+func (a *App) BrowserExtensionListForProfile(profileId string) ([]BrowserExtensionBinding, error) {
+	dao, err := a.extensionDAO()
+	if err != nil {
+		return nil, err
+	}
+	profileId = strings.TrimSpace(profileId)
+	if profileId == "" {
+		return nil, fmt.Errorf("实例 ID 不能为空")
+	}
+	if _, err := a.requireProfile(profileId); err != nil {
+		return nil, err
+	}
+	return dao.ListBindingsByProfile(profileId)
 }
 
 // BrowserExtensionChooseArchive 选择本地扩展压缩包。
@@ -181,6 +227,108 @@ func (a *App) BrowserExtensionImportArchive(input BrowserExtensionImportInput) (
 	return a.importExtensionFromDirectory(extensionDir, sourceType, "", absArchive, input)
 }
 
+// BrowserExtensionAssignProfiles 将扩展绑定到一个或多个实例。
+func (a *App) BrowserExtensionAssignProfiles(input BrowserExtensionAssignInput) ([]BrowserExtensionBinding, error) {
+	dao, err := a.extensionDAO()
+	if err != nil {
+		return nil, err
+	}
+	extensionId := strings.TrimSpace(input.ExtensionId)
+	if extensionId == "" {
+		return nil, fmt.Errorf("扩展插件 ID 不能为空")
+	}
+	extension, err := dao.Get(extensionId)
+	if err != nil {
+		return nil, err
+	}
+	profileIds := normalizeStringList(input.ProfileIds)
+	if len(profileIds) == 0 {
+		return nil, fmt.Errorf("请选择要绑定的实例")
+	}
+	mode := normalizeExtensionBindingMode(input.Mode)
+	now := time.Now().Format(time.RFC3339)
+	for _, profileId := range profileIds {
+		if _, err := a.requireProfile(profileId); err != nil {
+			return nil, err
+		}
+		oldExclusiveDir := ""
+		oldBindings, err := dao.ListBindingsByProfile(profileId)
+		if err != nil {
+			return nil, err
+		}
+		for _, binding := range oldBindings {
+			if binding.ExtensionId == extensionId {
+				oldExclusiveDir = strings.TrimSpace(binding.ExclusiveDir)
+				break
+			}
+		}
+		exclusiveDir := ""
+		if mode == "exclusive" {
+			exclusiveDir, err = a.prepareExtensionExclusiveDir(extension, profileId)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if err := dao.UpsertBinding(browser.ExtensionBinding{
+			ProfileId:    profileId,
+			ExtensionId:  extensionId,
+			Mode:         mode,
+			Enabled:      input.Enabled,
+			ExclusiveDir: exclusiveDir,
+			UpdatedAt:    now,
+		}); err != nil {
+			return nil, err
+		}
+		if oldExclusiveDir != "" && oldExclusiveDir != exclusiveDir {
+			if err := a.removeExtensionExclusiveDir(oldExclusiveDir); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return dao.ListBindings(extensionId)
+}
+
+// BrowserExtensionUnassignProfiles 删除扩展与实例的绑定关系。
+func (a *App) BrowserExtensionUnassignProfiles(input BrowserExtensionUnassignInput) ([]BrowserExtensionBinding, error) {
+	dao, err := a.extensionDAO()
+	if err != nil {
+		return nil, err
+	}
+	extensionId := strings.TrimSpace(input.ExtensionId)
+	if extensionId == "" {
+		return nil, fmt.Errorf("扩展插件 ID 不能为空")
+	}
+	if _, err := dao.Get(extensionId); err != nil {
+		return nil, err
+	}
+	profileIds := normalizeStringList(input.ProfileIds)
+	if len(profileIds) == 0 {
+		return nil, fmt.Errorf("请选择要解绑的实例")
+	}
+	for _, profileId := range profileIds {
+		exclusiveDir := ""
+		bindings, err := dao.ListBindingsByProfile(profileId)
+		if err != nil {
+			return nil, err
+		}
+		for _, binding := range bindings {
+			if binding.ExtensionId == extensionId {
+				exclusiveDir = strings.TrimSpace(binding.ExclusiveDir)
+				break
+			}
+		}
+		if err := dao.DeleteBinding(profileId, extensionId); err != nil {
+			return nil, err
+		}
+		if exclusiveDir != "" {
+			if err := a.removeExtensionExclusiveDir(exclusiveDir); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return dao.ListBindings(extensionId)
+}
+
 // BrowserExtensionDelete 删除未被实例使用的扩展插件。
 func (a *App) BrowserExtensionDelete(extensionId string) error {
 	dao, err := a.extensionDAO()
@@ -201,7 +349,7 @@ func (a *App) BrowserExtensionDelete(extensionId string) error {
 		return err
 	}
 	if count > 0 {
-		return fmt.Errorf("扩展插件已绑定 %d 个实例，阶段 1 暂不允许直接删除", count)
+		return fmt.Errorf("扩展插件已绑定 %d 个实例，请先解绑后再删除", count)
 	}
 
 	installDir := strings.TrimSpace(extension.InstallDir)
@@ -220,6 +368,13 @@ func (a *App) BrowserExtensionDelete(extensionId string) error {
 	if safeDir != "" {
 		if err := os.RemoveAll(safeDir); err != nil {
 			return fmt.Errorf("扩展记录已删除，但插件目录删除失败: %w", err)
+		}
+	}
+	packagePath := strings.TrimSpace(extension.PackagePath)
+	if packagePath != "" {
+		absPackage := a.resolveAppPath(packagePath)
+		if safePackage, err := a.safeExtensionPackagePath(absPackage); err == nil && safePackage != "" {
+			_ = os.Remove(safePackage)
 		}
 	}
 	return nil
@@ -423,6 +578,10 @@ func (a *App) extensionPackageRoot() string {
 	return a.resolveAppPath(filepath.Join("data", "extensions", "packages"))
 }
 
+func (a *App) extensionExclusiveRoot() string {
+	return a.resolveAppPath(filepath.Join("data", "extensions", "exclusive"))
+}
+
 func (a *App) extensionTempRoot() string {
 	return a.resolveAppPath(filepath.Join("data", "extensions", "tmp"))
 }
@@ -448,6 +607,127 @@ func (a *App) safeExtensionLibraryDir(target string) (string, error) {
 		return "", fmt.Errorf("扩展目录不在扩展库目录下: %s", cleanTarget)
 	}
 	return cleanTarget, nil
+}
+
+func (a *App) safeExtensionExclusiveDir(target string) (string, error) {
+	if strings.TrimSpace(target) == "" {
+		return "", nil
+	}
+	absTarget, err := filepath.Abs(a.resolveAppPath(target))
+	if err != nil {
+		return "", fmt.Errorf("解析扩展独享目录失败: %w", err)
+	}
+	absRoot, err := filepath.Abs(a.extensionExclusiveRoot())
+	if err != nil {
+		return "", fmt.Errorf("解析扩展独享根目录失败: %w", err)
+	}
+	cleanTarget := filepath.Clean(absTarget)
+	cleanRoot := filepath.Clean(absRoot)
+	if strings.EqualFold(cleanTarget, cleanRoot) {
+		return "", fmt.Errorf("拒绝操作扩展独享根目录: %s", cleanTarget)
+	}
+	if !isPathInside(cleanTarget, cleanRoot) {
+		return "", fmt.Errorf("扩展独享目录不在允许范围内: %s", cleanTarget)
+	}
+	return cleanTarget, nil
+}
+
+func (a *App) safeExtensionPackagePath(target string) (string, error) {
+	if strings.TrimSpace(target) == "" {
+		return "", nil
+	}
+	absTarget, err := filepath.Abs(a.resolveAppPath(target))
+	if err != nil {
+		return "", fmt.Errorf("解析扩展原始包路径失败: %w", err)
+	}
+	absRoot, err := filepath.Abs(a.extensionPackageRoot())
+	if err != nil {
+		return "", fmt.Errorf("解析扩展原始包目录失败: %w", err)
+	}
+	cleanTarget := filepath.Clean(absTarget)
+	cleanRoot := filepath.Clean(absRoot)
+	if strings.EqualFold(cleanTarget, cleanRoot) {
+		return "", fmt.Errorf("拒绝操作扩展原始包根目录: %s", cleanTarget)
+	}
+	if !isPathInside(cleanTarget, cleanRoot) {
+		return "", fmt.Errorf("扩展原始包不在允许范围内: %s", cleanTarget)
+	}
+	return cleanTarget, nil
+}
+
+func (a *App) prepareExtensionExclusiveDir(extension *browser.Extension, profileId string) (string, error) {
+	if extension == nil {
+		return "", fmt.Errorf("扩展插件不存在")
+	}
+	installDir := strings.TrimSpace(extension.InstallDir)
+	if installDir == "" {
+		return "", fmt.Errorf("扩展插件安装目录为空")
+	}
+	sourceDir, err := a.safeExtensionLibraryDir(a.resolveAppPath(installDir))
+	if err != nil {
+		return "", err
+	}
+	if _, err := readExtensionManifest(sourceDir); err != nil {
+		return "", err
+	}
+	targetDir := filepath.Join(a.extensionExclusiveRoot(), sanitizeExtensionPackageName(profileId), sanitizeExtensionPackageName(extension.ExtensionId))
+	safeTargetDir, err := a.safeExtensionExclusiveDir(targetDir)
+	if err != nil {
+		return "", err
+	}
+	tmpTarget := safeTargetDir + ".tmp-" + uuid.NewString()
+	if err := copyDirContents(sourceDir, tmpTarget); err != nil {
+		_ = os.RemoveAll(tmpTarget)
+		return "", fmt.Errorf("复制独享扩展目录失败: %w", err)
+	}
+	if _, err := readExtensionManifest(tmpTarget); err != nil {
+		_ = os.RemoveAll(tmpTarget)
+		return "", err
+	}
+	if err := os.RemoveAll(safeTargetDir); err != nil {
+		_ = os.RemoveAll(tmpTarget)
+		return "", fmt.Errorf("清理旧独享扩展目录失败: %w", err)
+	}
+	if err := os.Rename(tmpTarget, safeTargetDir); err != nil {
+		_ = os.RemoveAll(tmpTarget)
+		return "", fmt.Errorf("写入独享扩展目录失败: %w", err)
+	}
+	rel, err := a.relativeStatePath(safeTargetDir)
+	if err != nil {
+		return safeTargetDir, nil
+	}
+	return rel, nil
+}
+
+func (a *App) removeExtensionExclusiveDir(dir string) error {
+	safeDir, err := a.safeExtensionExclusiveDir(dir)
+	if err != nil {
+		return err
+	}
+	if safeDir == "" {
+		return nil
+	}
+	if err := os.RemoveAll(safeDir); err != nil {
+		return fmt.Errorf("删除独享扩展目录失败: %w", err)
+	}
+	return nil
+}
+
+func (a *App) requireProfile(profileId string) (*browser.Profile, error) {
+	profileId = strings.TrimSpace(profileId)
+	if profileId == "" {
+		return nil, fmt.Errorf("实例 ID 不能为空")
+	}
+	if a.browserMgr == nil {
+		return nil, fmt.Errorf("浏览器管理器未初始化")
+	}
+	a.browserMgr.Mutex.Lock()
+	defer a.browserMgr.Mutex.Unlock()
+	profile, ok := a.browserMgr.Profiles[profileId]
+	if !ok || profile == nil {
+		return nil, fmt.Errorf("实例不存在: %s", profileId)
+	}
+	return profile, nil
 }
 
 func readExtensionManifest(extensionDir string) (extensionManifestInfo, error) {
@@ -661,12 +941,38 @@ func copyDirContents(src string, dst string) error {
 	})
 }
 
+func normalizeStringList(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		result = append(result, trimmed)
+	}
+	return result
+}
+
 func normalizeExtensionImportMode(mode string) string {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
 	case "overwrite", "new", "cancel":
 		return strings.ToLower(strings.TrimSpace(mode))
 	default:
 		return "ask"
+	}
+}
+
+func normalizeExtensionBindingMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "exclusive":
+		return "exclusive"
+	default:
+		return "shared"
 	}
 }
 

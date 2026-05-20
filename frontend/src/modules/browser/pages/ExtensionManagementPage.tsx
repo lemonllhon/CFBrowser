@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Archive, FileCode2, FolderOpen, RefreshCw, Trash2, UploadCloud } from 'lucide-react'
-import { Badge, Button, Card, ConfirmModal, FormItem, Input, Modal, Table, toast } from '../../../shared/components'
+import { Archive, FileCode2, FolderOpen, Link2, RefreshCw, Trash2, UploadCloud, Unlink } from 'lucide-react'
+import { Badge, Button, Card, ConfirmModal, FormItem, Input, Modal, Select, Table, toast } from '../../../shared/components'
 import type { TableColumn } from '../../../shared/components/Table'
-import type { BrowserExtension, BrowserExtensionImportResult } from '../types'
-import { chooseBrowserExtensionArchive, chooseBrowserExtensionDirectory, deleteBrowserExtension, fetchBrowserExtension, fetchBrowserExtensions, importBrowserExtensionArchive, importBrowserExtensionDirectory } from '../api'
+import type { BrowserExtension, BrowserExtensionBinding, BrowserExtensionImportResult, BrowserProfile } from '../types'
+import { assignBrowserExtensionProfiles, chooseBrowserExtensionArchive, chooseBrowserExtensionDirectory, deleteBrowserExtension, fetchBrowserExtension, fetchBrowserExtensionProfileBindings, fetchBrowserExtensions, fetchBrowserProfiles, importBrowserExtensionArchive, importBrowserExtensionDirectory, unassignBrowserExtensionProfiles } from '../api'
 import { OnFileDrop, OnFileDropOff } from '../../../wailsjs/runtime/runtime'
 
 const sourceTypeText: Record<string, string> = {
@@ -11,6 +11,11 @@ const sourceTypeText: Record<string, string> = {
   crx: 'CRX',
   url: '地址导入',
   directory: '目录',
+}
+
+const bindingModeText: Record<string, string> = {
+  shared: '共享',
+  exclusive: '独享',
 }
 
 function formatTime(value: string) {
@@ -22,6 +27,10 @@ function formatTime(value: string) {
 
 function sourceLabel(value: string) {
   return sourceTypeText[value] || value || '-'
+}
+
+function bindingModeLabel(value: string) {
+  return bindingModeText[value] || value || '-'
 }
 
 function importTypeFromPath(path: string): 'archive' | 'directory' {
@@ -55,6 +64,13 @@ export function ExtensionManagementPage() {
   const [importing, setImporting] = useState(false)
   const [duplicateResult, setDuplicateResult] = useState<BrowserExtensionImportResult | null>(null)
   const [dragActive, setDragActive] = useState(false)
+  const [profiles, setProfiles] = useState<BrowserProfile[]>([])
+  const [bindings, setBindings] = useState<BrowserExtensionBinding[]>([])
+  const [bindingsLoading, setBindingsLoading] = useState(false)
+  const [selectedProfileIds, setSelectedProfileIds] = useState<Set<string>>(new Set())
+  const [bindingMode, setBindingMode] = useState<'shared' | 'exclusive'>('shared')
+  const [bindingEnabled, setBindingEnabled] = useState(true)
+  const [bindingSaving, setBindingSaving] = useState(false)
 
   const loadData = async (silent = false) => {
     if (silent) {
@@ -75,6 +91,7 @@ export function ExtensionManagementPage() {
 
   useEffect(() => {
     void loadData()
+    void loadProfiles()
   }, [])
 
   useEffect(() => {
@@ -91,8 +108,13 @@ export function ExtensionManagementPage() {
     setSelectedExtension(record)
     setDetailOpen(true)
     setDetailLoading(true)
+    setBindings([])
+    setSelectedProfileIds(new Set())
     try {
-      const detail = await fetchBrowserExtension(record.extensionId)
+      const [detail] = await Promise.all([
+        fetchBrowserExtension(record.extensionId),
+        loadBindings(record.extensionId),
+      ])
       if (detail) {
         setSelectedExtension(detail)
       }
@@ -103,9 +125,32 @@ export function ExtensionManagementPage() {
     }
   }
 
+  const loadProfiles = async () => {
+    try {
+      const list = await fetchBrowserProfiles()
+      setProfiles(list)
+    } catch (error: any) {
+      toast.error(errorMessage(error, '加载实例列表失败'), 6000)
+    }
+  }
+
+  const loadBindings = async (extensionId: string) => {
+    const id = extensionId.trim()
+    if (!id) return
+    setBindingsLoading(true)
+    try {
+      const list = await fetchBrowserExtensionProfileBindings(id)
+      setBindings(list)
+    } catch (error: any) {
+      toast.error(errorMessage(error, '加载扩展绑定失败'), 6000)
+    } finally {
+      setBindingsLoading(false)
+    }
+  }
+
   const handleDeleteClick = (record: BrowserExtension) => {
     if (record.boundCount > 0) {
-      toast.warning(`该扩展已绑定 ${record.boundCount} 个实例，阶段 1 暂不支持删除`)
+      toast.warning(`该扩展已绑定 ${record.boundCount} 个实例，请先解绑后再删除`)
       return
     }
     setDeletingExtension(record)
@@ -176,6 +221,7 @@ export function ExtensionManagementPage() {
       if (result.extension) {
         setSelectedExtension(result.extension)
         setDetailOpen(true)
+        await loadBindings(result.extension.extensionId)
       }
     } catch (error: any) {
       toast.error(errorMessage(error, '导入扩展插件失败'), 6000)
@@ -241,6 +287,112 @@ export function ExtensionManagementPage() {
       toast.error(errorMessage(error, '拖拽导入扩展失败'), 6000)
     } finally {
       setImporting(false)
+    }
+  }
+
+  const bindingMap = useMemo(() => {
+    const map = new Map<string, BrowserExtensionBinding>()
+    bindings.forEach(item => map.set(item.profileId, item))
+    return map
+  }, [bindings])
+
+  const boundProfileIds = useMemo(() => new Set(bindings.map(item => item.profileId)), [bindings])
+
+  const toggleProfileSelection = (profileId: string) => {
+    setSelectedProfileIds(prev => {
+      const next = new Set(prev)
+      if (next.has(profileId)) {
+        next.delete(profileId)
+      } else {
+        next.add(profileId)
+      }
+      return next
+    })
+  }
+
+  const handleSelectUnboundProfiles = () => {
+    setSelectedProfileIds(new Set(profiles.filter(profile => !boundProfileIds.has(profile.profileId)).map(profile => profile.profileId)))
+  }
+
+  const handleClearProfileSelection = () => {
+    setSelectedProfileIds(new Set())
+  }
+
+  const refreshSelectedExtension = async () => {
+    if (!selectedExtension) return
+    const detail = await fetchBrowserExtension(selectedExtension.extensionId)
+    if (detail) {
+      setSelectedExtension(detail)
+    }
+    await loadData(true)
+  }
+
+  const handleAssignSelectedProfiles = async () => {
+    if (!selectedExtension) return
+    const profileIds = Array.from(selectedProfileIds)
+    if (profileIds.length === 0) {
+      toast.warning('请选择要绑定的实例')
+      return
+    }
+    setBindingSaving(true)
+    try {
+      const list = await assignBrowserExtensionProfiles({
+        extensionId: selectedExtension.extensionId,
+        profileIds,
+        mode: bindingMode,
+        enabled: bindingEnabled,
+      })
+      setBindings(list)
+      setSelectedProfileIds(new Set())
+      await refreshSelectedExtension()
+      toast.success('扩展绑定已保存')
+    } catch (error: any) {
+      toast.error(errorMessage(error, '保存扩展绑定失败'), 6000)
+    } finally {
+      setBindingSaving(false)
+    }
+  }
+
+  const handleUnassignProfiles = async (profileIds: string[]) => {
+    if (!selectedExtension || profileIds.length === 0) return
+    setBindingSaving(true)
+    try {
+      const list = await unassignBrowserExtensionProfiles({
+        extensionId: selectedExtension.extensionId,
+        profileIds,
+      })
+      setBindings(list)
+      setSelectedProfileIds(prev => {
+        const next = new Set(prev)
+        profileIds.forEach(id => next.delete(id))
+        return next
+      })
+      await refreshSelectedExtension()
+      toast.success('扩展绑定已移除')
+    } catch (error: any) {
+      toast.error(errorMessage(error, '移除扩展绑定失败'), 6000)
+    } finally {
+      setBindingSaving(false)
+    }
+  }
+
+  const handleToggleBindingEnabled = async (binding: BrowserExtensionBinding) => {
+    if (!selectedExtension) return
+    setBindingSaving(true)
+    try {
+      const list = await assignBrowserExtensionProfiles({
+        extensionId: selectedExtension.extensionId,
+        profileIds: [binding.profileId],
+        mode: binding.mode || 'shared',
+        enabled: !binding.enabled,
+      })
+      setBindings(list)
+      await refreshSelectedExtension()
+      toast.success(!binding.enabled ? '扩展绑定已启用' : '扩展绑定已停用')
+    } catch (error: any) {
+      toast.error(errorMessage(error, '更新扩展绑定失败'), 6000)
+    } finally {
+      setBindingSaving(false)
     }
   }
 
@@ -379,7 +531,7 @@ export function ExtensionManagementPage() {
         open={detailOpen}
         onClose={() => setDetailOpen(false)}
         title="扩展详情"
-        width="720px"
+        width="860px"
         footer={<Button variant="secondary" onClick={() => setDetailOpen(false)}>关闭</Button>}
       >
         {detailLoading ? (
@@ -403,6 +555,100 @@ export function ExtensionManagementPage() {
               <DetailItem label="来源地址" value={selectedExtension.sourceUrl || '-'} wide />
               <DetailItem label="原始包路径" value={selectedExtension.packagePath || '-'} wide />
             </div>
+            <div>
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <div>
+                  <p className="text-sm font-semibold text-[var(--color-text-primary)]">绑定实例</p>
+                  <p className="text-xs text-[var(--color-text-muted)] mt-1">共享模式复用同一份扩展，独享模式会复制实例专属目录。</p>
+                </div>
+                <Button size="sm" variant="secondary" onClick={() => selectedExtension && loadBindings(selectedExtension.extensionId)} loading={bindingsLoading}>
+                  {!bindingsLoading && <RefreshCw className="w-4 h-4" />}
+                  刷新绑定
+                </Button>
+              </div>
+
+              <div className="rounded-lg border border-[var(--color-border-default)] overflow-hidden">
+                <div className="grid grid-cols-[34px_1fr_82px_82px_148px] items-center gap-2 bg-[var(--color-bg-muted)] px-3 py-2 text-xs font-medium text-[var(--color-text-muted)]">
+                  <span />
+                  <span>实例</span>
+                  <span>模式</span>
+                  <span>状态</span>
+                  <span className="text-right">操作</span>
+                </div>
+                <div className="max-h-64 overflow-auto divide-y divide-[var(--color-border-default)]">
+                  {profiles.length === 0 ? (
+                    <div className="px-3 py-8 text-center text-sm text-[var(--color-text-muted)]">暂无浏览器实例</div>
+                  ) : profiles.map(profile => {
+                    const binding = bindingMap.get(profile.profileId)
+                    const checked = selectedProfileIds.has(profile.profileId)
+                    return (
+                      <div key={profile.profileId} className="grid grid-cols-[34px_1fr_82px_82px_148px] items-center gap-2 px-3 py-2">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleProfileSelection(profile.profileId)}
+                          disabled={bindingSaving}
+                          className="h-4 w-4"
+                        />
+                        <div className="min-w-0">
+                          <p className="truncate text-sm text-[var(--color-text-primary)]">{profile.profileName || profile.profileId}</p>
+                          <p className="truncate text-xs text-[var(--color-text-muted)]">{profile.profileId}</p>
+                        </div>
+                        <Badge variant={binding?.mode === 'exclusive' ? 'warning' : binding ? 'info' : 'default'}>{binding ? bindingModeLabel(binding.mode) : '未绑定'}</Badge>
+                        <Badge variant={binding?.enabled ? 'success' : binding ? 'default' : 'default'}>{binding ? (binding.enabled ? '启用' : '停用') : '-'}</Badge>
+                        <div className="flex justify-end gap-1" onClick={(event) => event.stopPropagation()}>
+                          {binding && (
+                            <>
+                              <Button size="sm" variant="ghost" onClick={() => handleToggleBindingEnabled(binding)} loading={bindingSaving}>
+                                {binding.enabled ? '停用' : '启用'}
+                              </Button>
+                              <Button size="sm" variant="danger" onClick={() => handleUnassignProfiles([profile.profileId])} disabled={bindingSaving} title="解绑">
+                                <Unlink className="w-4 h-4" />
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              <div className="mt-3 grid grid-cols-1 md:grid-cols-[1fr_150px_120px_auto] gap-2 items-end">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button size="sm" variant="secondary" onClick={handleSelectUnboundProfiles} disabled={bindingSaving || profiles.length === 0}>选择未绑定</Button>
+                  <Button size="sm" variant="ghost" onClick={handleClearProfileSelection} disabled={bindingSaving || selectedProfileIds.size === 0}>清空选择</Button>
+                  <span className="text-xs text-[var(--color-text-muted)]">已选 {selectedProfileIds.size} 个实例</span>
+                </div>
+                <FormItem label="绑定模式">
+                  <Select
+                    value={bindingMode}
+                    onChange={(event) => setBindingMode(event.target.value as 'shared' | 'exclusive')}
+                    disabled={bindingSaving}
+                    options={[
+                      { value: 'shared', label: '共享' },
+                      { value: 'exclusive', label: '独享' },
+                    ]}
+                  />
+                </FormItem>
+                <FormItem label="状态">
+                  <Select
+                    value={bindingEnabled ? 'enabled' : 'disabled'}
+                    onChange={(event) => setBindingEnabled(event.target.value === 'enabled')}
+                    disabled={bindingSaving}
+                    options={[
+                      { value: 'enabled', label: '启用' },
+                      { value: 'disabled', label: '停用' },
+                    ]}
+                  />
+                </FormItem>
+                <Button onClick={handleAssignSelectedProfiles} loading={bindingSaving} disabled={selectedProfileIds.size === 0}>
+                  {!bindingSaving && <Link2 className="w-4 h-4" />}
+                  保存绑定
+                </Button>
+              </div>
+            </div>
+
             <div>
               <p className="text-xs font-medium text-[var(--color-text-muted)] mb-2">Manifest 快照</p>
               <pre className="max-h-72 overflow-auto rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-muted)] p-3 text-xs text-[var(--color-text-secondary)] whitespace-pre-wrap break-words">

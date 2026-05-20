@@ -146,6 +146,20 @@ export interface BrowserExtension {
   updatedAt: string
 }
 
+export interface BrowserExtensionBinding {
+  id: number
+  profileId: string
+  profileName: string
+  extensionId: string
+  extensionName: string
+  extensionVersion: string
+  mode: 'shared' | 'exclusive' | string
+  enabled: boolean
+  exclusiveDir: string
+  createdAt: string
+  updatedAt: string
+}
+
 export type BrowserExtensionImportMode = 'ask' | 'overwrite' | 'new' | 'cancel'
 
 export interface BrowserExtensionImportInput {
@@ -160,6 +174,18 @@ export interface BrowserExtensionImportResult {
   message: string
   existing?: BrowserExtension | null
   extension?: BrowserExtension | null
+}
+
+export interface BrowserExtensionAssignInput {
+  extensionId: string
+  profileIds: string[]
+  mode: 'shared' | 'exclusive' | string
+  enabled: boolean
+}
+
+export interface BrowserExtensionUnassignInput {
+  extensionId: string
+  profileIds: string[]
 }
 
 export interface CookieInfo {

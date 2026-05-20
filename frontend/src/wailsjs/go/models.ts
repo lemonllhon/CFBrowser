@@ -1,5 +1,23 @@
 export namespace backend {
 	
+	export class BrowserExtensionAssignInput {
+	    extensionId: string;
+	    profileIds: string[];
+	    mode: string;
+	    enabled: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new BrowserExtensionAssignInput(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.extensionId = source["extensionId"];
+	        this.profileIds = source["profileIds"];
+	        this.mode = source["mode"];
+	        this.enabled = source["enabled"];
+	    }
+	}
 	export class BrowserExtensionImportInput {
 	    path: string;
 	    mode: string;
@@ -53,6 +71,20 @@ export namespace backend {
 		    }
 		    return a;
 		}
+	}
+	export class BrowserExtensionUnassignInput {
+	    extensionId: string;
+	    profileIds: string[];
+
+	    static createFrom(source: any = {}) {
+	        return new BrowserExtensionUnassignInput(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.extensionId = source["extensionId"];
+	        this.profileIds = source["profileIds"];
+	    }
 	}
 	export class CookieInfo {
 	    name: string;
@@ -628,6 +660,38 @@ export namespace browser {
 	        this.packagePath = source["packagePath"];
 	        this.manifestJson = source["manifestJson"];
 	        this.boundCount = source["boundCount"];
+	        this.createdAt = source["createdAt"];
+	        this.updatedAt = source["updatedAt"];
+	    }
+	}
+	export class ExtensionBinding {
+	    id: number;
+	    profileId: string;
+	    profileName: string;
+	    extensionId: string;
+	    extensionName: string;
+	    extensionVersion: string;
+	    mode: string;
+	    enabled: boolean;
+	    exclusiveDir: string;
+	    createdAt: string;
+	    updatedAt: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ExtensionBinding(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.profileId = source["profileId"];
+	        this.profileName = source["profileName"];
+	        this.extensionId = source["extensionId"];
+	        this.extensionName = source["extensionName"];
+	        this.extensionVersion = source["extensionVersion"];
+	        this.mode = source["mode"];
+	        this.enabled = source["enabled"];
+	        this.exclusiveDir = source["exclusiveDir"];
 	        this.createdAt = source["createdAt"];
 	        this.updatedAt = source["updatedAt"];
 	    }

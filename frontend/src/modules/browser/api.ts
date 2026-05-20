@@ -1,4 +1,4 @@
-import type { BrowserProfile, BrowserProfileInput, BrowserTab, BrowserSettings, BrowserCore, BrowserCoreInput, BrowserCoreValidateResult, BrowserProxy, BrowserCoreExtended, BrowserExtension, BrowserExtensionImportInput, BrowserExtensionImportResult, CookieInfo, CookieImportResult, SnapshotInfo, BrowserBookmark, BrowserStartURL, BrowserGroup, BrowserGroupInput, BrowserGroupWithCount, ProxyIPHealthResult, DefaultContentRule, WindowSyncCandidate, WindowSyncLayoutSettings, WindowSyncSettings, WindowSyncStartInput, WindowSyncState } from './types'
+import type { BrowserProfile, BrowserProfileInput, BrowserTab, BrowserSettings, BrowserCore, BrowserCoreInput, BrowserCoreValidateResult, BrowserProxy, BrowserCoreExtended, BrowserExtension, BrowserExtensionAssignInput, BrowserExtensionBinding, BrowserExtensionImportInput, BrowserExtensionImportResult, BrowserExtensionUnassignInput, CookieInfo, CookieImportResult, SnapshotInfo, BrowserBookmark, BrowserStartURL, BrowserGroup, BrowserGroupInput, BrowserGroupWithCount, ProxyIPHealthResult, DefaultContentRule, WindowSyncCandidate, WindowSyncLayoutSettings, WindowSyncSettings, WindowSyncStartInput, WindowSyncState } from './types'
 
 const getBindings = async () => {
   try {
@@ -40,6 +40,7 @@ let mockGroups: BrowserGroup[] = []
 let mockDefaultContentRules: DefaultContentRule[] = []
 
 let mockExtensions: BrowserExtension[] = []
+let mockExtensionBindings: BrowserExtensionBinding[] = []
 
 // ============================================================================
 // Profile API
@@ -596,6 +597,58 @@ export async function importBrowserExtensionDirectory(input: BrowserExtensionImp
     return (await bindings.BrowserExtensionImportDirectory(input)) || { cancelled: false, duplicate: false, message: '' }
   }
   return { cancelled: true, duplicate: false, message: '当前运行环境不支持导入扩展目录' }
+}
+
+export async function fetchBrowserExtensionProfileBindings(extensionId: string): Promise<BrowserExtensionBinding[]> {
+  const bindings: any = await getBindings()
+  if (bindings?.BrowserExtensionListProfileBindings) {
+    return (await bindings.BrowserExtensionListProfileBindings(extensionId)) || []
+  }
+  return mockExtensionBindings.filter(item => item.extensionId === extensionId)
+}
+
+export async function fetchBrowserExtensionBindingsForProfile(profileId: string): Promise<BrowserExtensionBinding[]> {
+  const bindings: any = await getBindings()
+  if (bindings?.BrowserExtensionListForProfile) {
+    return (await bindings.BrowserExtensionListForProfile(profileId)) || []
+  }
+  return mockExtensionBindings.filter(item => item.profileId === profileId)
+}
+
+export async function assignBrowserExtensionProfiles(input: BrowserExtensionAssignInput): Promise<BrowserExtensionBinding[]> {
+  const bindings: any = await getBindings()
+  if (bindings?.BrowserExtensionAssignProfiles) {
+    return (await bindings.BrowserExtensionAssignProfiles(input)) || []
+  }
+  const now = new Date().toISOString()
+  input.profileIds.forEach(profileId => {
+    const profile = mockProfiles.find(item => item.profileId === profileId)
+    const extension = mockExtensions.find(item => item.extensionId === input.extensionId)
+    mockExtensionBindings = mockExtensionBindings.filter(item => !(item.profileId === profileId && item.extensionId === input.extensionId))
+    mockExtensionBindings.push({
+      id: Date.now() + Math.floor(Math.random() * 10000),
+      profileId,
+      profileName: profile?.profileName || profileId,
+      extensionId: input.extensionId,
+      extensionName: extension?.name || input.extensionId,
+      extensionVersion: extension?.version || '',
+      mode: input.mode || 'shared',
+      enabled: input.enabled,
+      exclusiveDir: input.mode === 'exclusive' ? `data/extensions/exclusive/${profileId}/${input.extensionId}` : '',
+      createdAt: now,
+      updatedAt: now,
+    })
+  })
+  return mockExtensionBindings.filter(item => item.extensionId === input.extensionId)
+}
+
+export async function unassignBrowserExtensionProfiles(input: BrowserExtensionUnassignInput): Promise<BrowserExtensionBinding[]> {
+  const bindings: any = await getBindings()
+  if (bindings?.BrowserExtensionUnassignProfiles) {
+    return (await bindings.BrowserExtensionUnassignProfiles(input)) || []
+  }
+  mockExtensionBindings = mockExtensionBindings.filter(item => !(item.extensionId === input.extensionId && input.profileIds.includes(item.profileId)))
+  return mockExtensionBindings.filter(item => item.extensionId === input.extensionId)
 }
 
 // ============================================================================

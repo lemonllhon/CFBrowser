@@ -672,6 +672,7 @@ type BrowserCoreInput = browser.CoreInput
 type BrowserCoreValidateResult = browser.CoreValidateResult
 type BrowserCoreExtendedInfo = browser.CoreExtendedInfo
 type BrowserExtension = browser.Extension
+type BrowserExtensionBinding = browser.ExtensionBinding
 
 // ============================================================================
 // 浏览器配置 API

@@ -16,6 +16,10 @@ type ExtensionDAO interface {
 	Upsert(extension Extension) error
 	Delete(extensionId string) error
 	CountBindings(extensionId string) (int, error)
+	ListBindings(extensionId string) ([]ExtensionBinding, error)
+	ListBindingsByProfile(profileId string) ([]ExtensionBinding, error)
+	UpsertBinding(binding ExtensionBinding) error
+	DeleteBinding(profileId string, extensionId string) error
 }
 
 // SQLiteExtensionDAO 基于 SQLite 的 ExtensionDAO 实现。
@@ -195,6 +199,100 @@ func (d *SQLiteExtensionDAO) CountBindings(extensionId string) (int, error) {
 	return count, nil
 }
 
+// ListBindings 查询某个扩展绑定的实例列表。
+func (d *SQLiteExtensionDAO) ListBindings(extensionId string) ([]ExtensionBinding, error) {
+	rows, err := d.db.Query(`
+		SELECT pe.id, pe.profile_id, COALESCE(p.profile_name, ''), pe.extension_id,
+		       COALESCE(e.name, ''), COALESCE(e.version, ''),
+		       pe.mode, pe.enabled, pe.exclusive_dir, pe.created_at, pe.updated_at
+		FROM browser_profile_extensions pe
+		LEFT JOIN browser_profiles p ON p.profile_id = pe.profile_id
+		LEFT JOIN browser_extensions e ON e.extension_id = pe.extension_id
+		WHERE pe.extension_id = ?
+		ORDER BY pe.updated_at DESC, pe.created_at DESC`, extensionId)
+	if err != nil {
+		return nil, fmt.Errorf("查询扩展绑定实例失败: %w", err)
+	}
+	defer rows.Close()
+
+	var list []ExtensionBinding
+	for rows.Next() {
+		item, err := scanExtensionBinding(rows)
+		if err != nil {
+			return nil, err
+		}
+		list = append(list, *item)
+	}
+	return list, rows.Err()
+}
+
+// ListBindingsByProfile 查询某个实例绑定的扩展列表。
+func (d *SQLiteExtensionDAO) ListBindingsByProfile(profileId string) ([]ExtensionBinding, error) {
+	rows, err := d.db.Query(`
+		SELECT pe.id, pe.profile_id, COALESCE(p.profile_name, ''), pe.extension_id,
+		       COALESCE(e.name, ''), COALESCE(e.version, ''),
+		       pe.mode, pe.enabled, pe.exclusive_dir, pe.created_at, pe.updated_at
+		FROM browser_profile_extensions pe
+		LEFT JOIN browser_profiles p ON p.profile_id = pe.profile_id
+		LEFT JOIN browser_extensions e ON e.extension_id = pe.extension_id
+		WHERE pe.profile_id = ?
+		ORDER BY pe.updated_at DESC, pe.created_at DESC`, profileId)
+	if err != nil {
+		return nil, fmt.Errorf("查询实例扩展绑定失败: %w", err)
+	}
+	defer rows.Close()
+
+	var list []ExtensionBinding
+	for rows.Next() {
+		item, err := scanExtensionBinding(rows)
+		if err != nil {
+			return nil, err
+		}
+		list = append(list, *item)
+	}
+	return list, rows.Err()
+}
+
+// UpsertBinding 新增或更新实例扩展绑定关系。
+func (d *SQLiteExtensionDAO) UpsertBinding(binding ExtensionBinding) error {
+	now := time.Now().Format(time.RFC3339)
+	if binding.CreatedAt == "" {
+		binding.CreatedAt = now
+	}
+	if binding.UpdatedAt == "" {
+		binding.UpdatedAt = now
+	}
+	enabled := 0
+	if binding.Enabled {
+		enabled = 1
+	}
+	_, err := d.db.Exec(`
+		INSERT INTO browser_profile_extensions
+		  (profile_id, extension_id, mode, enabled, exclusive_dir, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(profile_id, extension_id) DO UPDATE SET
+		  mode = excluded.mode,
+		  enabled = excluded.enabled,
+		  exclusive_dir = excluded.exclusive_dir,
+		  updated_at = excluded.updated_at`,
+		binding.ProfileId, binding.ExtensionId, binding.Mode, enabled, binding.ExclusiveDir,
+		binding.CreatedAt, binding.UpdatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("保存扩展绑定关系失败: %w", err)
+	}
+	return nil
+}
+
+// DeleteBinding 删除实例扩展绑定关系。
+func (d *SQLiteExtensionDAO) DeleteBinding(profileId string, extensionId string) error {
+	_, err := d.db.Exec(`DELETE FROM browser_profile_extensions WHERE profile_id = ? AND extension_id = ?`, profileId, extensionId)
+	if err != nil {
+		return fmt.Errorf("删除扩展绑定关系失败: %w", err)
+	}
+	return nil
+}
+
 func scanExtension(s scanner) (*Extension, error) {
 	var item Extension
 	if err := s.Scan(
@@ -204,5 +302,19 @@ func scanExtension(s scanner) (*Extension, error) {
 	); err != nil {
 		return nil, err
 	}
+	return &item, nil
+}
+
+func scanExtensionBinding(s scanner) (*ExtensionBinding, error) {
+	var item ExtensionBinding
+	var enabled int
+	if err := s.Scan(
+		&item.Id, &item.ProfileId, &item.ProfileName, &item.ExtensionId,
+		&item.ExtensionName, &item.ExtensionVersion, &item.Mode, &enabled,
+		&item.ExclusiveDir, &item.CreatedAt, &item.UpdatedAt,
+	); err != nil {
+		return nil, err
+	}
+	item.Enabled = enabled != 0
 	return &item, nil
 }

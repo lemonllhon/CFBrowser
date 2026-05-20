@@ -57,6 +57,8 @@ export function BrowserExtensionChooseArchive():Promise<Record<string, any>>;
 
 export function BrowserExtensionChooseDirectory():Promise<Record<string, any>>;
 
+export function BrowserExtensionAssignProfiles(arg1:backend.BrowserExtensionAssignInput):Promise<Array<browser.ExtensionBinding>>;
+
 export function BrowserExtensionDelete(arg1:string):Promise<void>;
 
 export function BrowserExtensionGet(arg1:string):Promise<browser.Extension>;
@@ -66,6 +68,12 @@ export function BrowserExtensionImportArchive(arg1:backend.BrowserExtensionImpor
 export function BrowserExtensionImportDirectory(arg1:backend.BrowserExtensionImportInput):Promise<backend.BrowserExtensionImportResult>;
 
 export function BrowserExtensionList():Promise<Array<browser.Extension>>;
+
+export function BrowserExtensionListForProfile(arg1:string):Promise<Array<browser.ExtensionBinding>>;
+
+export function BrowserExtensionListProfileBindings(arg1:string):Promise<Array<browser.ExtensionBinding>>;
+
+export function BrowserExtensionUnassignProfiles(arg1:backend.BrowserExtensionUnassignInput):Promise<Array<browser.ExtensionBinding>>;
 
 export function BrowserExportCookies(arg1:string):Promise<string>;
 

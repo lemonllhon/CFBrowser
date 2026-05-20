@@ -106,6 +106,10 @@ export function BrowserExtensionChooseDirectory() {
   return window['go']['main']['App']['BrowserExtensionChooseDirectory']();
 }
 
+export function BrowserExtensionAssignProfiles(arg1) {
+  return window['go']['main']['App']['BrowserExtensionAssignProfiles'](arg1);
+}
+
 export function BrowserExtensionGet(arg1) {
   return window['go']['main']['App']['BrowserExtensionGet'](arg1);
 }
@@ -120,6 +124,18 @@ export function BrowserExtensionImportDirectory(arg1) {
 
 export function BrowserExtensionList() {
   return window['go']['main']['App']['BrowserExtensionList']();
+}
+
+export function BrowserExtensionListForProfile(arg1) {
+  return window['go']['main']['App']['BrowserExtensionListForProfile'](arg1);
+}
+
+export function BrowserExtensionListProfileBindings(arg1) {
+  return window['go']['main']['App']['BrowserExtensionListProfileBindings'](arg1);
+}
+
+export function BrowserExtensionUnassignProfiles(arg1) {
+  return window['go']['main']['App']['BrowserExtensionUnassignProfiles'](arg1);
 }
 
 export function BrowserExportCookies(arg1) {
