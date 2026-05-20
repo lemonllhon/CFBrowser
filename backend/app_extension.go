@@ -331,6 +331,9 @@ func (a *App) extensionDAO() (browser.ExtensionDAO, error) {
 	if a.browserMgr == nil || a.browserMgr.ExtensionDAO == nil {
 		return nil, fmt.Errorf("扩展插件服务未初始化")
 	}
+	if err := a.browserMgr.ExtensionDAO.EnsureSchema(); err != nil {
+		return nil, err
+	}
 	return a.browserMgr.ExtensionDAO, nil
 }
 

@@ -23,6 +23,18 @@ function sourceLabel(value: string) {
   return sourceTypeText[value] || value || '-'
 }
 
+function errorMessage(error: any, fallback: string) {
+  if (!error) return fallback
+  if (typeof error === 'string') return error || fallback
+  if (typeof error?.message === 'string' && error.message.trim()) return error.message
+  if (typeof error?.error === 'string' && error.error.trim()) return error.error
+  try {
+    return JSON.stringify(error)
+  } catch {
+    return fallback
+  }
+}
+
 export function ExtensionManagementPage() {
   const [extensions, setExtensions] = useState<BrowserExtension[]>([])
   const [loading, setLoading] = useState(true)
@@ -48,7 +60,7 @@ export function ExtensionManagementPage() {
       const list = await fetchBrowserExtensions()
       setExtensions(list)
     } catch (error: any) {
-      toast.error(error?.message || '加载扩展列表失败')
+      toast.error(errorMessage(error, '加载扩展列表失败'), 6000)
     } finally {
       setLoading(false)
       setRefreshing(false)
@@ -69,7 +81,7 @@ export function ExtensionManagementPage() {
         setSelectedExtension(detail)
       }
     } catch (error: any) {
-      toast.error(error?.message || '加载扩展详情失败')
+      toast.error(errorMessage(error, '加载扩展详情失败'), 6000)
     } finally {
       setDetailLoading(false)
     }
@@ -95,7 +107,7 @@ export function ExtensionManagementPage() {
       }
       toast.success('扩展插件已删除')
     } catch (error: any) {
-      toast.error(error?.message || '删除扩展插件失败')
+      toast.error(errorMessage(error, '删除扩展插件失败'), 6000)
     } finally {
       setDeletingExtension(null)
     }
@@ -117,7 +129,7 @@ export function ExtensionManagementPage() {
         setImportPath(result.path)
       }
     } catch (error: any) {
-      toast.error(error?.message || '选择路径失败')
+      toast.error(errorMessage(error, '选择路径失败'), 6000)
     }
   }
 
@@ -150,7 +162,7 @@ export function ExtensionManagementPage() {
         setDetailOpen(true)
       }
     } catch (error: any) {
-      toast.error(error?.message || '导入扩展插件失败')
+      toast.error(errorMessage(error, '导入扩展插件失败'), 6000)
     } finally {
       setImporting(false)
     }

@@ -9,6 +9,7 @@ import (
 
 // ExtensionDAO 扩展插件持久化接口。
 type ExtensionDAO interface {
+	EnsureSchema() error
 	List() ([]Extension, error)
 	Get(extensionId string) (*Extension, error)
 	FindByNameVersion(name string, version string) (*Extension, error)
@@ -25,6 +26,48 @@ type SQLiteExtensionDAO struct {
 // NewSQLiteExtensionDAO 创建 SQLiteExtensionDAO。
 func NewSQLiteExtensionDAO(db *sql.DB) *SQLiteExtensionDAO {
 	return &SQLiteExtensionDAO{db: db}
+}
+
+// EnsureSchema 确保扩展插件表存在，兼容旧库迁移状态异常或手动覆盖程序后的启动场景。
+func (d *SQLiteExtensionDAO) EnsureSchema() error {
+	stmts := []string{
+		`CREATE TABLE IF NOT EXISTS browser_extensions (
+			extension_id     TEXT PRIMARY KEY,
+			name             TEXT NOT NULL DEFAULT '',
+			version          TEXT NOT NULL DEFAULT '',
+			manifest_version INTEGER NOT NULL DEFAULT 0,
+			description      TEXT NOT NULL DEFAULT '',
+			source_type      TEXT NOT NULL DEFAULT '',
+			source_url       TEXT NOT NULL DEFAULT '',
+			install_dir      TEXT NOT NULL DEFAULT '',
+			package_path     TEXT NOT NULL DEFAULT '',
+			manifest_json    TEXT NOT NULL DEFAULT '',
+			created_at       TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at       TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_browser_extensions_updated_at ON browser_extensions(updated_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_browser_extensions_source_type ON browser_extensions(source_type)`,
+		`CREATE TABLE IF NOT EXISTS browser_profile_extensions (
+			id            INTEGER PRIMARY KEY AUTOINCREMENT,
+			profile_id    TEXT NOT NULL,
+			extension_id  TEXT NOT NULL,
+			mode          TEXT NOT NULL DEFAULT 'shared',
+			enabled       INTEGER NOT NULL DEFAULT 1,
+			exclusive_dir TEXT NOT NULL DEFAULT '',
+			created_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(profile_id, extension_id),
+			FOREIGN KEY(extension_id) REFERENCES browser_extensions(extension_id) ON DELETE CASCADE
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_browser_profile_extensions_profile_id ON browser_profile_extensions(profile_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_browser_profile_extensions_extension_id ON browser_profile_extensions(extension_id)`,
+	}
+	for _, stmt := range stmts {
+		if _, err := d.db.Exec(stmt); err != nil {
+			return fmt.Errorf("初始化扩展插件表失败: %w", err)
+		}
+	}
+	return nil
 }
 
 // List 查询扩展列表，带绑定实例数量。
