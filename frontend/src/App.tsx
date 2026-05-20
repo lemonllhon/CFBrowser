@@ -249,9 +249,14 @@ function useAutoUpdateCheck() {
       setPortablePath(extractedPath)
       addNotification({
         type: 'success',
-        title: '便携包已解压',
-        message: extractedPath ? `ZIP 便携包已解压到 ${extractedPath}` : 'ZIP 便携包已下载并解压',
+        title: res?.restartScheduled ? 'ZIP 更新已准备好' : '便携包已解压',
+        message: res?.restartScheduled
+          ? '应用即将退出，替换程序文件后会自动重启'
+          : extractedPath ? `ZIP 便携包已解压到 ${extractedPath}` : 'ZIP 便携包已下载并解压',
       })
+      if (res?.restartScheduled) {
+        setOpen(false)
+      }
     } catch (error) {
       addNotification({
         type: 'error',
@@ -300,10 +305,20 @@ function useAutoUpdateCheck() {
             </Button>
           ) : (
             <>
-              <Button onClick={handleDownloadPortable} loading={action === 'download-portable'} disabled={!updateInfo?.portableAsset || (action !== 'none' && action !== 'download-portable')}>
-                下载 ZIP 并解压
+              <Button
+                variant={updateInfo?.recommendedPackageKind === 'portable' ? 'danger' : 'secondary'}
+                onClick={handleDownloadPortable}
+                loading={action === 'download-portable'}
+                disabled={!updateInfo?.portableAsset || (action !== 'none' && action !== 'download-portable')}
+              >
+                {updateInfo?.canSelfUpdatePortable ? '下载 ZIP 并重启更新' : '下载 ZIP 并解压'}
               </Button>
-              <Button onClick={() => handleDownload(true)} loading={action === 'download-next'} disabled={!updateInfo?.asset || (action !== 'none' && action !== 'download-next')}>
+              <Button
+                variant={updateInfo?.recommendedPackageKind === 'portable' ? 'secondary' : 'primary'}
+                onClick={() => handleDownload(true)}
+                loading={action === 'download-next'}
+                disabled={!updateInfo?.installerAsset || (action !== 'none' && action !== 'download-next')}
+              >
                 下次启动安装
               </Button>
               <Button variant="danger" onClick={() => handleDownload(false)} loading={action === 'download-now'} disabled={!updateInfo?.installerAsset || (action !== 'none' && action !== 'download-now')}>
@@ -333,7 +348,11 @@ function useAutoUpdateCheck() {
           </>
         )}
         <p className="text-xs text-[var(--color-text-muted)]">
-          {pendingUpdate ? '安装程序启动后应用会自动退出，方便更新文件完成替换。' : '安装包会启动安装程序；ZIP 便携包会解压到更新目录，适合不覆盖当前安装直接使用。'}
+          {pendingUpdate
+            ? '安装程序启动后应用会自动退出，方便更新文件完成替换。'
+            : updateInfo?.canSelfUpdatePortable
+              ? '当前为 ZIP 便携版：ZIP 更新会保留 data、logs 和已有配置，退出后替换程序文件并自动重启。'
+              : '安装包会启动安装程序；ZIP 便携包会解压到更新目录，适合不覆盖当前安装直接使用。'}
         </p>
         {portablePath && (
           <div className="rounded-md border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] px-3 py-2 space-y-2">

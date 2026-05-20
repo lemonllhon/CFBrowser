@@ -291,6 +291,9 @@ export function SettingsPage() {
       const res = await downloadAndExtractPortableUpdate(updateInfo)
       setPortablePath(res.extractedPath || '')
       toast.success(res.message || 'ZIP 便携包已下载并解压')
+      if (res.restartScheduled) {
+        setUpdateModalOpen(false)
+      }
     } catch (error: any) {
       toast.error(error?.message || '下载或解压 ZIP 便携包失败')
     } finally {
@@ -781,10 +784,20 @@ export function SettingsPage() {
               <ExternalLink className="w-4 h-4" />
               打开下载页
             </Button>
-            <Button onClick={handleDownloadPortableUpdate} loading={updateAction === 'download-portable'} disabled={!updateInfo?.portableAsset || (updateAction !== 'none' && updateAction !== 'download-portable')}>
-              下载 ZIP 并解压
+            <Button
+              variant={updateInfo?.recommendedPackageKind === 'portable' ? 'danger' : 'secondary'}
+              onClick={handleDownloadPortableUpdate}
+              loading={updateAction === 'download-portable'}
+              disabled={!updateInfo?.portableAsset || (updateAction !== 'none' && updateAction !== 'download-portable')}
+            >
+              {updateInfo?.canSelfUpdatePortable ? '下载 ZIP 并重启更新' : '下载 ZIP 并解压'}
             </Button>
-            <Button onClick={() => handleDownloadUpdate(true)} loading={updateAction === 'download-next'} disabled={!updateInfo?.installerAsset || (updateAction !== 'none' && updateAction !== 'download-next')}>
+            <Button
+              variant={updateInfo?.recommendedPackageKind === 'portable' ? 'secondary' : 'primary'}
+              onClick={() => handleDownloadUpdate(true)}
+              loading={updateAction === 'download-next'}
+              disabled={!updateInfo?.installerAsset || (updateAction !== 'none' && updateAction !== 'download-next')}
+            >
               下载后下次启动安装
             </Button>
             <Button variant="danger" onClick={() => handleDownloadUpdate(false)} loading={updateAction === 'download-now'} disabled={!updateInfo?.installerAsset || (updateAction !== 'none' && updateAction !== 'download-now')}>
@@ -815,7 +828,9 @@ export function SettingsPage() {
             </div>
           </div>
           <p className="text-xs text-[var(--color-text-muted)]">
-            安装包会启动安装程序；ZIP 便携包会解压到更新目录，适合不覆盖当前安装直接使用。
+            {updateInfo?.canSelfUpdatePortable
+              ? '当前为 ZIP 便携版：ZIP 更新会保留 data、logs 和已有配置，退出后替换程序文件并自动重启。'
+              : '安装包会启动安装程序；ZIP 便携包会解压到更新目录，适合不覆盖当前安装直接使用。'}
           </p>
           {updateInfo?.body && (
             <div className="max-h-36 overflow-y-auto rounded border border-[var(--color-border-muted)] bg-[var(--color-bg-primary)] px-3 py-2 text-xs whitespace-pre-wrap">

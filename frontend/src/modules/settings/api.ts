@@ -55,6 +55,9 @@ export interface AppUpdateInfo {
   asset?: AppUpdateAsset
   installerAsset?: AppUpdateAsset
   portableAsset?: AppUpdateAsset
+  distributionKind?: 'dev' | 'installer' | 'portable' | string
+  recommendedPackageKind?: 'installer' | 'portable' | string
+  canSelfUpdatePortable?: boolean
   message: string
 }
 
@@ -66,6 +69,7 @@ export interface AppUpdateDownloadResult {
   packagePath?: string
   extractedPath?: string
   installOnRestart?: boolean
+  restartScheduled?: boolean
   packageKind?: string
 }
 

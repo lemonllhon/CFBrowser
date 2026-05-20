@@ -31,17 +31,20 @@ type AppUpdateAsset struct {
 }
 
 type AppUpdateInfo struct {
-	CurrentVersion string          `json:"currentVersion"`
-	LatestVersion  string          `json:"latestVersion"`
-	ReleaseName    string          `json:"releaseName"`
-	ReleaseURL     string          `json:"releaseUrl"`
-	PublishedAt    string          `json:"publishedAt"`
-	Body           string          `json:"body"`
-	HasUpdate      bool            `json:"hasUpdate"`
-	Asset          *AppUpdateAsset `json:"asset,omitempty"`
-	InstallerAsset *AppUpdateAsset `json:"installerAsset,omitempty"`
-	PortableAsset  *AppUpdateAsset `json:"portableAsset,omitempty"`
-	Message        string          `json:"message"`
+	CurrentVersion         string          `json:"currentVersion"`
+	LatestVersion          string          `json:"latestVersion"`
+	ReleaseName            string          `json:"releaseName"`
+	ReleaseURL             string          `json:"releaseUrl"`
+	PublishedAt            string          `json:"publishedAt"`
+	Body                   string          `json:"body"`
+	HasUpdate              bool            `json:"hasUpdate"`
+	Asset                  *AppUpdateAsset `json:"asset,omitempty"`
+	InstallerAsset         *AppUpdateAsset `json:"installerAsset,omitempty"`
+	PortableAsset          *AppUpdateAsset `json:"portableAsset,omitempty"`
+	DistributionKind       string          `json:"distributionKind"`
+	RecommendedPackageKind string          `json:"recommendedPackageKind"`
+	CanSelfUpdatePortable  bool            `json:"canSelfUpdatePortable"`
+	Message                string          `json:"message"`
 }
 
 type AppUpdateDownloadResult struct {
@@ -52,6 +55,7 @@ type AppUpdateDownloadResult struct {
 	PackagePath      string `json:"packagePath"`
 	ExtractedPath    string `json:"extractedPath"`
 	InstallOnRestart bool   `json:"installOnRestart"`
+	RestartScheduled bool   `json:"restartScheduled"`
 	PackageKind      string `json:"packageKind"`
 }
 
@@ -101,22 +105,38 @@ func (a *App) CheckAppUpdate() (*AppUpdateInfo, error) {
 	}
 
 	installerAsset, portableAsset := pickReleaseAssets(release.Assets)
+	distributionKind := a.currentUpdateDistributionKind()
+	canSelfUpdatePortable := a.canSelfUpdatePortable()
+	recommendedPackageKind := "installer"
+	displayAsset := firstAsset(installerAsset, portableAsset)
+	if distributionKind == "portable" && portableAsset != nil {
+		recommendedPackageKind = "portable"
+		displayAsset = portableAsset
+	} else if installerAsset == nil && portableAsset != nil {
+		recommendedPackageKind = "portable"
+		displayAsset = portableAsset
+	}
 	info := &AppUpdateInfo{
-		CurrentVersion: currentVersion,
-		LatestVersion:  latestVersion,
-		ReleaseName:    firstNonEmpty(release.Name, release.TagName),
-		ReleaseURL:     firstNonEmpty(release.HTMLURL, PROJECT_GITHUB_URL+"/latest"),
-		PublishedAt:    release.PublishedAt,
-		Body:           strings.TrimSpace(release.Body),
-		HasUpdate:      appReleaseVersionsDiffer(latestVersion, currentVersion),
-		Asset:          firstAsset(installerAsset, portableAsset),
-		InstallerAsset: installerAsset,
-		PortableAsset:  portableAsset,
+		CurrentVersion:         currentVersion,
+		LatestVersion:          latestVersion,
+		ReleaseName:            firstNonEmpty(release.Name, release.TagName),
+		ReleaseURL:             firstNonEmpty(release.HTMLURL, PROJECT_GITHUB_URL+"/latest"),
+		PublishedAt:            release.PublishedAt,
+		Body:                   strings.TrimSpace(release.Body),
+		HasUpdate:              appReleaseVersionsDiffer(latestVersion, currentVersion),
+		Asset:                  displayAsset,
+		InstallerAsset:         installerAsset,
+		PortableAsset:          portableAsset,
+		DistributionKind:       distributionKind,
+		RecommendedPackageKind: recommendedPackageKind,
+		CanSelfUpdatePortable:  canSelfUpdatePortable,
 	}
 	if !info.HasUpdate {
 		info.Message = "当前已是最新版本"
 	} else if installerAsset == nil && portableAsset == nil {
 		info.Message = "检测到新版本，但没有找到适合当前系统的安装包"
+	} else if recommendedPackageKind == "portable" && canSelfUpdatePortable {
+		info.Message = "检测到新版本，可使用 ZIP 便携包自动更新"
 	} else {
 		info.Message = "检测到新版本"
 	}
@@ -189,13 +209,35 @@ func (a *App) DownloadAndExtractPortableUpdate(info AppUpdateInfo) (*AppUpdateDo
 		a.emitAppUpdateDownloadProgress("error", 100, "解压 ZIP 便携包失败")
 		return nil, fmt.Errorf("解压 ZIP 便携包失败: %w", err)
 	}
-	a.emitAppUpdateDownloadProgress("done", 100, "ZIP 便携包已解压完成")
+	sourceRoot, err := resolvePortablePackageRoot(extractDir)
+	if err != nil {
+		a.emitAppUpdateDownloadProgress("error", 100, "ZIP 便携包结构无效")
+		return nil, err
+	}
+
+	message := "ZIP 便携包已下载并解压"
+	restartScheduled := false
+	if a.canSelfUpdatePortable() {
+		a.emitAppUpdateDownloadProgress("installing", 100, "正在准备 ZIP 便携版自更新...")
+		if err := a.schedulePortableSelfUpdate(sourceRoot, version); err != nil {
+			a.emitAppUpdateDownloadProgress("error", 100, "准备 ZIP 便携版自更新失败")
+			return nil, fmt.Errorf("准备 ZIP 便携版自更新失败: %w", err)
+		}
+		restartScheduled = true
+		message = "ZIP 便携包已下载，应用即将退出并完成更新"
+		go func() {
+			time.Sleep(700 * time.Millisecond)
+			a.ForceQuit()
+		}()
+	}
+	a.emitAppUpdateDownloadProgress("done", 100, message)
 	return &AppUpdateDownloadResult{
-		Message:       "ZIP 便携包已下载并解压",
-		Version:       version,
-		PackagePath:   targetPath,
-		ExtractedPath: extractDir,
-		PackageKind:   "portable",
+		Message:          message,
+		Version:          version,
+		PackagePath:      targetPath,
+		ExtractedPath:    sourceRoot,
+		RestartScheduled: restartScheduled,
+		PackageKind:      "portable",
 	}, nil
 }
 
@@ -225,8 +267,14 @@ func (a *App) downloadUpdateAsset(asset *AppUpdateAsset, version string) (string
 	}
 	targetPath := filepath.Join(updatesDir, fileName)
 	a.emitAppUpdateDownloadProgress("starting", 0, "准备下载更新包...")
-	if err := downloadFile(asset.DownloadURL, targetPath, func(progress int, message string) {
+	if err := downloadFileWithRetry(asset.DownloadURL, targetPath, func(progress int, message string) {
 		a.emitAppUpdateDownloadProgress("downloading", progress, message)
+	}, func(attempt int, maxAttempts int, err error) {
+		a.emitAppUpdateDownloadProgress(
+			"retrying",
+			0,
+			fmt.Sprintf("下载失败，正在重试 %d/%d：%s", attempt, maxAttempts, err.Error()),
+		)
 	}); err != nil {
 		a.emitAppUpdateDownloadProgress("error", 0, err.Error())
 		return "", err
@@ -447,6 +495,7 @@ func downloadFile(url string, targetPath string, onProgress func(progress int, m
 		_ = os.Remove(tmp)
 		return fmt.Errorf("保存更新包失败: %w", closeErr)
 	}
+	_ = os.Remove(targetPath)
 	if err := os.Rename(tmp, targetPath); err != nil {
 		_ = os.Remove(tmp)
 		return fmt.Errorf("保存更新包失败: %w", err)
@@ -679,10 +728,240 @@ func appReleaseVersionsDiffer(latestVersion string, currentVersion string) bool 
 	if latest == "" || current == "" || strings.EqualFold(current, "unknown") {
 		return latest != ""
 	}
-	if compareVersions(latest, current) > 0 {
-		return true
+	return compareVersions(latest, current) > 0
+}
+
+func downloadFileWithRetry(
+	url string,
+	targetPath string,
+	onProgress func(progress int, message string),
+	onRetry func(attempt int, maxAttempts int, err error),
+) error {
+	const maxAttempts = 3
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if attempt > 1 {
+			time.Sleep(time.Duration(attempt) * 800 * time.Millisecond)
+		}
+		if err := downloadFile(url, targetPath, onProgress); err != nil {
+			lastErr = err
+			if attempt < maxAttempts && onRetry != nil {
+				onRetry(attempt+1, maxAttempts, err)
+			}
+			continue
+		}
+		return nil
 	}
-	return !strings.EqualFold(latest, current)
+	return lastErr
+}
+
+func (a *App) currentUpdateDistributionKind() string {
+	if a.isSourceCheckoutRoot() {
+		return "dev"
+	}
+	if goruntime.GOOS == "windows" {
+		if _, err := os.Stat(filepath.Join(a.appRootAbs(), "Uninstall.exe")); err == nil {
+			return "installer"
+		}
+		return "portable"
+	}
+	return "installer"
+}
+
+func (a *App) canSelfUpdatePortable() bool {
+	return goruntime.GOOS == "windows" && a.currentUpdateDistributionKind() == "portable"
+}
+
+func (a *App) isSourceCheckoutRoot() bool {
+	root := a.appRootAbs()
+	if root == "" {
+		return false
+	}
+	requiredFiles := []string{"go.mod", "wails.json"}
+	for _, name := range requiredFiles {
+		if _, err := os.Stat(filepath.Join(root, name)); err != nil {
+			return false
+		}
+	}
+	if info, err := os.Stat(filepath.Join(root, "frontend")); err != nil || !info.IsDir() {
+		return false
+	}
+	return true
+}
+
+func resolvePortablePackageRoot(extractDir string) (string, error) {
+	extractDir = filepath.Clean(extractDir)
+	if _, err := os.Stat(filepath.Join(extractDir, "trace-browser.exe")); err == nil {
+		return extractDir, nil
+	}
+
+	entries, err := os.ReadDir(extractDir)
+	if err != nil {
+		return "", err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		candidate := filepath.Join(extractDir, entry.Name())
+		if _, err := os.Stat(filepath.Join(candidate, "trace-browser.exe")); err == nil {
+			return candidate, nil
+		}
+	}
+	return "", fmt.Errorf("ZIP 便携包中未找到 trace-browser.exe")
+}
+
+func (a *App) schedulePortableSelfUpdate(sourceRoot string, version string) error {
+	if goruntime.GOOS != "windows" {
+		return fmt.Errorf("ZIP 便携版自更新仅支持 Windows")
+	}
+	sourceRoot = filepath.Clean(sourceRoot)
+	targetRoot := filepath.Clean(a.appRootAbs())
+	if sourceRoot == "" || targetRoot == "" {
+		return fmt.Errorf("更新源目录或目标目录为空")
+	}
+	if strings.EqualFold(sourceRoot, targetRoot) {
+		return fmt.Errorf("更新源目录不能与当前应用目录相同")
+	}
+	if _, err := os.Stat(filepath.Join(sourceRoot, "trace-browser.exe")); err != nil {
+		return fmt.Errorf("更新源缺少 trace-browser.exe: %w", err)
+	}
+	if _, err := os.Stat(filepath.Join(targetRoot, "trace-browser.exe")); err != nil {
+		return fmt.Errorf("当前应用目录缺少 trace-browser.exe: %w", err)
+	}
+
+	safeVersion := sanitizeFileName(version)
+	if safeVersion == "" {
+		safeVersion = "latest"
+	}
+	scriptDir := filepath.Join(os.TempDir(), "trace-browser-updates", safeVersion+"-"+shortHash(sourceRoot+"|"+targetRoot))
+	if err := os.MkdirAll(scriptDir, 0755); err != nil {
+		return err
+	}
+	scriptPath := filepath.Join(scriptDir, "apply-portable-update.ps1")
+	logPath := filepath.Join(scriptDir, "apply-portable-update.log")
+	if err := os.WriteFile(scriptPath, []byte(portableUpdatePowerShellScript()), 0600); err != nil {
+		return err
+	}
+
+	cmd := exec.Command(
+		"powershell.exe",
+		"-NoProfile",
+		"-ExecutionPolicy",
+		"Bypass",
+		"-WindowStyle",
+		"Hidden",
+		"-File",
+		scriptPath,
+		"-Source",
+		sourceRoot,
+		"-Target",
+		targetRoot,
+		"-Pid",
+		fmt.Sprintf("%d", os.Getpid()),
+		"-ExeName",
+		"trace-browser.exe",
+		"-LogPath",
+		logPath,
+	)
+	hideWindow(cmd)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func portableUpdatePowerShellScript() string {
+	return `param(
+  [Parameter(Mandatory = $true)][string]$Source,
+  [Parameter(Mandatory = $true)][string]$Target,
+  [Parameter(Mandatory = $true)][int]$Pid,
+  [Parameter(Mandatory = $true)][string]$ExeName,
+  [Parameter(Mandatory = $true)][string]$LogPath
+)
+
+$ErrorActionPreference = 'Stop'
+
+function Write-TraceLog {
+  param([string]$Message)
+  $parent = Split-Path -Parent $LogPath
+  if ($parent -and -not (Test-Path -LiteralPath $parent)) {
+    New-Item -ItemType Directory -Path $parent -Force | Out-Null
+  }
+  Add-Content -LiteralPath $LogPath -Value ("{0} {1}" -f (Get-Date -Format o), $Message)
+}
+
+function Copy-DirectoryContents {
+  param([string]$Src, [string]$Dst)
+  if (-not (Test-Path -LiteralPath $Dst)) {
+    New-Item -ItemType Directory -Path $Dst -Force | Out-Null
+  }
+  & robocopy.exe $Src $Dst /E /R:2 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
+  if ($LASTEXITCODE -ge 8) {
+    throw "robocopy failed for $Src -> $Dst with exit code $LASTEXITCODE"
+  }
+}
+
+try {
+  Write-TraceLog "portable update helper started"
+  if ($Pid -gt 0) {
+    $deadline = (Get-Date).AddSeconds(60)
+    while ((Get-Date) -lt $deadline) {
+      $proc = Get-Process -Id $Pid -ErrorAction SilentlyContinue
+      if (-not $proc) {
+        break
+      }
+      Start-Sleep -Milliseconds 300
+    }
+  }
+  Start-Sleep -Milliseconds 800
+
+  $sourceRoot = [System.IO.Path]::GetFullPath($Source).TrimEnd('\')
+  $targetRoot = [System.IO.Path]::GetFullPath($Target).TrimEnd('\')
+  $sourceExe = Join-Path $sourceRoot $ExeName
+  $targetExe = Join-Path $targetRoot $ExeName
+
+  if (-not (Test-Path -LiteralPath $sourceExe -PathType Leaf)) {
+    throw "source executable missing: $sourceExe"
+  }
+  if (-not (Test-Path -LiteralPath $targetRoot -PathType Container)) {
+    New-Item -ItemType Directory -Path $targetRoot -Force | Out-Null
+  }
+
+  Get-ChildItem -LiteralPath $sourceRoot -Force | ForEach-Object {
+    $name = $_.Name
+    $dest = Join-Path $targetRoot $name
+    if ($_.PSIsContainer) {
+      if ($name -ieq 'data' -or $name -ieq 'logs') {
+        if (-not (Test-Path -LiteralPath $dest)) {
+          New-Item -ItemType Directory -Path $dest -Force | Out-Null
+        }
+      } else {
+        Copy-DirectoryContents -Src $_.FullName -Dst $dest
+      }
+    } else {
+      if ($name -ieq 'config.yaml' -or $name -ieq 'proxies.yaml') {
+        if (-not (Test-Path -LiteralPath $dest)) {
+          Copy-Item -LiteralPath $_.FullName -Destination $dest -Force
+        }
+      } else {
+        Copy-Item -LiteralPath $_.FullName -Destination $dest -Force
+      }
+    }
+  }
+
+  if (-not (Test-Path -LiteralPath $targetExe -PathType Leaf)) {
+    throw "updated executable missing: $targetExe"
+  }
+  Write-TraceLog "starting updated application"
+  Start-Process -FilePath $targetExe -WorkingDirectory $targetRoot
+  Write-TraceLog "portable update helper completed"
+  exit 0
+} catch {
+  Write-TraceLog ("portable update helper failed: " + $_.Exception.Message)
+  exit 1
+}
+`
 }
 
 func versionParts(value string) []int {
