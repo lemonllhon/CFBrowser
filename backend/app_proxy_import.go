@@ -223,6 +223,8 @@ func parseShareURIToClashProxy(raw string, index int) (map[string]interface{}, b
 		return parseUserInfoShareToClashProxy(raw, index, "trojan")
 	case strings.HasPrefix(lower, "ss://"):
 		return parseSSShareToClashProxy(raw, index)
+	case strings.HasPrefix(lower, "anytls://"):
+		return parseAnyTLSShareToClashProxy(raw, index)
 	default:
 		return nil, false
 	}
@@ -313,6 +315,55 @@ func parseUserInfoShareToClashProxy(raw string, index int, protocol string) (map
 
 	network := firstNonEmpty(q.Get("type"), q.Get("network"))
 	applyClashTransportOptions(node, network, q.Get("path"), q.Get("host"), q.Get("serviceName"))
+	return node, true
+}
+
+func parseAnyTLSShareToClashProxy(raw string, index int) (map[string]interface{}, bool) {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return nil, false
+	}
+
+	server := parsed.Hostname()
+	port, _ := strconv.Atoi(parsed.Port())
+	password := parsed.User.Username()
+	if password == "" {
+		if p, ok := parsed.User.Password(); ok {
+			password = p
+		}
+	}
+	if server == "" || port <= 0 || password == "" {
+		return nil, false
+	}
+
+	q := parsed.Query()
+	node := map[string]interface{}{
+		"name":     shareNodeName(parsed, index),
+		"type":     "anytls",
+		"server":   server,
+		"port":     port,
+		"password": password,
+	}
+	putStringIfNotEmpty(node, "sni", firstNonEmpty(q.Get("sni"), q.Get("peer"), q.Get("servername")))
+	if isTruthyQueryValue(q.Get("insecure")) || isTruthyQueryValue(q.Get("allowInsecure")) || isTruthyQueryValue(q.Get("skip-cert-verify")) {
+		node["skip-cert-verify"] = true
+	}
+	if alpn := q.Get("alpn"); strings.TrimSpace(alpn) != "" {
+		parts := strings.Split(strings.TrimSpace(alpn), ",")
+		values := make([]interface{}, 0, len(parts))
+		for _, part := range parts {
+			if text := strings.TrimSpace(part); text != "" {
+				values = append(values, text)
+			}
+		}
+		if len(values) > 0 {
+			node["alpn"] = values
+		}
+	}
+	putStringIfNotEmpty(node, "idle-session-check-interval", q.Get("idle_session_check_interval"))
+	putStringIfNotEmpty(node, "idle-session-timeout", q.Get("idle_session_timeout"))
+	putStringIfNotEmpty(node, "min-idle-session", q.Get("min_idle_session"))
+
 	return node, true
 }
 

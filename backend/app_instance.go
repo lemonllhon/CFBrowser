@@ -194,7 +194,7 @@ func (a *App) browserInstanceStartInternal(profileId string, extraLaunchArgs []s
 	}
 
 	if !autoSwitchProxy && proxy.IsSingBoxProtocol(resolvedProxyConfig) {
-		// hysteria2 / tuic → sing-box 桥接
+		// hysteria2 / tuic / anytls → sing-box 桥接
 		socksURL, bridgeErr := a.singboxMgr.EnsureBridge(resolvedProxyConfig, proxies, profile.ProxyId)
 		if bridgeErr != nil {
 			startErr := fmt.Errorf("实例启动失败：代理桥接启动失败（sing-box）。原因：%v。请检查代理节点配置、sing-box 可执行文件是否存在，以及本地端口是否被占用。", bridgeErr)

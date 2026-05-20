@@ -9,16 +9,18 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// IsSingBoxProtocol 判断是否为 sing-box 支持的协议（hysteria2/tuic）
+// IsSingBoxProtocol 判断是否为 sing-box 支持的协议（hysteria2/tuic/anytls）
 func IsSingBoxProtocol(proxyConfig string) bool {
 	l := strings.ToLower(strings.TrimSpace(proxyConfig))
-	if strings.HasPrefix(l, "hysteria2://") || strings.HasPrefix(l, "hysteria://") {
+	if strings.HasPrefix(l, "hysteria2://") || strings.HasPrefix(l, "hysteria://") ||
+		strings.HasPrefix(l, "anytls://") {
 		return true
 	}
 	// Clash YAML 格式
 	if strings.Contains(l, "type: hysteria2") || strings.Contains(l, "type:hysteria2") ||
 		strings.Contains(l, "type: hysteria") || strings.Contains(l, "type:hysteria") ||
-		strings.Contains(l, "type: tuic") || strings.Contains(l, "type:tuic") {
+		strings.Contains(l, "type: tuic") || strings.Contains(l, "type:tuic") ||
+		strings.Contains(l, "type: anytls") || strings.Contains(l, "type:anytls") {
 		return true
 	}
 	return false
@@ -31,6 +33,9 @@ func BuildSingBoxOutbound(node string) (map[string]interface{}, error) {
 
 	if strings.HasPrefix(l, "hysteria2://") || strings.HasPrefix(l, "hysteria://") {
 		return parseHysteria2URI(src)
+	}
+	if strings.HasPrefix(l, "anytls://") {
+		return parseAnyTLSURI(src)
 	}
 
 	// Clash YAML 格式
@@ -101,6 +106,56 @@ func parseHysteria2URI(node string) (map[string]interface{}, error) {
 	return out, nil
 }
 
+// parseAnyTLSURI 解析 anytls:// URI
+// 格式: anytls://password@host:port?sni=xxx&insecure=1
+func parseAnyTLSURI(node string) (map[string]interface{}, error) {
+	u, err := url.Parse(node)
+	if err != nil {
+		return nil, fmt.Errorf("anytls URI 解析失败: %v", err)
+	}
+
+	host := u.Hostname()
+	port, _ := strconv.Atoi(u.Port())
+	password := u.User.Username()
+	if password == "" {
+		if p, ok := u.User.Password(); ok {
+			password = p
+		}
+	}
+	q := u.Query()
+	sni := firstQuery(q, "sni", "peer", "servername")
+	insecure := isTruthyQuery(q.Get("insecure")) ||
+		isTruthyQuery(q.Get("allowInsecure")) ||
+		isTruthyQuery(q.Get("skip-cert-verify"))
+
+	if host == "" || port == 0 || password == "" {
+		return nil, fmt.Errorf("anytls 节点信息不完整: host=%s port=%d password=%t", host, port, password != "")
+	}
+
+	out := map[string]interface{}{
+		"type":        "anytls",
+		"tag":         "proxy-out",
+		"server":      host,
+		"server_port": port,
+		"password":    password,
+		"tls": map[string]interface{}{
+			"enabled":  true,
+			"insecure": insecure,
+		},
+	}
+	if sni != "" {
+		out["tls"].(map[string]interface{})["server_name"] = sni
+	}
+	if alpn := splitCSV(q.Get("alpn")); len(alpn) > 0 {
+		out["tls"].(map[string]interface{})["alpn"] = alpn
+	}
+	putStringField(out, "idle_session_check_interval", q.Get("idle_session_check_interval"))
+	putStringField(out, "idle_session_timeout", q.Get("idle_session_timeout"))
+	putIntField(out, "min_idle_session", q.Get("min_idle_session"))
+
+	return out, nil
+}
+
 // parseClashSingBoxNode 解析 Clash YAML 格式的 sing-box 节点
 func parseClashSingBoxNode(src string) (map[string]interface{}, error) {
 	// 复用已有的 YAML 解析基础设施
@@ -120,6 +175,8 @@ func parseClashSingBoxNode(src string) (map[string]interface{}, error) {
 		return buildSingBoxHysteria2FromClash(nodeMap)
 	case "tuic":
 		return buildSingBoxTUICFromClash(nodeMap)
+	case "anytls":
+		return buildSingBoxAnyTLSFromClash(nodeMap)
 	default:
 		return nil, fmt.Errorf("不支持的 sing-box 节点类型: %s", nodeType)
 	}
@@ -214,6 +271,68 @@ func buildSingBoxTUICFromClash(node map[string]interface{}) (map[string]interfac
 	}, nil
 }
 
+func buildSingBoxAnyTLSFromClash(node map[string]interface{}) (map[string]interface{}, error) {
+	host := getMapString(node, "server")
+	port := getMapInt(node, "port")
+	if port == 0 {
+		port = getMapInt(node, "server_port")
+	}
+	password := getMapString(node, "password")
+	sni := firstNonEmptyString(getMapString(node, "sni"), getMapString(node, "servername"))
+	skipVerify := getMapBool(node, "skip-cert-verify")
+	tlsMap := toStringMap(node["tls"])
+	if tlsMap != nil {
+		sni = firstNonEmptyString(sni, getMapString(tlsMap, "server_name"))
+		skipVerify = skipVerify || getMapBool(tlsMap, "insecure")
+	}
+
+	if host == "" || port == 0 || password == "" {
+		return nil, fmt.Errorf("anytls 节点信息不完整")
+	}
+
+	tls := map[string]interface{}{
+		"enabled":  true,
+		"insecure": skipVerify,
+	}
+	if sni != "" {
+		tls["server_name"] = sni
+	}
+	if alpnRaw, ok := node["alpn"]; ok {
+		if alpnList := toStringSlice(alpnRaw); len(alpnList) > 0 {
+			tls["alpn"] = alpnList
+		}
+	}
+	if _, ok := tls["alpn"]; !ok && tlsMap != nil {
+		if alpnList := toStringSlice(tlsMap["alpn"]); len(alpnList) > 0 {
+			tls["alpn"] = alpnList
+		}
+	}
+
+	out := map[string]interface{}{
+		"type":        "anytls",
+		"tag":         "proxy-out",
+		"server":      host,
+		"server_port": port,
+		"password":    password,
+		"tls":         tls,
+	}
+	putStringField(out, "idle_session_check_interval", firstNonEmptyString(
+		getMapString(node, "idle-session-check-interval"),
+		getMapString(node, "idle_session_check_interval"),
+	))
+	putStringField(out, "idle_session_timeout", firstNonEmptyString(
+		getMapString(node, "idle-session-timeout"),
+		getMapString(node, "idle_session_timeout"),
+	))
+	if minIdleSession := getMapInt(node, "min-idle-session"); minIdleSession > 0 {
+		out["min_idle_session"] = minIdleSession
+	} else if minIdleSession := getMapInt(node, "min_idle_session"); minIdleSession > 0 {
+		out["min_idle_session"] = minIdleSession
+	}
+
+	return out, nil
+}
+
 // parseBandwidthMbps 解析带宽字符串，返回 Mbps 整数
 // 支持: "100 Mbps", "100", "100M"
 func parseBandwidthMbps(s string) int {
@@ -245,4 +364,57 @@ func toStringSlice(v interface{}) []string {
 		return []string{s}
 	}
 	return nil
+}
+
+func firstQuery(q url.Values, keys ...string) string {
+	for _, key := range keys {
+		if value := strings.TrimSpace(q.Get(key)); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func isTruthyQuery(value string) bool {
+	text := strings.ToLower(strings.TrimSpace(value))
+	return text == "1" || text == "true" || text == "yes"
+}
+
+func splitCSV(value string) []string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	parts := strings.Split(value, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		text := strings.TrimSpace(part)
+		if text != "" {
+			result = append(result, text)
+		}
+	}
+	return result
+}
+
+func putStringField(target map[string]interface{}, key string, value string) {
+	if text := strings.TrimSpace(value); text != "" {
+		target[key] = text
+	}
+}
+
+func putIntField(target map[string]interface{}, key string, value string) {
+	if strings.TrimSpace(value) == "" {
+		return
+	}
+	if n, err := strconv.Atoi(strings.TrimSpace(value)); err == nil && n > 0 {
+		target[key] = n
+	}
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if text := strings.TrimSpace(value); text != "" {
+			return text
+		}
+	}
+	return ""
 }

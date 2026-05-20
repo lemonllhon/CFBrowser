@@ -491,6 +491,39 @@ function parseSSShareURI(raw: string, index: number): ClashProxy | null {
   }
 }
 
+function parseAnyTLSShareURI(raw: string, index: number): ClashProxy | null {
+  let parsed: URL
+  try {
+    parsed = new URL(raw)
+  } catch {
+    return null
+  }
+
+  const server = parsed.hostname
+  const port = Number(parsed.port)
+  const password = safeDecodeURIComponent(parsed.username || parsed.password || '')
+  if (!server || !Number.isFinite(port) || port <= 0 || !password) return null
+
+  const q = parsed.searchParams
+  const proxy: ClashProxy = {
+    name: shareURLName(parsed, index),
+    type: 'anytls',
+    server,
+    port,
+    password,
+  }
+  setStringField(proxy, 'sni', firstText(q.get('sni'), q.get('peer'), q.get('servername')))
+  if (isTruthyParam(q.get('insecure')) || isTruthyParam(q.get('allowInsecure')) || isTruthyParam(q.get('skip-cert-verify'))) {
+    proxy['skip-cert-verify'] = true
+  }
+  const alpn = (q.get('alpn') || '').split(',').map(item => item.trim()).filter(Boolean)
+  if (alpn.length > 0) proxy.alpn = alpn
+  setStringField(proxy, 'idle-session-check-interval', q.get('idle_session_check_interval'))
+  setStringField(proxy, 'idle-session-timeout', q.get('idle_session_timeout'))
+  setStringField(proxy, 'min-idle-session', q.get('min_idle_session'))
+  return proxy
+}
+
 function parseShareURIToClashProxy(raw: string, index: number): ClashProxy | null {
   const value = raw.trim()
   const lower = value.toLowerCase()
@@ -498,6 +531,7 @@ function parseShareURIToClashProxy(raw: string, index: number): ClashProxy | nul
   if (lower.startsWith('vless://')) return parseUserInfoShareURI(value, index, 'vless')
   if (lower.startsWith('trojan://')) return parseUserInfoShareURI(value, index, 'trojan')
   if (lower.startsWith('ss://')) return parseSSShareURI(value, index)
+  if (lower.startsWith('anytls://')) return parseAnyTLSShareURI(value, index)
   return null
 }
 
@@ -2795,7 +2829,7 @@ export function ProxyPoolPage() {
           </div>
           <p className="text-sm text-[var(--color-text-muted)]">
             {importMode === 'clash'
-              ? '支持管理 Clash 订阅 URL、直接粘贴 YAML，也支持 v2rayN Base64 订阅/分享链接；通过 URL 导入后会进入订阅管理，可统一刷新'
+              ? '支持管理 Clash 订阅 URL、直接粘贴 YAML，也支持 v2rayN Base64 订阅/分享链接；AnyTLS 等 sing-box 节点会自动桥接'
               : '支持批量粘贴 HTTP / HTTPS / SOCKS5 代理，也可以用表单补充单条带认证代理'}
           </p>
           {importMode === 'clash' && (
@@ -2834,7 +2868,7 @@ export function ProxyPoolPage() {
                 value={importText}
                 onChange={e => setImportText(e.target.value)}
                 rows={12}
-                placeholder={`proxies:\n  - name: vless-v6\n    type: vless\n    server: example.com\n    port: 443\n    uuid: your-uuid\n    ...\n\n或粘贴 Base64 订阅 / vless:// / vmess:// / trojan:// 节点`}
+                placeholder={`proxies:\n  - name: anytls-node\n    type: anytls\n    server: example.com\n    port: 443\n    password: your-password\n    sni: example.com\n\n或粘贴 Base64 订阅 / vless:// / vmess:// / trojan:// / anytls:// 节点`}
               />
             </>
           )}

@@ -11,8 +11,9 @@ func TestNormalizeClashSubscriptionContentDecodesBase64ShareSubscription(t *test
 	vmess := "vmess://" + base64.StdEncoding.EncodeToString([]byte(vmessJSON))
 	vless := "vless://11111111-1111-4111-8111-111111111111@example.com:443?encryption=none&security=tls&sni=edge.example.com&fp=firefox&type=ws&host=edge.example.com&path=%2Fvless%3Fed%3D2560#US%20VLESS"
 	trojan := "trojan://top-secret@example.net:443?security=tls&sni=trojan.example.net&type=ws&host=trojan.example.net&path=%2Ftrojan#Trojan%20Node"
+	anytls := "anytls://any-secret@any.example.org:443?sni=any.example.org&insecure=1#AnyTLS%20Node"
 
-	subscription := strings.Join([]string{vless, vmess, trojan}, "\n")
+	subscription := strings.Join([]string{vless, vmess, trojan, anytls}, "\n")
 	encoded := strings.TrimRight(base64.StdEncoding.EncodeToString([]byte(subscription)), "=")
 
 	content, payload, err := normalizeClashSubscriptionContent([]byte(encoded))
@@ -22,8 +23,8 @@ func TestNormalizeClashSubscriptionContentDecodesBase64ShareSubscription(t *test
 	if !strings.Contains(content, "proxies:") {
 		t.Fatalf("normalized content should be Clash YAML, got: %s", content)
 	}
-	if got := clashProxyCount(payload); got != 3 {
-		t.Fatalf("proxy count = %d, want 3", got)
+	if got := clashProxyCount(payload); got != 4 {
+		t.Fatalf("proxy count = %d, want 4", got)
 	}
 
 	root := toStringMap(payload)
@@ -31,8 +32,8 @@ func TestNormalizeClashSubscriptionContentDecodesBase64ShareSubscription(t *test
 		t.Fatal("payload root is not a map")
 	}
 	proxies, ok := root["proxies"].([]interface{})
-	if !ok || len(proxies) != 3 {
-		t.Fatalf("payload proxies length = %d, want 3", len(proxies))
+	if !ok || len(proxies) != 4 {
+		t.Fatalf("payload proxies length = %d, want 4", len(proxies))
 	}
 
 	first := toStringMap(proxies[0])
@@ -60,5 +61,18 @@ func TestNormalizeClashSubscriptionContentDecodesBase64ShareSubscription(t *test
 	if got := getMapString(second, "name"); got != "VMess 节点" {
 		t.Fatalf("second proxy name = %q, want VMess 节点", got)
 	}
-}
 
+	fourth := toStringMap(proxies[3])
+	if fourth == nil {
+		t.Fatal("fourth proxy is not a map")
+	}
+	if got := getMapString(fourth, "type"); got != "anytls" {
+		t.Fatalf("fourth proxy type = %q, want anytls", got)
+	}
+	if got := getMapString(fourth, "name"); got != "AnyTLS Node" {
+		t.Fatalf("fourth proxy name = %q, want AnyTLS Node", got)
+	}
+	if got := getMapString(fourth, "password"); got != "any-secret" {
+		t.Fatalf("fourth proxy password = %q, want any-secret", got)
+	}
+}

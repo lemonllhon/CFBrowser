@@ -84,7 +84,7 @@ func ValidateProxyConfig(proxyConfig string, proxies []config.BrowserProxy, prox
 	if strings.HasPrefix(l, "http://") || strings.HasPrefix(l, "https://") || strings.HasPrefix(l, "socks5://") {
 		return true, ""
 	}
-	// hysteria2/tuic 通过 sing-box 支持，先做可解析性校验
+	// hysteria2/tuic/anytls 通过 sing-box 支持，先做可解析性校验
 	if IsSingBoxProtocol(src) {
 		if _, err := BuildSingBoxOutbound(src); err != nil {
 			return false, fmt.Sprintf("代理配置解析失败: %v", err)
@@ -105,7 +105,7 @@ func ValidateProxyConfig(proxyConfig string, proxies []config.BrowserProxy, prox
 
 // RequiresBridge 判断是否需要 Xray 桥接
 // 注意: Xray 仅支持 vless/vmess/trojan/shadowsocks 等协议
-// hysteria2 不支持，需要使用 Hysteria 客户端或 sing-box
+// hysteria2/tuic/anytls 等协议需要使用 sing-box
 func RequiresBridge(proxyConfig string, proxies []config.BrowserProxy, proxyId string) bool {
 	src := strings.TrimSpace(proxyConfig)
 	if proxyId != "" {
@@ -124,8 +124,8 @@ func RequiresBridge(proxyConfig string, proxies []config.BrowserProxy, proxyId s
 	if strings.HasPrefix(l, "http://") || strings.HasPrefix(l, "https://") || strings.HasPrefix(l, "socks5://") {
 		return false
 	}
-	// hysteria2 Xray 不支持，不触发桥接
-	if strings.HasPrefix(l, "hysteria://") || strings.HasPrefix(l, "hysteria2://") {
+	// sing-box 协议不触发 Xray 桥接
+	if IsSingBoxProtocol(src) {
 		return false
 	}
 	// Xray 支持的协议
@@ -134,10 +134,6 @@ func RequiresBridge(proxyConfig string, proxies []config.BrowserProxy, proxyId s
 	}
 	// Clash 格式需要进一步检查类型
 	if strings.HasPrefix(l, "clash://") || strings.Contains(l, "type:") || strings.Contains(l, "proxies:") {
-		// 排除 hysteria 类型
-		if strings.Contains(l, "type: hysteria") || strings.Contains(l, "type:hysteria") {
-			return false
-		}
 		return true
 	}
 	return false
