@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Archive, FileCode2, FolderOpen, RefreshCw, Trash2 } from 'lucide-react'
+import { Archive, FileCode2, FolderOpen, RefreshCw, Trash2, UploadCloud } from 'lucide-react'
 import { Badge, Button, Card, ConfirmModal, FormItem, Input, Modal, Table, toast } from '../../../shared/components'
 import type { TableColumn } from '../../../shared/components/Table'
 import type { BrowserExtension, BrowserExtensionImportResult } from '../types'
 import { chooseBrowserExtensionArchive, chooseBrowserExtensionDirectory, deleteBrowserExtension, fetchBrowserExtension, fetchBrowserExtensions, importBrowserExtensionArchive, importBrowserExtensionDirectory } from '../api'
+import { OnFileDrop, OnFileDropOff } from '../../../wailsjs/runtime/runtime'
 
 const sourceTypeText: Record<string, string> = {
   zip: '压缩包',
@@ -21,6 +22,10 @@ function formatTime(value: string) {
 
 function sourceLabel(value: string) {
   return sourceTypeText[value] || value || '-'
+}
+
+function importTypeFromPath(path: string): 'archive' | 'directory' {
+  return /\.(zip|crx)$/i.test(path.trim()) ? 'archive' : 'directory'
 }
 
 function errorMessage(error: any, fallback: string) {
@@ -49,6 +54,7 @@ export function ExtensionManagementPage() {
   const [importPath, setImportPath] = useState('')
   const [importing, setImporting] = useState(false)
   const [duplicateResult, setDuplicateResult] = useState<BrowserExtensionImportResult | null>(null)
+  const [dragActive, setDragActive] = useState(false)
 
   const loadData = async (silent = false) => {
     if (silent) {
@@ -69,6 +75,16 @@ export function ExtensionManagementPage() {
 
   useEffect(() => {
     void loadData()
+  }, [])
+
+  useEffect(() => {
+    OnFileDrop((_, __, paths) => {
+      setDragActive(false)
+      void handleDroppedPaths(paths || [])
+    }, false)
+    return () => {
+      OnFileDropOff()
+    }
   }, [])
 
   const handleOpenDetail = async (record: BrowserExtension) => {
@@ -168,6 +184,66 @@ export function ExtensionManagementPage() {
     }
   }
 
+  const importPathDirectly = async (path: string): Promise<{ imported: boolean; duplicate: boolean; extension?: BrowserExtension | null }> => {
+    const trimmed = path.trim()
+    if (!trimmed) return { imported: false, duplicate: false }
+    const type = importTypeFromPath(trimmed)
+    const result = type === 'archive'
+      ? await importBrowserExtensionArchive({ path: trimmed, mode: 'ask' })
+      : await importBrowserExtensionDirectory({ path: trimmed, mode: 'ask' })
+    if (result.duplicate) {
+      setImportType(type)
+      setImportPath(trimmed)
+      setDuplicateResult(result)
+      setImportModalOpen(true)
+      return { imported: false, duplicate: true }
+    }
+    return {
+      imported: !result.cancelled,
+      duplicate: false,
+      extension: result.extension,
+    }
+  }
+
+  const handleDroppedPaths = async (paths: string[]) => {
+    const validPaths = paths.map(item => String(item || '').trim()).filter(Boolean)
+    if (validPaths.length === 0) return
+    setImporting(true)
+    let success = 0
+    let stoppedForDuplicate = false
+    let lastExtension: BrowserExtension | null = null
+    try {
+      for (const path of validPaths) {
+        const result = await importPathDirectly(path)
+        if (result.duplicate) {
+          stoppedForDuplicate = true
+          break
+        }
+        if (result.imported) {
+          success += 1
+          if (result.extension) {
+            lastExtension = result.extension
+          }
+        }
+      }
+      if (success > 0) {
+        await loadData(true)
+        toast.success(success === 1 ? '扩展插件导入成功' : `已导入 ${success} 个扩展插件`)
+        if (lastExtension) {
+          setSelectedExtension(lastExtension)
+          setDetailOpen(true)
+        }
+      }
+      if (stoppedForDuplicate) {
+        toast.info('发现重复扩展，请在弹窗中选择处理方式')
+      }
+    } catch (error: any) {
+      toast.error(errorMessage(error, '拖拽导入扩展失败'), 6000)
+    } finally {
+      setImporting(false)
+    }
+  }
+
   const columns: TableColumn<BrowserExtension>[] = useMemo(() => [
     {
       key: 'name',
@@ -237,11 +313,38 @@ export function ExtensionManagementPage() {
   ], [selectedExtension?.extensionId])
 
   return (
-    <div className="space-y-5 animate-fade-in">
+    <div
+      className="relative space-y-5 animate-fade-in"
+      onDragEnter={() => setDragActive(true)}
+      onDragOver={(event) => {
+        event.preventDefault()
+        setDragActive(true)
+      }}
+      onDragLeave={(event) => {
+        if (event.currentTarget === event.target) {
+          setDragActive(false)
+        }
+      }}
+      onDrop={(event) => {
+        event.preventDefault()
+        setDragActive(false)
+      }}
+    >
+      {dragActive && (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-xl border-2 border-dashed border-[var(--color-accent)] bg-[var(--color-accent)]/10 backdrop-blur-[1px]">
+          <div className="flex items-center gap-3 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-elevated)] px-5 py-4 shadow-lg">
+            <UploadCloud className="w-6 h-6 text-[var(--color-accent)]" />
+            <div>
+              <p className="text-sm font-semibold text-[var(--color-text-primary)]">松开后自动导入扩展</p>
+              <p className="text-xs text-[var(--color-text-muted)] mt-1">支持 ZIP、CRX 和已解压的扩展目录，目录会自动识别层级</p>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold text-[var(--color-text-primary)]">扩展插件管理</h1>
-          <p className="text-sm text-[var(--color-text-muted)] mt-1">管理已登记的浏览器扩展插件，本阶段支持本地压缩包和目录导入</p>
+          <p className="text-sm text-[var(--color-text-muted)] mt-1">管理已登记的浏览器扩展插件，支持拖拽 ZIP、CRX 或扩展目录导入</p>
         </div>
         <div className="flex items-center gap-2">
           <Button size="sm" variant="secondary" onClick={() => openImportModal('directory')}>

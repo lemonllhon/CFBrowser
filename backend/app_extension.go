@@ -129,7 +129,11 @@ func (a *App) BrowserExtensionImportDirectory(input BrowserExtensionImportInput)
 	if !info.IsDir() {
 		return nil, fmt.Errorf("请选择解压后的扩展目录")
 	}
-	return a.importExtensionFromDirectory(absSource, "directory", "", "", input)
+	extensionDir, err := findExtensionManifestRoot(absSource)
+	if err != nil {
+		return nil, err
+	}
+	return a.importExtensionFromDirectory(extensionDir, "directory", "", "", input)
 }
 
 // BrowserExtensionImportArchive 导入本地 ZIP/CRX 扩展压缩包。
