@@ -111,11 +111,22 @@ function useWailsNotifications() {
 
     const offPendingUpdate = runtime.EventsOn(
       'app:update:pending:notification',
-      (data: { version?: string }) => {
+      (data: { version?: string; message?: string }) => {
         addNotification({
           type: 'info',
           title: '更新已准备好',
-          message: data?.version ? `版本 ${data.version} 已下载，可在系统设置中完成安装` : '更新安装包已下载，可在系统设置中完成安装',
+          message: data?.message || (data?.version ? `版本 ${data.version} 已下载，可在系统设置中完成安装` : '更新安装包已下载，可在系统设置中完成安装'),
+        })
+      }
+    )
+
+    const offPendingInstallFailed = runtime.EventsOn(
+      'app:update:pending:install-failed',
+      (data: { version?: string; error?: string }) => {
+        addNotification({
+          type: 'error',
+          title: '自动安装更新失败',
+          message: data?.error || '启动安装程序失败，可在更新弹窗中手动重试',
         })
       }
     )
@@ -125,6 +136,7 @@ function useWailsNotifications() {
       offBridgeFailed?.()
       offBridgeDied?.()
       offPendingUpdate?.()
+      offPendingInstallFailed?.()
     }
   }, [addNotification])
 }
@@ -134,6 +146,7 @@ type PendingUpdateInfo = {
   installerPath?: string
   releaseUrl?: string
   extractedPath?: string
+  installOnNextStart?: boolean
 }
 
 type UpdateProgressInfo = {
@@ -219,7 +232,7 @@ function useAutoUpdateCheck() {
       addNotification({
         type: 'success',
         title: '更新下载完成',
-        message: installOnRestart ? '下次打开软件时会提示完成更新' : '安装程序即将启动',
+        message: installOnRestart ? '下次打开软件时会自动启动安装程序' : '安装程序即将启动',
       })
       if (installOnRestart) {
         setOpen(false)
@@ -319,7 +332,7 @@ function useAutoUpdateCheck() {
                 loading={action === 'download-next'}
                 disabled={!updateInfo?.installerAsset || (action !== 'none' && action !== 'download-next')}
               >
-                下次启动安装
+                下次启动自动安装
               </Button>
               <Button variant="danger" onClick={() => handleDownload(false)} loading={action === 'download-now'} disabled={!updateInfo?.installerAsset || (action !== 'none' && action !== 'download-now')}>
                 下载安装包并安装

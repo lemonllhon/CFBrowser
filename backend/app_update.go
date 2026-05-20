@@ -180,8 +180,12 @@ func (a *App) DownloadAppUpdate(info AppUpdateInfo, installOnRestart bool) (*App
 		return nil, err
 	}
 
+	message := "更新安装包已下载"
+	if installOnRestart {
+		message = "更新安装包已下载，下次启动将自动安装"
+	}
 	return &AppUpdateDownloadResult{
-		Message:          "更新安装包已下载",
+		Message:          message,
 		Version:          version,
 		InstallerPath:    targetPath,
 		PackagePath:      targetPath,
@@ -202,7 +206,11 @@ func (a *App) DownloadAndExtractPortableUpdate(info AppUpdateInfo) (*AppUpdateDo
 	if !strings.EqualFold(filepath.Ext(targetPath), ".zip") {
 		return nil, fmt.Errorf("下载的文件不是 ZIP 便携包: %s", filepath.Base(targetPath))
 	}
-	extractDir := a.resolveAppPath(filepath.Join("data", "updates", "portable-"+version))
+	safeVersion := sanitizeFileName(version)
+	if safeVersion == "" {
+		safeVersion = "latest"
+	}
+	extractDir := filepath.Join(a.appUpdateWorkDir(), "portable-"+safeVersion)
 	_ = os.RemoveAll(extractDir)
 	a.emitAppUpdateDownloadProgress("extracting", 100, "正在解压 ZIP 便携包...")
 	if err := unzipFileTo(targetPath, extractDir); err != nil {
@@ -257,7 +265,11 @@ func (a *App) OpenPath(path string) error {
 }
 
 func (a *App) downloadUpdateAsset(asset *AppUpdateAsset, version string) (string, error) {
-	updatesDir := a.resolveAppPath(filepath.Join("data", "updates"))
+	safeVersion := sanitizeFileName(version)
+	if safeVersion == "" {
+		safeVersion = "latest"
+	}
+	updatesDir := filepath.Join(a.appUpdateWorkDir(), safeVersion)
 	if err := os.MkdirAll(updatesDir, 0755); err != nil {
 		return "", fmt.Errorf("创建更新目录失败: %w", err)
 	}
@@ -301,10 +313,14 @@ func (a *App) InstallDownloadedAppUpdate(installerPath string) error {
 	if !isInstallableUpdatePackage(target) {
 		return fmt.Errorf("更新包不是可直接安装文件，请打开下载页手动下载 Setup 安装包: %s", filepath.Base(target))
 	}
-	if err := startInstaller(target); err != nil {
+	launchPath, err := a.prepareUpdateInstallerLaunchPath(target)
+	if err != nil {
+		return fmt.Errorf("准备安装程序失败: %w", err)
+	}
+	if err := a.startUpdateInstaller(launchPath); err != nil {
 		return fmt.Errorf("启动安装程序失败: %w", err)
 	}
-	_ = os.Remove(a.pendingAppUpdatePath())
+	a.clearPendingAppUpdate()
 	go func() {
 		time.Sleep(600 * time.Millisecond)
 		a.ForceQuit()
@@ -335,7 +351,7 @@ func (a *App) emitPendingAppUpdateIfNeeded() {
 		return
 	}
 	if _, err := os.Stat(pending.InstallerPath); err != nil {
-		_ = os.Remove(a.pendingAppUpdatePath())
+		a.clearPendingAppUpdate()
 		return
 	}
 	if a.ctx == nil {
@@ -343,6 +359,20 @@ func (a *App) emitPendingAppUpdateIfNeeded() {
 	}
 	go func() {
 		time.Sleep(1200 * time.Millisecond)
+		if pending.InstallOnNextStart {
+			runtime.EventsEmit(a.ctx, "app:update:pending:notification", map[string]interface{}{
+				"version": pending.Version,
+				"message": "更新安装包已下载，正在启动安装程序",
+			})
+			if err := a.InstallDownloadedAppUpdate(pending.InstallerPath); err != nil {
+				runtime.EventsEmit(a.ctx, "app:update:pending:install-failed", map[string]interface{}{
+					"version": pending.Version,
+					"error":   err.Error(),
+				})
+				runtime.EventsEmit(a.ctx, "app:update:pending", pending)
+			}
+			return
+		}
 		runtime.EventsEmit(a.ctx, "app:update:pending", pending)
 	}()
 }
@@ -554,7 +584,21 @@ func copyWithProgress(dst io.Writer, src io.Reader, totalSize int64, onProgress 
 }
 
 func (a *App) pendingAppUpdatePath() string {
+	return filepath.Join(a.appUpdateWorkDir(), "pending-update.json")
+}
+
+func (a *App) legacyPendingAppUpdatePath() string {
 	return a.resolveAppPath(filepath.Join("data", "updates", "pending-update.json"))
+}
+
+func (a *App) appUpdateWorkDir() string {
+	if base, err := os.UserCacheDir(); err == nil && strings.TrimSpace(base) != "" {
+		return filepath.Join(base, "Trace Browser", "updates")
+	}
+	if tmp := strings.TrimSpace(os.TempDir()); tmp != "" {
+		return filepath.Join(tmp, "trace-browser-updates")
+	}
+	return a.resolveAppPath(filepath.Join("data", "updates"))
 }
 
 func (a *App) savePendingAppUpdate(pending pendingAppUpdate) error {
@@ -572,6 +616,9 @@ func (a *App) savePendingAppUpdate(pending pendingAppUpdate) error {
 func (a *App) loadPendingAppUpdate() (*pendingAppUpdate, error) {
 	data, err := os.ReadFile(a.pendingAppUpdatePath())
 	if err != nil {
+		data, err = os.ReadFile(a.legacyPendingAppUpdatePath())
+	}
+	if err != nil {
 		return nil, err
 	}
 	var pending pendingAppUpdate
@@ -579,6 +626,115 @@ func (a *App) loadPendingAppUpdate() (*pendingAppUpdate, error) {
 		return nil, err
 	}
 	return &pending, nil
+}
+
+func (a *App) clearPendingAppUpdate() {
+	_ = os.Remove(a.pendingAppUpdatePath())
+	_ = os.Remove(a.legacyPendingAppUpdatePath())
+}
+
+func (a *App) prepareUpdateInstallerLaunchPath(path string) (string, error) {
+	if goruntime.GOOS != "windows" {
+		return path, nil
+	}
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	appRoot := a.appRootAbs()
+	if appRoot == "" || !pathInsideDir(absPath, appRoot) {
+		return absPath, nil
+	}
+
+	launchDir := filepath.Join(a.appUpdateWorkDir(), "installer-launch")
+	if err := os.MkdirAll(launchDir, 0755); err != nil {
+		return "", err
+	}
+	target := filepath.Join(launchDir, filepath.Base(absPath))
+	if strings.EqualFold(filepath.Clean(absPath), filepath.Clean(target)) {
+		return absPath, nil
+	}
+	if err := copyUpdateFile(absPath, target); err != nil {
+		return "", err
+	}
+	return target, nil
+}
+
+func (a *App) startUpdateInstaller(path string) error {
+	if goruntime.GOOS != "windows" {
+		return startInstaller(path)
+	}
+	scriptDir := filepath.Join(a.appUpdateWorkDir(), "helpers")
+	if err := os.MkdirAll(scriptDir, 0755); err != nil {
+		return err
+	}
+	scriptPath := filepath.Join(scriptDir, "start-update-installer.ps1")
+	logPath := filepath.Join(scriptDir, "start-update-installer.log")
+	if err := os.WriteFile(scriptPath, []byte(updateInstallerPowerShellScript()), 0600); err != nil {
+		return err
+	}
+
+	cmd := exec.Command(
+		"powershell.exe",
+		"-NoProfile",
+		"-ExecutionPolicy",
+		"Bypass",
+		"-WindowStyle",
+		"Hidden",
+		"-File",
+		scriptPath,
+		"-Installer",
+		path,
+		"-Pid",
+		fmt.Sprintf("%d", os.Getpid()),
+		"-LogPath",
+		logPath,
+	)
+	hideWindow(cmd)
+	return cmd.Start()
+}
+
+func pathInsideDir(path string, dir string) bool {
+	path = filepath.Clean(path)
+	dir = filepath.Clean(dir)
+	rel, err := filepath.Rel(dir, path)
+	if err != nil {
+		return false
+	}
+	return rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
+}
+
+func copyUpdateFile(src string, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return err
+	}
+	tmp := dst + "." + shortHash(src+"|"+dst) + ".tmp"
+	out, err := os.Create(tmp)
+	if err != nil {
+		return err
+	}
+	_, copyErr := io.Copy(out, in)
+	closeErr := out.Close()
+	if copyErr != nil {
+		_ = os.Remove(tmp)
+		return copyErr
+	}
+	if closeErr != nil {
+		_ = os.Remove(tmp)
+		return closeErr
+	}
+	_ = os.Remove(dst)
+	if err := os.Rename(tmp, dst); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 func startInstaller(path string) error {
@@ -606,6 +762,59 @@ func startInstaller(path string) error {
 		}
 		return exec.Command("xdg-open", path).Start()
 	}
+}
+
+func updateInstallerPowerShellScript() string {
+	return `param(
+  [Parameter(Mandatory = $true)][string]$Installer,
+  [Parameter(Mandatory = $true)][int]$Pid,
+  [Parameter(Mandatory = $true)][string]$LogPath
+)
+
+$ErrorActionPreference = 'Stop'
+
+function Write-TraceLog {
+  param([string]$Message)
+  $parent = Split-Path -Parent $LogPath
+  if ($parent -and -not (Test-Path -LiteralPath $parent)) {
+    New-Item -ItemType Directory -Path $parent -Force | Out-Null
+  }
+  Add-Content -LiteralPath $LogPath -Value ("{0} {1}" -f (Get-Date -Format o), $Message)
+}
+
+try {
+  Write-TraceLog "installer helper started"
+  if ($Pid -gt 0) {
+    $deadline = (Get-Date).AddSeconds(45)
+    while ((Get-Date) -lt $deadline) {
+      $proc = Get-Process -Id $Pid -ErrorAction SilentlyContinue
+      if (-not $proc) {
+        break
+      }
+      Start-Sleep -Milliseconds 250
+    }
+  }
+  Start-Sleep -Milliseconds 500
+
+  $installerPath = [System.IO.Path]::GetFullPath($Installer)
+  if (-not (Test-Path -LiteralPath $installerPath -PathType Leaf)) {
+    throw "installer missing: $installerPath"
+  }
+  $workDir = Split-Path -Parent $installerPath
+  $ext = [System.IO.Path]::GetExtension($installerPath).ToLowerInvariant()
+  Write-TraceLog "starting installer: $installerPath"
+  if ($ext -eq '.msi') {
+    Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/i', $installerPath) -WorkingDirectory $workDir
+  } else {
+    Start-Process -FilePath $installerPath -WorkingDirectory $workDir
+  }
+  Write-TraceLog "installer helper completed"
+  exit 0
+} catch {
+  Write-TraceLog ("installer helper failed: " + $_.Exception.Message)
+  exit 1
+}
+`
 }
 
 func isInstallableUpdatePackage(path string) bool {
