@@ -74,6 +74,13 @@ func SpeedTest(
 		testURL = cfg.URLs[0]
 	}
 
+	if IsSingBoxProtocol(src) && singboxMgr != nil {
+		return bridgeDelayTest(proxyId, src, proxies, xrayMgr, singboxMgr, testURL, cfg.Timeout)
+	}
+	if RequiresBridge(src, proxies, proxyId) && xrayMgr != nil {
+		return bridgeDelayTest(proxyId, src, proxies, xrayMgr, singboxMgr, testURL, cfg.Timeout)
+	}
+
 	// 将代理配置转换为 mihomo mapping
 	mapping, err := proxyConfigToMapping(src)
 	if err != nil {
@@ -97,6 +104,45 @@ func SpeedTest(
 
 	// unified-delay 测速：分离连接建立和 HTTP 往返计时
 	return unifiedDelayTest(proxyId, proxyInstance, testURL, cfg.Timeout)
+}
+
+func bridgeDelayTest(
+	proxyId string,
+	src string,
+	proxies []config.BrowserProxy,
+	xrayMgr *XrayManager,
+	singboxMgr *SingBoxManager,
+	testURL string,
+	timeout time.Duration,
+) TestResult {
+	client, err := buildProxyHTTPClient(src, proxyId, proxies, xrayMgr, singboxMgr, timeout)
+	if err != nil {
+		return TestResult{ProxyId: proxyId, Ok: false, Error: err.Error()}
+	}
+	return httpClientDelayTest(proxyId, client, testURL, timeout)
+}
+
+func httpClientDelayTest(proxyId string, client *http.Client, testURL string, timeout time.Duration) TestResult {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	defer client.CloseIdleConnections()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, testURL, nil)
+	if err != nil {
+		return TestResult{ProxyId: proxyId, Ok: false, Error: fmt.Sprintf("URL 解析失败: %v", err)}
+	}
+	start := time.Now()
+	resp, err := client.Do(req)
+	latency := time.Since(start).Milliseconds()
+	if err != nil {
+		return TestResult{ProxyId: proxyId, Ok: false, LatencyMs: latency, Error: err.Error()}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		return TestResult{ProxyId: proxyId, Ok: false, LatencyMs: latency, Error: fmt.Sprintf("HTTP %d", resp.StatusCode)}
+	}
+	return TestResult{ProxyId: proxyId, Ok: true, LatencyMs: latency}
 }
 
 // unifiedDelayTest 模拟 Clash unified-delay 模式：

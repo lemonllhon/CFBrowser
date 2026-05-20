@@ -111,6 +111,7 @@ func (b *switchingProxyBridge) switchNow() error {
 	if len(candidates) == 0 {
 		return fmt.Errorf("代理池分组 %q 没有可用代理", b.groupName)
 	}
+	candidates = preferHealthyProxyCandidates(candidates)
 
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -218,10 +219,87 @@ func (b *switchingProxyBridge) handleConnect(w http.ResponseWriter, r *http.Requ
 }
 
 func (b *switchingProxyBridge) handleHTTP(w http.ResponseWriter, r *http.Request) {
-	upstream, err := b.effectiveProxyURL()
+	resp, release, err := b.roundTripHTTP(r)
+	if err != nil && b.canFailoverOnRequestError() && shouldRetryProxyRequest(r) {
+		firstErr := err
+		if switchErr := b.switchNow(); switchErr == nil {
+			resp, release, err = b.roundTripHTTP(r)
+			if err != nil {
+				err = fmt.Errorf("%v; 切换后仍失败: %w", firstErr, err)
+			}
+		}
+	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
+	}
+	defer release()
+	defer resp.Body.Close()
+	copyHeader(w.Header(), resp.Header)
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, resp.Body)
+}
+
+func (b *switchingProxyBridge) dialTarget(ctx context.Context, target string) (net.Conn, error) {
+	conn, err := b.dialTargetOnce(ctx, target)
+	if err == nil {
+		return conn, nil
+	}
+
+	firstErr := err
+	if !b.canFailoverOnRequestError() {
+		return nil, firstErr
+	}
+	if switchErr := b.switchNow(); switchErr != nil {
+		return nil, firstErr
+	}
+	conn, err = b.dialTargetOnce(ctx, target)
+	if err != nil {
+		return nil, fmt.Errorf("%v; 切换后仍失败: %w", firstErr, err)
+	}
+	return conn, nil
+}
+
+func (b *switchingProxyBridge) dialTargetOnce(ctx context.Context, target string) (net.Conn, error) {
+	upstream, release, err := b.effectiveProxyURL()
+	if err != nil {
+		return nil, err
+	}
+	if upstream == "" {
+		var d net.Dialer
+		conn, err := d.DialContext(ctx, "tcp", target)
+		if err != nil {
+			release()
+			return nil, err
+		}
+		return newReleaseOnCloseConn(conn, release), nil
+	}
+	u, err := url.Parse(upstream)
+	if err != nil {
+		release()
+		return nil, err
+	}
+	var conn net.Conn
+	switch strings.ToLower(u.Scheme) {
+	case "socks5":
+		conn, err = socksDialContext(u)(ctx, "tcp", target)
+	case "http", "https":
+		conn, err = dialHTTPProxyConnect(ctx, u, target)
+	default:
+		release()
+		return nil, fmt.Errorf("不支持的中转上游协议: %s", u.Scheme)
+	}
+	if err != nil {
+		release()
+		return nil, err
+	}
+	return newReleaseOnCloseConn(conn, release), nil
+}
+
+func (b *switchingProxyBridge) roundTripHTTP(r *http.Request) (*http.Response, func(), error) {
+	upstream, release, err := b.effectiveProxyURL()
+	if err != nil {
+		return nil, nil, err
 	}
 	transport := &http.Transport{
 		DisableKeepAlives: true,
@@ -229,8 +307,8 @@ func (b *switchingProxyBridge) handleHTTP(w http.ResponseWriter, r *http.Request
 	if upstream != "" {
 		u, err := url.Parse(upstream)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
-			return
+			release()
+			return nil, nil, err
 		}
 		switch strings.ToLower(u.Scheme) {
 		case "http", "https":
@@ -245,46 +323,21 @@ func (b *switchingProxyBridge) handleHTTP(w http.ResponseWriter, r *http.Request
 	removeHopHeaders(req.Header)
 	resp, err := transport.RoundTrip(req)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
-		return
+		release()
+		return nil, nil, err
 	}
-	defer resp.Body.Close()
-	copyHeader(w.Header(), resp.Header)
-	w.WriteHeader(resp.StatusCode)
-	_, _ = io.Copy(w, resp.Body)
+	return resp, release, nil
 }
 
-func (b *switchingProxyBridge) dialTarget(ctx context.Context, target string) (net.Conn, error) {
-	upstream, err := b.effectiveProxyURL()
-	if err != nil {
-		return nil, err
-	}
-	if upstream == "" {
-		var d net.Dialer
-		return d.DialContext(ctx, "tcp", target)
-	}
-	u, err := url.Parse(upstream)
-	if err != nil {
-		return nil, err
-	}
-	switch strings.ToLower(u.Scheme) {
-	case "socks5":
-		return socksDialContext(u)(ctx, "tcp", target)
-	case "http", "https":
-		return dialHTTPProxyConnect(ctx, u, target)
-	default:
-		return nil, fmt.Errorf("不支持的中转上游协议: %s", u.Scheme)
-	}
-}
-
-func (b *switchingProxyBridge) effectiveProxyURL() (string, error) {
+func (b *switchingProxyBridge) effectiveProxyURL() (string, func(), error) {
+	noopRelease := func() {}
 	b.mu.RLock()
 	current := b.current
 	hasCurrent := b.hasCurrent
 	b.mu.RUnlock()
 	if !hasCurrent {
 		if err := b.switchNow(); err != nil {
-			return "", err
+			return "", nil, err
 		}
 		b.mu.RLock()
 		current = b.current
@@ -293,31 +346,63 @@ func (b *switchingProxyBridge) effectiveProxyURL() (string, error) {
 	proxies := b.app.getLatestProxies()
 	src := strings.TrimSpace(current.ProxyConfig)
 	if supported, errorMsg := proxy.ValidateProxyConfig(src, proxies, current.ProxyId); !supported {
-		return "", fmt.Errorf("%s", errorMsg)
+		return "", nil, fmt.Errorf("%s", errorMsg)
 	}
 	if strings.EqualFold(src, "direct://") {
-		return "", nil
+		return "", noopRelease, nil
 	}
 	if proxy.IsSingBoxProtocol(src) {
 		if b.app.singboxMgr == nil {
-			return "", fmt.Errorf("sing-box 管理器未初始化")
+			return "", nil, fmt.Errorf("sing-box 管理器未初始化")
 		}
-		return b.app.singboxMgr.EnsureBridge(src, proxies, current.ProxyId)
+		socksURL, err := b.app.singboxMgr.EnsureBridge(src, proxies, current.ProxyId)
+		return socksURL, noopRelease, err
 	}
 	if proxy.RequiresBridge(src, proxies, current.ProxyId) {
 		if b.app.xrayMgr == nil {
-			return "", fmt.Errorf("xray 管理器未初始化")
+			return "", nil, fmt.Errorf("xray 管理器未初始化")
 		}
-		return b.app.xrayMgr.EnsureBridge(src, proxies, current.ProxyId)
+		socksURL, bridgeKey, err := b.app.xrayMgr.AcquireBridge(src, proxies, current.ProxyId)
+		if err != nil {
+			return "", nil, err
+		}
+		return socksURL, func() {
+			if bridgeKey != "" {
+				b.app.xrayMgr.ReleaseBridge(bridgeKey)
+			}
+		}, nil
 	}
 	standard, _, err := proxy.ParseProxyNode(src)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if standard == "" {
-		return "", fmt.Errorf("代理节点无法转换为标准中转地址")
+		return "", nil, fmt.Errorf("代理节点无法转换为标准中转地址")
 	}
-	return standard, nil
+	return standard, noopRelease, nil
+}
+
+func (b *switchingProxyBridge) canFailoverOnRequestError() bool {
+	return b != nil && b.mode == proxySwitchModeInterval
+}
+
+type releaseOnCloseConn struct {
+	net.Conn
+	release func()
+	once    sync.Once
+}
+
+func newReleaseOnCloseConn(conn net.Conn, release func()) net.Conn {
+	if conn == nil || release == nil {
+		return conn
+	}
+	return &releaseOnCloseConn{Conn: conn, release: release}
+}
+
+func (c *releaseOnCloseConn) Close() error {
+	err := c.Conn.Close()
+	c.once.Do(c.release)
+	return err
 }
 
 func socksDialContext(u *url.URL) func(context.Context, string, string) (net.Conn, error) {
@@ -411,6 +496,31 @@ func copyHeader(dst, src http.Header) {
 			dst.Add(k, v)
 		}
 	}
+}
+
+func shouldRetryProxyRequest(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	switch r.Method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return true
+	default:
+		return false
+	}
+}
+
+func preferHealthyProxyCandidates(candidates []config.BrowserProxy) []config.BrowserProxy {
+	healthy := make([]config.BrowserProxy, 0, len(candidates))
+	for _, item := range candidates {
+		if item.LastTestOk {
+			healthy = append(healthy, item)
+		}
+	}
+	if len(healthy) == 0 {
+		return candidates
+	}
+	return healthy
 }
 
 const (

@@ -32,6 +32,7 @@ type SingBoxManager struct {
 	Config       *config.Config
 	AppRoot      string // 应用根目录，所有相对路径基于此解析
 	Bridges      map[string]*SingBoxBridge
+	launchLocks  map[string]*sync.Mutex
 	OnBridgeDied func(key string, err error)
 	mu           sync.Mutex
 }
@@ -39,9 +40,10 @@ type SingBoxManager struct {
 // NewSingBoxManager 创建 sing-box 管理器
 func NewSingBoxManager(cfg *config.Config, appRoot string) *SingBoxManager {
 	return &SingBoxManager{
-		Config:  cfg,
-		AppRoot: appRoot,
-		Bridges: make(map[string]*SingBoxBridge),
+		Config:      cfg,
+		AppRoot:     appRoot,
+		Bridges:     make(map[string]*SingBoxBridge),
+		launchLocks: make(map[string]*sync.Mutex),
 	}
 }
 
@@ -69,6 +71,15 @@ func (m *SingBoxManager) EnsureBridge(proxyConfig string, proxies []config.Brows
 	}
 
 	key := computeNodeKey(src)
+
+	if socksURL, reused := m.tryReuseBridge(key); reused {
+		log.Info("复用 sing-box 桥接", logger.F("key", key[:8]), logger.F("socks_url", socksURL))
+		return socksURL, nil
+	}
+
+	launchLock := m.launchLockFor(key)
+	launchLock.Lock()
+	defer launchLock.Unlock()
 
 	if socksURL, reused := m.tryReuseBridge(key); reused {
 		log.Info("复用 sing-box 桥接", logger.F("key", key[:8]), logger.F("socks_url", socksURL))
@@ -157,6 +168,21 @@ func (m *SingBoxManager) EnsureBridge(proxyConfig string, proxies []config.Brows
 	}
 
 	return "", fmt.Errorf("sing-box 启动失败（已重试 %d 次）: %w", maxRetries, lastErr)
+}
+
+func (m *SingBoxManager) launchLockFor(key string) *sync.Mutex {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.launchLocks == nil {
+		m.launchLocks = make(map[string]*sync.Mutex)
+	}
+	lock, ok := m.launchLocks[key]
+	if !ok || lock == nil {
+		lock = &sync.Mutex{}
+		m.launchLocks[key] = lock
+	}
+	return lock
 }
 
 // StopAll 关闭所有 sing-box 桥接进程
