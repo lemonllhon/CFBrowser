@@ -16,6 +16,8 @@ type ExtensionDAO interface {
 	Upsert(extension Extension) error
 	Delete(extensionId string) error
 	CountBindings(extensionId string) (int, error)
+	ListAutoBindEnabled() ([]Extension, error)
+	SetAutoBind(extensionId string, enabled bool, mode string) error
 	ListBindings(extensionId string) ([]ExtensionBinding, error)
 	ListBindingsByProfile(profileId string) ([]ExtensionBinding, error)
 	UpsertBinding(binding ExtensionBinding) error
@@ -46,11 +48,14 @@ func (d *SQLiteExtensionDAO) EnsureSchema() error {
 			install_dir      TEXT NOT NULL DEFAULT '',
 			package_path     TEXT NOT NULL DEFAULT '',
 			manifest_json    TEXT NOT NULL DEFAULT '',
+			auto_bind_enabled INTEGER NOT NULL DEFAULT 0,
+			auto_bind_mode    TEXT NOT NULL DEFAULT 'shared',
 			created_at       TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at       TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_browser_extensions_updated_at ON browser_extensions(updated_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_browser_extensions_source_type ON browser_extensions(source_type)`,
+		`CREATE INDEX IF NOT EXISTS idx_browser_extensions_auto_bind ON browser_extensions(auto_bind_enabled)`,
 		`CREATE TABLE IF NOT EXISTS browser_profile_extensions (
 			id            INTEGER PRIMARY KEY AUTOINCREMENT,
 			profile_id    TEXT NOT NULL,
@@ -71,6 +76,12 @@ func (d *SQLiteExtensionDAO) EnsureSchema() error {
 			return fmt.Errorf("初始化扩展插件表失败: %w", err)
 		}
 	}
+	if err := d.ensureColumn("browser_extensions", "auto_bind_enabled", `ALTER TABLE browser_extensions ADD COLUMN auto_bind_enabled INTEGER NOT NULL DEFAULT 0`); err != nil {
+		return err
+	}
+	if err := d.ensureColumn("browser_extensions", "auto_bind_mode", `ALTER TABLE browser_extensions ADD COLUMN auto_bind_mode TEXT NOT NULL DEFAULT 'shared'`); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -80,6 +91,7 @@ func (d *SQLiteExtensionDAO) List() ([]Extension, error) {
 		SELECT e.extension_id, e.name, e.version, e.manifest_version, e.description,
 		       e.source_type, e.source_url, e.install_dir, e.package_path, e.manifest_json,
 		       COALESCE(COUNT(pe.id), 0) AS bound_count,
+		       COALESCE(e.auto_bind_enabled, 0), COALESCE(e.auto_bind_mode, 'shared'),
 		       e.created_at, e.updated_at
 		FROM browser_extensions e
 		LEFT JOIN browser_profile_extensions pe
@@ -108,6 +120,7 @@ func (d *SQLiteExtensionDAO) Get(extensionId string) (*Extension, error) {
 		SELECT e.extension_id, e.name, e.version, e.manifest_version, e.description,
 		       e.source_type, e.source_url, e.install_dir, e.package_path, e.manifest_json,
 		       COALESCE(COUNT(pe.id), 0) AS bound_count,
+		       COALESCE(e.auto_bind_enabled, 0), COALESCE(e.auto_bind_mode, 'shared'),
 		       e.created_at, e.updated_at
 		FROM browser_extensions e
 		LEFT JOIN browser_profile_extensions pe
@@ -127,6 +140,7 @@ func (d *SQLiteExtensionDAO) FindByNameVersion(name string, version string) (*Ex
 		SELECT e.extension_id, e.name, e.version, e.manifest_version, e.description,
 		       e.source_type, e.source_url, e.install_dir, e.package_path, e.manifest_json,
 		       COALESCE(COUNT(pe.id), 0) AS bound_count,
+		       COALESCE(e.auto_bind_enabled, 0), COALESCE(e.auto_bind_mode, 'shared'),
 		       e.created_at, e.updated_at
 		FROM browser_extensions e
 		LEFT JOIN browser_profile_extensions pe
@@ -154,8 +168,9 @@ func (d *SQLiteExtensionDAO) Upsert(extension Extension) error {
 	_, err := d.db.Exec(`
 		INSERT INTO browser_extensions
 		  (extension_id, name, version, manifest_version, description, source_type,
-		   source_url, install_dir, package_path, manifest_json, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		   source_url, install_dir, package_path, manifest_json, auto_bind_enabled,
+		   auto_bind_mode, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(extension_id) DO UPDATE SET
 		  name             = excluded.name,
 		  version          = excluded.version,
@@ -166,10 +181,13 @@ func (d *SQLiteExtensionDAO) Upsert(extension Extension) error {
 		  install_dir      = excluded.install_dir,
 		  package_path     = excluded.package_path,
 		  manifest_json    = excluded.manifest_json,
+		  auto_bind_enabled = excluded.auto_bind_enabled,
+		  auto_bind_mode    = excluded.auto_bind_mode,
 		  updated_at       = excluded.updated_at`,
 		extension.ExtensionId, extension.Name, extension.Version, extension.ManifestVersion,
 		extension.Description, extension.SourceType, extension.SourceURL, extension.InstallDir,
-		extension.PackagePath, extension.ManifestJSON, extension.CreatedAt, extension.UpdatedAt,
+		extension.PackagePath, extension.ManifestJSON, boolToInt(extension.AutoBindEnabled),
+		normalizeExtensionModeForDAO(extension.AutoBindMode), extension.CreatedAt, extension.UpdatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("保存扩展插件失败: %w", err)
@@ -197,6 +215,51 @@ func (d *SQLiteExtensionDAO) CountBindings(extensionId string) (int, error) {
 		return 0, fmt.Errorf("统计扩展绑定数量失败: %w", err)
 	}
 	return count, nil
+}
+
+// ListAutoBindEnabled 查询开启自动绑定的扩展。
+func (d *SQLiteExtensionDAO) ListAutoBindEnabled() ([]Extension, error) {
+	rows, err := d.db.Query(`
+		SELECT e.extension_id, e.name, e.version, e.manifest_version, e.description,
+		       e.source_type, e.source_url, e.install_dir, e.package_path, e.manifest_json,
+		       COALESCE(COUNT(pe.id), 0) AS bound_count,
+		       COALESCE(e.auto_bind_enabled, 0), COALESCE(e.auto_bind_mode, 'shared'),
+		       e.created_at, e.updated_at
+		FROM browser_extensions e
+		LEFT JOIN browser_profile_extensions pe
+		  ON pe.extension_id = e.extension_id AND COALESCE(pe.enabled, 1) = 1
+		WHERE COALESCE(e.auto_bind_enabled, 0) = 1
+		GROUP BY e.extension_id
+		ORDER BY e.updated_at DESC, e.created_at DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("查询自动绑定扩展失败: %w", err)
+	}
+	defer rows.Close()
+
+	var list []Extension
+	for rows.Next() {
+		item, err := scanExtension(rows)
+		if err != nil {
+			return nil, err
+		}
+		list = append(list, *item)
+	}
+	return list, rows.Err()
+}
+
+// SetAutoBind 设置扩展自动绑定配置。
+func (d *SQLiteExtensionDAO) SetAutoBind(extensionId string, enabled bool, mode string) error {
+	now := time.Now().Format(time.RFC3339)
+	_, err := d.db.Exec(`
+		UPDATE browser_extensions
+		SET auto_bind_enabled = ?, auto_bind_mode = ?, updated_at = ?
+		WHERE extension_id = ?`,
+		boolToInt(enabled), normalizeExtensionModeForDAO(mode), now, extensionId,
+	)
+	if err != nil {
+		return fmt.Errorf("保存自动绑定配置失败: %w", err)
+	}
+	return nil
 }
 
 // ListBindings 查询某个扩展绑定的实例列表。
@@ -295,13 +358,16 @@ func (d *SQLiteExtensionDAO) DeleteBinding(profileId string, extensionId string)
 
 func scanExtension(s scanner) (*Extension, error) {
 	var item Extension
+	var autoBindEnabled int
 	if err := s.Scan(
 		&item.ExtensionId, &item.Name, &item.Version, &item.ManifestVersion, &item.Description,
 		&item.SourceType, &item.SourceURL, &item.InstallDir, &item.PackagePath, &item.ManifestJSON,
-		&item.BoundCount, &item.CreatedAt, &item.UpdatedAt,
+		&item.BoundCount, &autoBindEnabled, &item.AutoBindMode, &item.CreatedAt, &item.UpdatedAt,
 	); err != nil {
 		return nil, err
 	}
+	item.AutoBindEnabled = autoBindEnabled != 0
+	item.AutoBindMode = normalizeExtensionModeForDAO(item.AutoBindMode)
 	return &item, nil
 }
 
@@ -317,4 +383,47 @@ func scanExtensionBinding(s scanner) (*ExtensionBinding, error) {
 	}
 	item.Enabled = enabled != 0
 	return &item, nil
+}
+
+func (d *SQLiteExtensionDAO) ensureColumn(table string, column string, stmt string) error {
+	rows, err := d.db.Query(fmt.Sprintf(`PRAGMA table_info(%s)`, table))
+	if err != nil {
+		return fmt.Errorf("检查扩展插件表结构失败: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name string
+		var typ string
+		var notNull int
+		var defaultValue interface{}
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
+			return err
+		}
+		if name == column {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if _, err := d.db.Exec(stmt); err != nil {
+		return fmt.Errorf("补齐扩展插件表字段失败: %w", err)
+	}
+	return nil
+}
+
+func boolToInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
+}
+
+func normalizeExtensionModeForDAO(mode string) string {
+	if mode == "exclusive" {
+		return "exclusive"
+	}
+	return "shared"
 }

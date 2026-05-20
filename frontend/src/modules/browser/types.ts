@@ -142,6 +142,8 @@ export interface BrowserExtension {
   packagePath: string
   manifestJson: string
   boundCount: number
+  autoBindEnabled: boolean
+  autoBindMode: 'shared' | 'exclusive' | string
   createdAt: string
   updatedAt: string
 }
@@ -181,6 +183,12 @@ export interface BrowserExtensionAssignInput {
   profileIds: string[]
   mode: 'shared' | 'exclusive' | string
   enabled: boolean
+}
+
+export interface BrowserExtensionAutoBindInput {
+  extensionId: string
+  enabled: boolean
+  mode: 'shared' | 'exclusive' | string
 }
 
 export interface BrowserExtensionUnassignInput {

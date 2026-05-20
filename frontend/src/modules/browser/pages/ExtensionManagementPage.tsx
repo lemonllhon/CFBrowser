@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
-import { Archive, FileCode2, FolderOpen, Link2, RefreshCw, Trash2, UploadCloud, Unlink } from 'lucide-react'
-import { Badge, Button, Card, ConfirmModal, FormItem, Input, Modal, Select, Table, toast } from '../../../shared/components'
+import { Archive, Eye, EyeOff, FileCode2, FolderOpen, Link2, RefreshCw, Settings2, Trash2, UploadCloud } from 'lucide-react'
+import { Badge, Button, Card, ConfirmModal, FormItem, Input, Modal, Select, Switch, Table, toast } from '../../../shared/components'
 import type { TableColumn } from '../../../shared/components/Table'
 import type { BrowserExtension, BrowserExtensionBinding, BrowserExtensionImportResult, BrowserProfile } from '../types'
-import { assignBrowserExtensionProfiles, chooseBrowserExtensionArchive, chooseBrowserExtensionDirectory, deleteBrowserExtension, fetchBrowserExtension, fetchBrowserExtensionProfileBindings, fetchBrowserExtensions, fetchBrowserProfiles, importBrowserExtensionArchive, importBrowserExtensionDirectory, unassignBrowserExtensionProfiles } from '../api'
+import { assignBrowserExtensionProfiles, chooseBrowserExtensionArchive, chooseBrowserExtensionDirectory, deleteBrowserExtension, fetchBrowserExtension, fetchBrowserExtensionProfileBindings, fetchBrowserExtensions, fetchBrowserProfiles, importBrowserExtensionArchive, importBrowserExtensionDirectory, setBrowserExtensionAutoBind, unassignBrowserExtensionProfiles } from '../api'
 import { OnFileDrop, OnFileDropOff } from '../../../wailsjs/runtime/runtime'
 
 const sourceTypeText: Record<string, string> = {
@@ -56,6 +56,11 @@ export function ExtensionManagementPage() {
   const [detailOpen, setDetailOpen] = useState(false)
   const [detailLoading, setDetailLoading] = useState(false)
   const [selectedExtension, setSelectedExtension] = useState<BrowserExtension | null>(null)
+  const [bindingModalOpen, setBindingModalOpen] = useState(false)
+  const [autoBindModalOpen, setAutoBindModalOpen] = useState(false)
+  const [autoBindEnabled, setAutoBindEnabled] = useState(false)
+  const [autoBindMode, setAutoBindMode] = useState<'shared' | 'exclusive'>('shared')
+  const [autoBindSaving, setAutoBindSaving] = useState(false)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [deletingExtension, setDeletingExtension] = useState<BrowserExtension | null>(null)
   const [importModalOpen, setImportModalOpen] = useState(false)
@@ -112,13 +117,8 @@ export function ExtensionManagementPage() {
     setSelectedExtension(record)
     setDetailOpen(true)
     setDetailLoading(true)
-    setBindings([])
-    setSelectedProfileIds(new Set())
     try {
-      const [detail] = await Promise.all([
-        fetchBrowserExtension(record.extensionId),
-        loadBindings(record.extensionId),
-      ])
+      const detail = await fetchBrowserExtension(record.extensionId)
       if (detail) {
         setSelectedExtension(detail)
       }
@@ -127,6 +127,34 @@ export function ExtensionManagementPage() {
     } finally {
       setDetailLoading(false)
     }
+  }
+
+  const handleOpenBinding = async (record: BrowserExtension) => {
+    setSelectedExtension(record)
+    setBindingModalOpen(true)
+    setSelectedProfileIds(new Set())
+    setBindingMode('shared')
+    setBindingEnabled(true)
+    setBindings([])
+    try {
+      const detail = await fetchBrowserExtension(record.extensionId)
+      if (detail) {
+        setSelectedExtension(detail)
+      }
+    } catch (error: any) {
+      toast.error(errorMessage(error, '加载扩展详情失败'), 6000)
+    }
+    await Promise.all([
+      loadProfiles(),
+      loadBindings(record.extensionId),
+    ])
+  }
+
+  const handleOpenAutoBind = (record: BrowserExtension) => {
+    setSelectedExtension(record)
+    setAutoBindEnabled(Boolean(record.autoBindEnabled))
+    setAutoBindMode(record.autoBindMode === 'exclusive' ? 'exclusive' : 'shared')
+    setAutoBindModalOpen(true)
   }
 
   const loadProfiles = async () => {
@@ -153,10 +181,6 @@ export function ExtensionManagementPage() {
   }
 
   const handleDeleteClick = (record: BrowserExtension) => {
-    if (record.boundCount > 0) {
-      toast.warning(`该扩展已绑定 ${record.boundCount} 个实例，请先解绑后再删除`)
-      return
-    }
     setDeletingExtension(record)
     setDeleteConfirmOpen(true)
   }
@@ -225,7 +249,6 @@ export function ExtensionManagementPage() {
       if (result.extension) {
         setSelectedExtension(result.extension)
         setDetailOpen(true)
-        await loadBindings(result.extension.extensionId)
       }
     } catch (error: any) {
       toast.error(errorMessage(error, '导入扩展插件失败'), 6000)
@@ -303,6 +326,7 @@ export function ExtensionManagementPage() {
   const boundProfileIds = useMemo(() => new Set(bindings.map(item => item.profileId)), [bindings])
 
   const toggleProfileSelection = (profileId: string) => {
+    if (boundProfileIds.has(profileId)) return
     setSelectedProfileIds(prev => {
       const next = new Set(prev)
       if (next.has(profileId)) {
@@ -331,9 +355,35 @@ export function ExtensionManagementPage() {
     await loadData(true)
   }
 
+  const handleSaveAutoBind = async () => {
+    if (!selectedExtension) return
+    setAutoBindSaving(true)
+    try {
+      const detail = await setBrowserExtensionAutoBind({
+        extensionId: selectedExtension.extensionId,
+        enabled: autoBindEnabled,
+        mode: autoBindMode,
+      })
+      if (detail) {
+        setSelectedExtension(detail)
+      }
+      await loadData(true)
+      if (bindingModalOpen) {
+        await loadBindings(selectedExtension.extensionId)
+      }
+      setAutoBindModalOpen(false)
+      const runningCount = profiles.filter(profile => profile.running).length
+      toast.success(autoBindEnabled && runningCount > 0 ? `自动绑定已开启，${runningCount} 个运行中实例需重启后生效` : (autoBindEnabled ? '自动绑定已开启' : '自动绑定已关闭'))
+    } catch (error: any) {
+      toast.error(errorMessage(error, '保存自动绑定失败'), 6000)
+    } finally {
+      setAutoBindSaving(false)
+    }
+  }
+
   const handleAssignSelectedProfiles = async () => {
     if (!selectedExtension) return
-    const profileIds = Array.from(selectedProfileIds)
+    const profileIds = Array.from(selectedProfileIds).filter(profileId => !boundProfileIds.has(profileId))
     if (profileIds.length === 0) {
       toast.warning('请选择要绑定的实例')
       return
@@ -382,20 +432,22 @@ export function ExtensionManagementPage() {
     }
   }
 
-  const handleToggleBindingEnabled = async (binding: BrowserExtensionBinding) => {
+  const handleUpdateBinding = async (binding: BrowserExtensionBinding, changes: Partial<Pick<BrowserExtensionBinding, 'mode' | 'enabled'>>) => {
     if (!selectedExtension) return
+    const nextMode = changes.mode || binding.mode || 'shared'
+    const nextEnabled = changes.enabled ?? binding.enabled
     setBindingSaving(true)
     try {
       const list = await assignBrowserExtensionProfiles({
         extensionId: selectedExtension.extensionId,
         profileIds: [binding.profileId],
-        mode: binding.mode || 'shared',
-        enabled: !binding.enabled,
+        mode: nextMode,
+        enabled: nextEnabled,
       })
       setBindings(list)
       await refreshSelectedExtension()
       const profile = profiles.find(item => item.profileId === binding.profileId)
-      const message = !binding.enabled ? '扩展绑定已启用' : '扩展绑定已停用'
+      const message = '扩展绑定已更新'
       toast.success(profile?.running ? `${message}，运行中实例需重启后生效` : message)
     } catch (error: any) {
       toast.error(errorMessage(error, '更新扩展绑定失败'), 6000)
@@ -414,6 +466,9 @@ export function ExtensionManagementPage() {
           <div className="flex items-center gap-2">
             <FileCode2 className="w-4 h-4 text-[var(--color-text-muted)] shrink-0" />
             <span className="font-medium text-[var(--color-text-primary)] truncate">{record.name || record.extensionId}</span>
+            {record.autoBindEnabled && (
+              <Badge size="sm" variant="success">自动{bindingModeLabel(record.autoBindMode)}</Badge>
+            )}
           </div>
           {record.description && (
             <p className="mt-1 text-xs text-[var(--color-text-muted)] line-clamp-1">{record.description}</p>
@@ -454,16 +509,26 @@ export function ExtensionManagementPage() {
     {
       key: 'actions',
       title: '操作',
-      width: '160px',
+      width: '250px',
       render: (_, record) => (
-        <div className="flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-center gap-1.5" onClick={(event) => event.stopPropagation()}>
           <Button size="sm" variant="ghost" onClick={() => handleOpenDetail(record)}>详情</Button>
+          <Button size="sm" variant="secondary" onClick={() => handleOpenBinding(record)} title="绑定实例">
+            <Eye className="w-4 h-4" />
+          </Button>
+          <Button
+            size="sm"
+            variant={record.autoBindEnabled ? 'primary' : 'secondary'}
+            onClick={() => handleOpenAutoBind(record)}
+            title={record.autoBindEnabled ? `自动绑定：${bindingModeLabel(record.autoBindMode)}` : '自动绑定'}
+          >
+            <Settings2 className="w-4 h-4" />
+          </Button>
           <Button
             size="sm"
             variant="danger"
             onClick={() => handleDeleteClick(record)}
-            disabled={record.boundCount > 0}
-            title={record.boundCount > 0 ? '已绑定实例，不能删除' : '删除扩展'}
+            title={record.boundCount > 0 ? '强制删除扩展，会先校验绑定实例是否全部未运行' : '删除扩展'}
           >
             <Trash2 className="w-4 h-4" />
           </Button>
@@ -527,7 +592,7 @@ export function ExtensionManagementPage() {
         </div>
       </div>
 
-      <Card title="扩展列表" subtitle="支持查看详情、导入本地扩展和删除未绑定扩展">
+      <Card title="扩展列表" subtitle="支持查看详情、绑定实例、自动绑定和安全删除扩展">
         <Table
           columns={columns}
           data={extensions}
@@ -536,7 +601,7 @@ export function ExtensionManagementPage() {
           emptyText="暂无扩展插件，可以从本地压缩包或解压目录导入。"
           onRowClick={handleOpenDetail}
           tableLayout="fixed"
-          tableMinWidth="940px"
+          tableMinWidth="1060px"
         />
       </Card>
 
@@ -563,113 +628,194 @@ export function ExtensionManagementPage() {
               <DetailItem label="Manifest 版本" value={selectedExtension.manifestVersion ? `MV${selectedExtension.manifestVersion}` : '-'} />
               <DetailItem label="来源" value={sourceLabel(selectedExtension.sourceType)} />
               <DetailItem label="绑定实例数量" value={String(selectedExtension.boundCount || 0)} />
+              <DetailItem label="自动绑定" value={selectedExtension.autoBindEnabled ? `开启 / ${bindingModeLabel(selectedExtension.autoBindMode)}` : '关闭'} />
               <DetailItem label="更新时间" value={formatTime(selectedExtension.updatedAt)} />
               <DetailItem label="安装目录" value={selectedExtension.installDir || '-'} wide />
               <DetailItem label="来源地址" value={selectedExtension.sourceUrl || '-'} wide />
               <DetailItem label="原始包路径" value={selectedExtension.packagePath || '-'} wide />
             </div>
             <div>
-              <div className="flex items-center justify-between gap-3 mb-3">
-                <div>
-                  <p className="text-sm font-semibold text-[var(--color-text-primary)]">绑定实例</p>
-                  <p className="text-xs text-[var(--color-text-muted)] mt-1">共享模式复用同一份扩展，独享模式会复制实例专属目录。</p>
-                </div>
-                <Button size="sm" variant="secondary" onClick={() => selectedExtension && loadBindings(selectedExtension.extensionId)} loading={bindingsLoading}>
-                  {!bindingsLoading && <RefreshCw className="w-4 h-4" />}
-                  刷新绑定
-                </Button>
-              </div>
-
-              <div className="rounded-lg border border-[var(--color-border-default)] overflow-hidden">
-                <div className="grid grid-cols-[34px_1fr_82px_82px_148px] items-center gap-2 bg-[var(--color-bg-muted)] px-3 py-2 text-xs font-medium text-[var(--color-text-muted)]">
-                  <span />
-                  <span>实例</span>
-                  <span>模式</span>
-                  <span>状态</span>
-                  <span className="text-right">操作</span>
-                </div>
-                <div className="max-h-64 overflow-auto divide-y divide-[var(--color-border-default)]">
-                  {profiles.length === 0 ? (
-                    <div className="px-3 py-8 text-center text-sm text-[var(--color-text-muted)]">暂无浏览器实例</div>
-                  ) : profiles.map(profile => {
-                    const binding = bindingMap.get(profile.profileId)
-                    const checked = selectedProfileIds.has(profile.profileId)
-                    return (
-                      <div key={profile.profileId} className="grid grid-cols-[34px_1fr_82px_82px_148px] items-center gap-2 px-3 py-2">
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => toggleProfileSelection(profile.profileId)}
-                          disabled={bindingSaving}
-                          className="h-4 w-4"
-                        />
-                        <div className="min-w-0">
-                          <p className="truncate text-sm text-[var(--color-text-primary)]">{profile.profileName || profile.profileId}</p>
-                          <p className="truncate text-xs text-[var(--color-text-muted)]">{profile.profileId}</p>
-                        </div>
-                        <Badge variant={binding?.mode === 'exclusive' ? 'warning' : binding ? 'info' : 'default'}>{binding ? bindingModeLabel(binding.mode) : '未绑定'}</Badge>
-                        <Badge variant={binding?.enabled ? 'success' : binding ? 'default' : 'default'}>{binding ? (binding.enabled ? '启用' : '停用') : '-'}</Badge>
-                        <div className="flex justify-end gap-1" onClick={(event) => event.stopPropagation()}>
-                          {binding && (
-                            <>
-                              <Button size="sm" variant="ghost" onClick={() => handleToggleBindingEnabled(binding)} loading={bindingSaving}>
-                                {binding.enabled ? '停用' : '启用'}
-                              </Button>
-                              <Button size="sm" variant="danger" onClick={() => handleUnassignProfiles([profile.profileId])} disabled={bindingSaving} title="解绑">
-                                <Unlink className="w-4 h-4" />
-                              </Button>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-
-              <div className="mt-3 grid grid-cols-1 md:grid-cols-[1fr_150px_120px_auto] gap-2 items-end">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button size="sm" variant="secondary" onClick={handleSelectUnboundProfiles} disabled={bindingSaving || profiles.length === 0}>选择未绑定</Button>
-                  <Button size="sm" variant="ghost" onClick={handleClearProfileSelection} disabled={bindingSaving || selectedProfileIds.size === 0}>清空选择</Button>
-                  <span className="text-xs text-[var(--color-text-muted)]">已选 {selectedProfileIds.size} 个实例</span>
-                  {selectedProfilesNeedRestart && (
-                    <span className="text-xs text-[var(--color-warning)]">运行中实例需重启后生效</span>
-                  )}
-                </div>
-                <FormItem label="绑定模式">
-                  <Select
-                    value={bindingMode}
-                    onChange={(event) => setBindingMode(event.target.value as 'shared' | 'exclusive')}
-                    disabled={bindingSaving}
-                    options={[
-                      { value: 'shared', label: '共享' },
-                      { value: 'exclusive', label: '独享' },
-                    ]}
-                  />
-                </FormItem>
-                <FormItem label="状态">
-                  <Select
-                    value={bindingEnabled ? 'enabled' : 'disabled'}
-                    onChange={(event) => setBindingEnabled(event.target.value === 'enabled')}
-                    disabled={bindingSaving}
-                    options={[
-                      { value: 'enabled', label: '启用' },
-                      { value: 'disabled', label: '停用' },
-                    ]}
-                  />
-                </FormItem>
-                <Button onClick={handleAssignSelectedProfiles} loading={bindingSaving} disabled={selectedProfileIds.size === 0}>
-                  {!bindingSaving && <Link2 className="w-4 h-4" />}
-                  保存绑定
-                </Button>
-              </div>
-            </div>
-
-            <div>
               <p className="text-xs font-medium text-[var(--color-text-muted)] mb-2">Manifest 快照</p>
               <pre className="max-h-72 overflow-auto rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-muted)] p-3 text-xs text-[var(--color-text-secondary)] whitespace-pre-wrap break-words">
                 {selectedExtension.manifestJson || '-'}
               </pre>
+            </div>
+          </div>
+        ) : (
+          <div className="py-10 text-center text-sm text-[var(--color-text-muted)]">未选择扩展</div>
+        )}
+      </Modal>
+
+      <Modal
+        open={bindingModalOpen}
+        onClose={() => {
+          if (!bindingSaving) setBindingModalOpen(false)
+        }}
+        title="绑定实例"
+        width="980px"
+        footer={<Button variant="secondary" onClick={() => setBindingModalOpen(false)} disabled={bindingSaving}>关闭</Button>}
+      >
+        {selectedExtension ? (
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="truncate text-base font-semibold text-[var(--color-text-primary)]">{selectedExtension.name || selectedExtension.extensionId}</h3>
+                <p className="mt-1 text-xs text-[var(--color-text-muted)]">已绑定 {bindings.length} 个实例，当前扩展 ID：{selectedExtension.extensionId}</p>
+              </div>
+              <Button size="sm" variant="secondary" onClick={() => selectedExtension && loadBindings(selectedExtension.extensionId)} loading={bindingsLoading}>
+                {!bindingsLoading && <RefreshCw className="w-4 h-4" />}
+                刷新
+              </Button>
+            </div>
+
+            <div className="rounded-lg border border-[var(--color-border-default)] overflow-hidden">
+              <div className="grid grid-cols-[34px_minmax(220px,1fr)_86px_96px_270px] items-center gap-2 bg-[var(--color-bg-muted)] px-3 py-2 text-xs font-medium text-[var(--color-text-muted)]">
+                <span />
+                <span>实例</span>
+                <span>运行</span>
+                <span>绑定</span>
+                <span className="text-right">操作</span>
+              </div>
+              <div className="max-h-80 overflow-auto divide-y divide-[var(--color-border-default)]">
+                {profiles.length === 0 ? (
+                  <div className="px-3 py-8 text-center text-sm text-[var(--color-text-muted)]">暂无浏览器实例</div>
+                ) : profiles.map(profile => {
+                  const binding = bindingMap.get(profile.profileId)
+                  const checked = selectedProfileIds.has(profile.profileId)
+                  return (
+                    <div key={profile.profileId} className="grid grid-cols-[34px_minmax(220px,1fr)_86px_96px_270px] items-center gap-2 px-3 py-2">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleProfileSelection(profile.profileId)}
+                        disabled={bindingSaving || Boolean(binding)}
+                        className="h-4 w-4"
+                        title={binding ? '已绑定实例不能重复选择' : '选择后批量绑定'}
+                      />
+                      <div className="min-w-0">
+                        <p className="truncate text-sm text-[var(--color-text-primary)]">{profile.profileName || profile.profileId}</p>
+                        <p className="truncate text-xs text-[var(--color-text-muted)]">{profile.profileId}</p>
+                      </div>
+                      <Badge variant={profile.running ? 'success' : 'default'}>{profile.running ? '运行中' : '未运行'}</Badge>
+                      <Badge variant={binding?.enabled ? 'success' : binding ? 'default' : 'default'}>{binding ? (binding.enabled ? '启用' : '停用') : '未绑定'}</Badge>
+                      <div className="flex items-center justify-end gap-1.5" onClick={(event) => event.stopPropagation()}>
+                        {binding ? (
+                          <>
+                            <Select
+                              value={binding.mode === 'exclusive' ? 'exclusive' : 'shared'}
+                              onChange={(event) => handleUpdateBinding(binding, { mode: event.target.value })}
+                              disabled={bindingSaving}
+                              className="w-24"
+                              options={[
+                                { value: 'shared', label: '共享' },
+                                { value: 'exclusive', label: '独享' },
+                              ]}
+                            />
+                            <Select
+                              value={binding.enabled ? 'enabled' : 'disabled'}
+                              onChange={(event) => handleUpdateBinding(binding, { enabled: event.target.value === 'enabled' })}
+                              disabled={bindingSaving}
+                              className="w-20"
+                              options={[
+                                { value: 'enabled', label: '启用' },
+                                { value: 'disabled', label: '停用' },
+                              ]}
+                            />
+                            <Button size="sm" variant="danger" onClick={() => handleUnassignProfiles([profile.profileId])} disabled={bindingSaving} title="解绑当前实例">
+                              <EyeOff className="w-4 h-4" />
+                            </Button>
+                          </>
+                        ) : (
+                          <span className="text-xs text-[var(--color-text-muted)]">勾选后批量绑定</span>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-[1fr_150px_120px_auto] gap-2 items-end">
+              <div className="flex flex-wrap items-center gap-2">
+                <Button size="sm" variant="secondary" onClick={handleSelectUnboundProfiles} disabled={bindingSaving || profiles.length === 0}>选择未绑定</Button>
+                <Button size="sm" variant="ghost" onClick={handleClearProfileSelection} disabled={bindingSaving || selectedProfileIds.size === 0}>清空选择</Button>
+                <span className="text-xs text-[var(--color-text-muted)]">已选 {selectedProfileIds.size} 个实例</span>
+                {selectedProfilesNeedRestart && (
+                  <span className="text-xs text-[var(--color-warning)]">运行中实例需重启后生效</span>
+                )}
+              </div>
+              <FormItem label="绑定模式">
+                <Select
+                  value={bindingMode}
+                  onChange={(event) => setBindingMode(event.target.value as 'shared' | 'exclusive')}
+                  disabled={bindingSaving}
+                  options={[
+                    { value: 'shared', label: '共享' },
+                    { value: 'exclusive', label: '独享' },
+                  ]}
+                />
+              </FormItem>
+              <FormItem label="状态">
+                <Select
+                  value={bindingEnabled ? 'enabled' : 'disabled'}
+                  onChange={(event) => setBindingEnabled(event.target.value === 'enabled')}
+                  disabled={bindingSaving}
+                  options={[
+                    { value: 'enabled', label: '启用' },
+                    { value: 'disabled', label: '停用' },
+                  ]}
+                />
+              </FormItem>
+              <Button onClick={handleAssignSelectedProfiles} loading={bindingSaving} disabled={selectedProfileIds.size === 0}>
+                {!bindingSaving && <Link2 className="w-4 h-4" />}
+                保存绑定
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="py-10 text-center text-sm text-[var(--color-text-muted)]">未选择扩展</div>
+        )}
+      </Modal>
+
+      <Modal
+        open={autoBindModalOpen}
+        onClose={() => {
+          if (!autoBindSaving) setAutoBindModalOpen(false)
+        }}
+        title="自动绑定"
+        width="520px"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setAutoBindModalOpen(false)} disabled={autoBindSaving}>取消</Button>
+            <Button onClick={handleSaveAutoBind} loading={autoBindSaving}>保存</Button>
+          </>
+        }
+      >
+        {selectedExtension ? (
+          <div className="space-y-4">
+            <div className="min-w-0">
+              <h3 className="truncate text-base font-semibold text-[var(--color-text-primary)]">{selectedExtension.name || selectedExtension.extensionId}</h3>
+              <p className="mt-1 text-xs text-[var(--color-text-muted)]">{selectedExtension.extensionId}</p>
+            </div>
+            <FormItem label="自动绑定">
+              <div className="flex items-center gap-3 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] px-3 py-2">
+                <Switch checked={autoBindEnabled} onChange={setAutoBindEnabled} disabled={autoBindSaving} />
+                <span className="text-sm text-[var(--color-text-secondary)]">{autoBindEnabled ? '开启' : '关闭'}</span>
+              </div>
+            </FormItem>
+            <FormItem label="自动绑定模式">
+              <Select
+                value={autoBindMode}
+                onChange={(event) => setAutoBindMode(event.target.value as 'shared' | 'exclusive')}
+                disabled={autoBindSaving || !autoBindEnabled}
+                options={[
+                  { value: 'shared', label: '共享' },
+                  { value: 'exclusive', label: '独享' },
+                ]}
+              />
+            </FormItem>
+            <div className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-muted)] p-3 text-xs text-[var(--color-text-secondary)]">
+              开启后，新建、复制和启动实例时会自动绑定该扩展；保存时也会立即绑定当前已有实例。
             </div>
           </div>
         ) : (
@@ -766,7 +912,7 @@ export function ExtensionManagementPage() {
         onClose={() => setDeleteConfirmOpen(false)}
         onConfirm={handleDeleteConfirm}
         title="确认删除扩展"
-        content={`确定要删除扩展插件"${deletingExtension?.name || deletingExtension?.extensionId || ''}"吗？此操作会同时删除插件库中的目录。`}
+        content={`确定要删除扩展插件"${deletingExtension?.name || deletingExtension?.extensionId || ''}"吗？此操作会移除绑定关系并删除插件库目录；如果存在运行中的绑定实例，系统会拒绝删除。`}
         confirmText="删除"
         danger
       />

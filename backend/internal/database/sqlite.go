@@ -188,6 +188,15 @@ var migrations = []migration{
 			`CREATE INDEX IF NOT EXISTS idx_browser_profile_extensions_extension_id ON browser_profile_extensions(extension_id)`,
 		},
 	},
+	{
+		version: 10,
+		desc:    "扩展插件添加自动绑定配置",
+		stmts: []string{
+			`ALTER TABLE browser_extensions ADD COLUMN auto_bind_enabled INTEGER NOT NULL DEFAULT 0`,
+			`ALTER TABLE browser_extensions ADD COLUMN auto_bind_mode TEXT NOT NULL DEFAULT 'shared'`,
+			`CREATE INDEX IF NOT EXISTS idx_browser_extensions_auto_bind ON browser_extensions(auto_bind_enabled)`,
+		},
+	},
 	// ── 新版本在此追加，格式：
 	// {
 	//     version: 4,

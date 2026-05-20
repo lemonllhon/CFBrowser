@@ -59,6 +59,13 @@ type BrowserExtensionUnassignInput struct {
 	ProfileIds  []string `json:"profileIds"`
 }
 
+// BrowserExtensionAutoBindInput 扩展自动绑定配置输入。
+type BrowserExtensionAutoBindInput struct {
+	ExtensionId string `json:"extensionId"`
+	Enabled     bool   `json:"enabled"`
+	Mode        string `json:"mode"`
+}
+
 // BrowserExtensionList 获取扩展插件列表。
 func (a *App) BrowserExtensionList() ([]BrowserExtension, error) {
 	if err := a.syncExtensionLibraryDirectories(); err != nil {
@@ -246,46 +253,40 @@ func (a *App) BrowserExtensionAssignProfiles(input BrowserExtensionAssignInput) 
 		return nil, fmt.Errorf("请选择要绑定的实例")
 	}
 	mode := normalizeExtensionBindingMode(input.Mode)
-	now := time.Now().Format(time.RFC3339)
 	for _, profileId := range profileIds {
-		if _, err := a.requireProfile(profileId); err != nil {
+		if err := a.assignExtensionToProfile(dao, extension, profileId, mode, input.Enabled, true); err != nil {
 			return nil, err
-		}
-		oldExclusiveDir := ""
-		oldBindings, err := dao.ListBindingsByProfile(profileId)
-		if err != nil {
-			return nil, err
-		}
-		for _, binding := range oldBindings {
-			if binding.ExtensionId == extensionId {
-				oldExclusiveDir = strings.TrimSpace(binding.ExclusiveDir)
-				break
-			}
-		}
-		exclusiveDir := ""
-		if mode == "exclusive" {
-			exclusiveDir, err = a.prepareExtensionExclusiveDir(extension, profileId)
-			if err != nil {
-				return nil, err
-			}
-		}
-		if err := dao.UpsertBinding(browser.ExtensionBinding{
-			ProfileId:    profileId,
-			ExtensionId:  extensionId,
-			Mode:         mode,
-			Enabled:      input.Enabled,
-			ExclusiveDir: exclusiveDir,
-			UpdatedAt:    now,
-		}); err != nil {
-			return nil, err
-		}
-		if oldExclusiveDir != "" && oldExclusiveDir != exclusiveDir {
-			if err := a.removeExtensionExclusiveDir(oldExclusiveDir); err != nil {
-				return nil, err
-			}
 		}
 	}
 	return dao.ListBindings(extensionId)
+}
+
+// BrowserExtensionSetAutoBind 设置扩展自动绑定配置。
+func (a *App) BrowserExtensionSetAutoBind(input BrowserExtensionAutoBindInput) (*BrowserExtension, error) {
+	dao, err := a.extensionDAO()
+	if err != nil {
+		return nil, err
+	}
+	extensionId := strings.TrimSpace(input.ExtensionId)
+	if extensionId == "" {
+		return nil, fmt.Errorf("扩展插件 ID 不能为空")
+	}
+	extension, err := dao.Get(extensionId)
+	if err != nil {
+		return nil, err
+	}
+	mode := normalizeExtensionBindingMode(input.Mode)
+	if err := dao.SetAutoBind(extensionId, input.Enabled, mode); err != nil {
+		return nil, err
+	}
+	extension.AutoBindEnabled = input.Enabled
+	extension.AutoBindMode = mode
+	if input.Enabled {
+		if err := a.applyAutoBindExtensionToAllProfiles(dao, extension); err != nil {
+			return nil, err
+		}
+	}
+	return dao.Get(extensionId)
 }
 
 // BrowserExtensionUnassignProfiles 删除扩展与实例的绑定关系。
@@ -344,12 +345,18 @@ func (a *App) BrowserExtensionDelete(extensionId string) error {
 	if err != nil {
 		return err
 	}
-	count, err := dao.CountBindings(extensionId)
+	bindings, err := dao.ListBindings(extensionId)
 	if err != nil {
 		return err
 	}
-	if count > 0 {
-		return fmt.Errorf("扩展插件已绑定 %d 个实例，请先解绑后再删除", count)
+	for _, binding := range bindings {
+		if a.isProfileRunning(binding.ProfileId) {
+			name := strings.TrimSpace(binding.ProfileName)
+			if name == "" {
+				name = binding.ProfileId
+			}
+			return fmt.Errorf("扩展插件已绑定运行中的实例「%s」，请先停止相关实例后再删除", name)
+		}
 	}
 
 	installDir := strings.TrimSpace(extension.InstallDir)
@@ -362,8 +369,19 @@ func (a *App) BrowserExtensionDelete(extensionId string) error {
 		}
 	}
 
+	exclusiveDirs := make([]string, 0)
+	for _, binding := range bindings {
+		if dir := strings.TrimSpace(binding.ExclusiveDir); dir != "" {
+			exclusiveDirs = append(exclusiveDirs, dir)
+		}
+	}
 	if err := dao.Delete(extensionId); err != nil {
 		return err
+	}
+	for _, dir := range exclusiveDirs {
+		if err := a.removeExtensionExclusiveDir(dir); err != nil {
+			return err
+		}
 	}
 	if safeDir != "" {
 		if err := os.RemoveAll(safeDir); err != nil {
@@ -419,9 +437,13 @@ func (a *App) importExtensionFromDirectory(sourceDir string, sourceType string, 
 	now := time.Now().Format(time.RFC3339)
 	extensionId := uuid.NewString()
 	createdAt := now
+	autoBindEnabled := false
+	autoBindMode := "shared"
 	if existing != nil && mode == "overwrite" {
 		extensionId = existing.ExtensionId
 		createdAt = existing.CreatedAt
+		autoBindEnabled = existing.AutoBindEnabled
+		autoBindMode = existing.AutoBindMode
 	}
 
 	targetDir := filepath.Join(a.extensionLibraryRoot(), extensionId)
@@ -467,6 +489,8 @@ func (a *App) importExtensionFromDirectory(sourceDir string, sourceType string, 
 		InstallDir:      installDir,
 		PackagePath:     packageRel,
 		ManifestJSON:    info.ManifestJSON,
+		AutoBindEnabled: autoBindEnabled,
+		AutoBindMode:    autoBindMode,
 		CreatedAt:       createdAt,
 		UpdatedAt:       now,
 	}
@@ -494,6 +518,107 @@ func (a *App) extensionDAO() (browser.ExtensionDAO, error) {
 		return nil, err
 	}
 	return a.browserMgr.ExtensionDAO, nil
+}
+
+func (a *App) assignExtensionToProfile(dao browser.ExtensionDAO, extension *browser.Extension, profileId string, mode string, enabled bool, validateProfile bool) error {
+	if extension == nil {
+		return fmt.Errorf("扩展插件不存在")
+	}
+	profileId = strings.TrimSpace(profileId)
+	if profileId == "" {
+		return fmt.Errorf("实例 ID 不能为空")
+	}
+	if validateProfile {
+		if _, err := a.requireProfile(profileId); err != nil {
+			return err
+		}
+	}
+	mode = normalizeExtensionBindingMode(mode)
+	oldExclusiveDir := ""
+	oldBindings, err := dao.ListBindingsByProfile(profileId)
+	if err != nil {
+		return err
+	}
+	for _, binding := range oldBindings {
+		if binding.ExtensionId == extension.ExtensionId {
+			oldExclusiveDir = strings.TrimSpace(binding.ExclusiveDir)
+			break
+		}
+	}
+	exclusiveDir := ""
+	if mode == "exclusive" {
+		exclusiveDir, err = a.prepareExtensionExclusiveDir(extension, profileId)
+		if err != nil {
+			return err
+		}
+	}
+	if err := dao.UpsertBinding(browser.ExtensionBinding{
+		ProfileId:    profileId,
+		ExtensionId:  extension.ExtensionId,
+		Mode:         mode,
+		Enabled:      enabled,
+		ExclusiveDir: exclusiveDir,
+		UpdatedAt:    time.Now().Format(time.RFC3339),
+	}); err != nil {
+		return err
+	}
+	if oldExclusiveDir != "" && oldExclusiveDir != exclusiveDir {
+		if err := a.removeExtensionExclusiveDir(oldExclusiveDir); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (a *App) applyAutoBindExtensionToAllProfiles(dao browser.ExtensionDAO, extension *browser.Extension) error {
+	if a.browserMgr == nil || extension == nil {
+		return nil
+	}
+	profiles := a.browserMgr.List()
+	for _, profile := range profiles {
+		if err := a.assignExtensionToProfile(dao, extension, profile.ProfileId, extension.AutoBindMode, true, false); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (a *App) applyAutoBindExtensionsForProfile(profileId string) error {
+	if a.browserMgr == nil || a.browserMgr.ExtensionDAO == nil {
+		return nil
+	}
+	profileId = strings.TrimSpace(profileId)
+	if profileId == "" {
+		return nil
+	}
+	if _, err := a.requireProfile(profileId); err != nil {
+		return nil
+	}
+	dao, err := a.extensionDAO()
+	if err != nil {
+		return err
+	}
+	extensions, err := dao.ListAutoBindEnabled()
+	if err != nil {
+		return err
+	}
+	for _, extension := range extensions {
+		ext := extension
+		if err := a.assignExtensionToProfile(dao, &ext, profileId, ext.AutoBindMode, true, false); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (a *App) isProfileRunning(profileId string) bool {
+	if a.browserMgr == nil {
+		return false
+	}
+	a.browserMgr.Mutex.Lock()
+	defer a.browserMgr.Mutex.Unlock()
+	profile, ok := a.browserMgr.Profiles[strings.TrimSpace(profileId)]
+	return ok && profile != nil && profile.Running
 }
 
 func (a *App) syncExtensionLibraryDirectories() error {

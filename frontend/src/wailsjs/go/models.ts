@@ -1,5 +1,21 @@
 export namespace backend {
 	
+	export class BrowserExtensionAutoBindInput {
+	    extensionId: string;
+	    enabled: boolean;
+	    mode: string;
+
+	    static createFrom(source: any = {}) {
+	        return new BrowserExtensionAutoBindInput(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.extensionId = source["extensionId"];
+	        this.enabled = source["enabled"];
+	        this.mode = source["mode"];
+	    }
+	}
 	export class BrowserExtensionAssignInput {
 	    extensionId: string;
 	    profileIds: string[];
@@ -640,6 +656,8 @@ export namespace browser {
 	    packagePath: string;
 	    manifestJson: string;
 	    boundCount: number;
+	    autoBindEnabled: boolean;
+	    autoBindMode: string;
 	    createdAt: string;
 	    updatedAt: string;
 
@@ -660,6 +678,8 @@ export namespace browser {
 	        this.packagePath = source["packagePath"];
 	        this.manifestJson = source["manifestJson"];
 	        this.boundCount = source["boundCount"];
+	        this.autoBindEnabled = source["autoBindEnabled"];
+	        this.autoBindMode = source["autoBindMode"];
 	        this.createdAt = source["createdAt"];
 	        this.updatedAt = source["updatedAt"];
 	    }

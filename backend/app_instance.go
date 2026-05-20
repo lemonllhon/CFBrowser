@@ -30,6 +30,10 @@ func (a *App) BrowserInstanceStartWithParams(profileId string, extraLaunchArgs [
 
 func (a *App) browserInstanceStartInternal(profileId string, extraLaunchArgs []string, startURLs []string, skipDefaultStartURLs bool, preferVisibleWindow bool) (*BrowserProfile, error) {
 	log := logger.New("Browser")
+	if err := a.applyAutoBindExtensionsForProfile(profileId); err != nil {
+		log.Error("自动绑定扩展失败", logger.F("profile_id", profileId), logger.F("error", err.Error()))
+		return nil, fmt.Errorf("实例启动失败：自动绑定扩展失败。原因：%w", err)
+	}
 	a.browserMgr.Mutex.Lock()
 	defer a.browserMgr.Mutex.Unlock()
 

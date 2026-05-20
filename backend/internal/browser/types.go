@@ -112,6 +112,8 @@ type Extension struct {
 	PackagePath     string `json:"packagePath"`
 	ManifestJSON    string `json:"manifestJson"`
 	BoundCount      int    `json:"boundCount"`
+	AutoBindEnabled bool   `json:"autoBindEnabled"`
+	AutoBindMode    string `json:"autoBindMode"`
 	CreatedAt       string `json:"createdAt"`
 	UpdatedAt       string `json:"updatedAt"`
 }

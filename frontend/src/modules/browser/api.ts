@@ -1,4 +1,4 @@
-import type { BrowserProfile, BrowserProfileInput, BrowserTab, BrowserSettings, BrowserCore, BrowserCoreInput, BrowserCoreValidateResult, BrowserProxy, BrowserCoreExtended, BrowserExtension, BrowserExtensionAssignInput, BrowserExtensionBinding, BrowserExtensionImportInput, BrowserExtensionImportResult, BrowserExtensionUnassignInput, CookieInfo, CookieImportResult, SnapshotInfo, BrowserBookmark, BrowserStartURL, BrowserGroup, BrowserGroupInput, BrowserGroupWithCount, ProxyIPHealthResult, DefaultContentRule, WindowSyncCandidate, WindowSyncLayoutSettings, WindowSyncSettings, WindowSyncStartInput, WindowSyncState } from './types'
+import type { BrowserProfile, BrowserProfileInput, BrowserTab, BrowserSettings, BrowserCore, BrowserCoreInput, BrowserCoreValidateResult, BrowserProxy, BrowserCoreExtended, BrowserExtension, BrowserExtensionAssignInput, BrowserExtensionAutoBindInput, BrowserExtensionBinding, BrowserExtensionImportInput, BrowserExtensionImportResult, BrowserExtensionUnassignInput, CookieInfo, CookieImportResult, SnapshotInfo, BrowserBookmark, BrowserStartURL, BrowserGroup, BrowserGroupInput, BrowserGroupWithCount, ProxyIPHealthResult, DefaultContentRule, WindowSyncCandidate, WindowSyncLayoutSettings, WindowSyncSettings, WindowSyncStartInput, WindowSyncState } from './types'
 
 const getBindings = async () => {
   try {
@@ -640,6 +640,24 @@ export async function assignBrowserExtensionProfiles(input: BrowserExtensionAssi
     })
   })
   return mockExtensionBindings.filter(item => item.extensionId === input.extensionId)
+}
+
+export async function setBrowserExtensionAutoBind(input: BrowserExtensionAutoBindInput): Promise<BrowserExtension | null> {
+  const bindings: any = await getBindings()
+  if (bindings?.BrowserExtensionSetAutoBind) {
+    return (await bindings.BrowserExtensionSetAutoBind(input)) || null
+  }
+  const mode = input.mode || 'shared'
+  mockExtensions = mockExtensions.map(item => item.extensionId === input.extensionId ? { ...item, autoBindEnabled: input.enabled, autoBindMode: mode } : item)
+  if (input.enabled) {
+    await assignBrowserExtensionProfiles({
+      extensionId: input.extensionId,
+      profileIds: mockProfiles.map(item => item.profileId),
+      mode,
+      enabled: true,
+    })
+  }
+  return mockExtensions.find(item => item.extensionId === input.extensionId) || null
 }
 
 export async function unassignBrowserExtensionProfiles(input: BrowserExtensionUnassignInput): Promise<BrowserExtensionBinding[]> {

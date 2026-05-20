@@ -59,6 +59,8 @@ export function BrowserExtensionChooseDirectory():Promise<Record<string, any>>;
 
 export function BrowserExtensionAssignProfiles(arg1:backend.BrowserExtensionAssignInput):Promise<Array<browser.ExtensionBinding>>;
 
+export function BrowserExtensionSetAutoBind(arg1:backend.BrowserExtensionAutoBindInput):Promise<browser.Extension>;
+
 export function BrowserExtensionDelete(arg1:string):Promise<void>;
 
 export function BrowserExtensionGet(arg1:string):Promise<browser.Extension>;

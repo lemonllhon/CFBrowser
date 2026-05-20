@@ -700,7 +700,14 @@ func (a *App) BrowserProfileSetKeywords(profileId string, keywords []string) (*B
 }
 
 func (a *App) BrowserProfileCreate(input BrowserProfileInput) (*BrowserProfile, error) {
-	return a.browserMgr.Create(input)
+	profile, err := a.browserMgr.Create(input)
+	if err != nil {
+		return nil, err
+	}
+	if err := a.applyAutoBindExtensionsForProfile(profile.ProfileId); err != nil {
+		return nil, err
+	}
+	return profile, nil
 }
 
 func (a *App) BrowserProfileUpdate(profileId string, input BrowserProfileInput) (*BrowserProfile, error) {
@@ -719,7 +726,14 @@ func (a *App) BrowserProfileDelete(profileId string) error {
 
 // BrowserProfileCopy 复制实例配置（除指纹参数外全部复制）
 func (a *App) BrowserProfileCopy(profileId string, newName string) (*BrowserProfile, error) {
-	return a.browserMgr.Copy(profileId, newName)
+	profile, err := a.browserMgr.Copy(profileId, newName)
+	if err != nil {
+		return nil, err
+	}
+	if err := a.applyAutoBindExtensionsForProfile(profile.ProfileId); err != nil {
+		return nil, err
+	}
+	return profile, nil
 }
 
 // ============================================================================

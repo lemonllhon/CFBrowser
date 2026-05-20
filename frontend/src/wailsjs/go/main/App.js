@@ -110,6 +110,10 @@ export function BrowserExtensionAssignProfiles(arg1) {
   return window['go']['main']['App']['BrowserExtensionAssignProfiles'](arg1);
 }
 
+export function BrowserExtensionSetAutoBind(arg1) {
+  return window['go']['main']['App']['BrowserExtensionSetAutoBind'](arg1);
+}
+
 export function BrowserExtensionGet(arg1) {
   return window['go']['main']['App']['BrowserExtensionGet'](arg1);
 }
