@@ -445,15 +445,6 @@ func putStringIfNotEmpty(m map[string]interface{}, key string, value string) {
 	}
 }
 
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
-}
-
 func isTruthyQueryValue(value string) bool {
 	value = strings.ToLower(strings.TrimSpace(value))
 	return value == "1" || value == "true" || value == "yes"
