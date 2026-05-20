@@ -18,6 +18,7 @@ import {
   Tag,
   Puzzle,
   FolderTree,
+  Bot,
   type LucideIcon
 } from 'lucide-react'
 import clsx from 'clsx'
@@ -44,6 +45,7 @@ const iconMap: Record<string, LucideIcon> = {
   Tag,
   Puzzle,
   FolderTree,
+  Bot,
 }
 
 function getIcon(iconName: string): LucideIcon {
