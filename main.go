@@ -292,6 +292,9 @@ func main() {
 			Assets: assets,
 		},
 		BackgroundColour: &options.RGBA{R: 245, G: 247, B: 250, A: 255},
+		DragAndDrop: &options.DragAndDrop{
+			EnableFileDrop: true,
+		},
 		OnStartup: func(ctx context.Context) {
 			close(startupReached)
 			if startupDebugEnabled {

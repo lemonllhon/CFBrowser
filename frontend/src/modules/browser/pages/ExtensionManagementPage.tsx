@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { Archive, FileCode2, FolderOpen, Link2, RefreshCw, Trash2, UploadCloud, Unlink } from 'lucide-react'
 import { Badge, Button, Card, ConfirmModal, FormItem, Input, Modal, Select, Table, toast } from '../../../shared/components'
 import type { TableColumn } from '../../../shared/components/Table'
@@ -475,6 +475,7 @@ export function ExtensionManagementPage() {
   return (
     <div
       className="relative space-y-5 animate-fade-in"
+      style={{ '--wails-drop-target': 'drop' } as CSSProperties}
       onDragEnter={() => setDragActive(true)}
       onDragOver={(event) => {
         event.preventDefault()
@@ -488,6 +489,10 @@ export function ExtensionManagementPage() {
       onDrop={(event) => {
         event.preventDefault()
         setDragActive(false)
+        const files = Array.from(event.dataTransfer.files || [])
+        if (files.length > 0) {
+          toast.info('正在解析拖入文件路径...')
+        }
       }}
     >
       {dragActive && (
