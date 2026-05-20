@@ -275,6 +275,21 @@ func (a *App) browserInstanceStartInternal(profileId string, extraLaunchArgs []s
 	if autoSwitchProxy && !hasLaunchArgValue(sanitizedProfileLaunchArgs, "--disable-quic") && !hasLaunchArgValue(sanitizedExtraLaunchArgs, "--disable-quic") {
 		args = append(args, "--disable-quic")
 	}
+	extensionLaunchArg, extensionCount, extensionErr := a.buildExtensionLaunchArg(profileId, profile.LaunchArgs, normalizedExtraLaunchArgs)
+	if extensionErr != nil {
+		startErr := fmt.Errorf("实例启动失败：扩展插件加载参数生成失败。原因：%w", extensionErr)
+		log.Error("扩展插件加载参数生成失败", logger.F("profile_id", profileId), logger.F("error", extensionErr.Error()), logger.F("reason", startErr.Error()))
+		profile.LastError = startErr.Error()
+		return profile, startErr
+	}
+	if extensionLaunchArg != "" {
+		args = append(args, extensionLaunchArg)
+		log.Info("实例启用扩展插件",
+			logger.F("profile_id", profileId),
+			logger.F("extension_count", extensionCount),
+			logger.F("load_extension", extensionLaunchArg),
+		)
+	}
 	args = append(args, effectiveFingerprintArgs...)
 	args = append(args, sanitizedProfileLaunchArgs...)
 	args = append(args, sanitizedExtraLaunchArgs...)

@@ -387,6 +387,7 @@ func TestSanitizeManagedLaunchArgsRemovesSystemManagedFlags(t *testing.T) {
 		"--remote-debugging-port=9222",
 		"--user-data-dir", "D:\\profiles\\demo",
 		"--proxy-server", "http://127.0.0.1:9000",
+		"--load-extension", "D:\\extensions\\demo",
 		"--remote-debugging-pipe",
 		"https://example.com",
 	})
@@ -400,6 +401,7 @@ func TestSanitizeManagedLaunchArgsRemovesSystemManagedFlags(t *testing.T) {
 		"--remote-debugging-port",
 		"--user-data-dir",
 		"--proxy-server",
+		"--load-extension",
 		"--remote-debugging-pipe",
 	}
 	if !reflect.DeepEqual(removed, wantRemoved) {

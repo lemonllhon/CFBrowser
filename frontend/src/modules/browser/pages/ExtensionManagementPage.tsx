@@ -72,6 +72,10 @@ export function ExtensionManagementPage() {
   const [bindingEnabled, setBindingEnabled] = useState(true)
   const [bindingSaving, setBindingSaving] = useState(false)
 
+  const selectedProfilesNeedRestart = useMemo(() => (
+    profiles.some(profile => selectedProfileIds.has(profile.profileId) && profile.running)
+  ), [profiles, selectedProfileIds])
+
   const loadData = async (silent = false) => {
     if (silent) {
       setRefreshing(true)
@@ -345,7 +349,8 @@ export function ExtensionManagementPage() {
       setBindings(list)
       setSelectedProfileIds(new Set())
       await refreshSelectedExtension()
-      toast.success('扩展绑定已保存')
+      const runningCount = profiles.filter(profile => profileIds.includes(profile.profileId) && profile.running).length
+      toast.success(runningCount > 0 ? `扩展绑定已保存，${runningCount} 个运行中实例需重启后生效` : '扩展绑定已保存')
     } catch (error: any) {
       toast.error(errorMessage(error, '保存扩展绑定失败'), 6000)
     } finally {
@@ -368,7 +373,8 @@ export function ExtensionManagementPage() {
         return next
       })
       await refreshSelectedExtension()
-      toast.success('扩展绑定已移除')
+      const runningCount = profiles.filter(profile => profileIds.includes(profile.profileId) && profile.running).length
+      toast.success(runningCount > 0 ? `扩展绑定已移除，${runningCount} 个运行中实例需重启后生效` : '扩展绑定已移除')
     } catch (error: any) {
       toast.error(errorMessage(error, '移除扩展绑定失败'), 6000)
     } finally {
@@ -388,7 +394,9 @@ export function ExtensionManagementPage() {
       })
       setBindings(list)
       await refreshSelectedExtension()
-      toast.success(!binding.enabled ? '扩展绑定已启用' : '扩展绑定已停用')
+      const profile = profiles.find(item => item.profileId === binding.profileId)
+      const message = !binding.enabled ? '扩展绑定已启用' : '扩展绑定已停用'
+      toast.success(profile?.running ? `${message}，运行中实例需重启后生效` : message)
     } catch (error: any) {
       toast.error(errorMessage(error, '更新扩展绑定失败'), 6000)
     } finally {
@@ -619,6 +627,9 @@ export function ExtensionManagementPage() {
                   <Button size="sm" variant="secondary" onClick={handleSelectUnboundProfiles} disabled={bindingSaving || profiles.length === 0}>选择未绑定</Button>
                   <Button size="sm" variant="ghost" onClick={handleClearProfileSelection} disabled={bindingSaving || selectedProfileIds.size === 0}>清空选择</Button>
                   <span className="text-xs text-[var(--color-text-muted)]">已选 {selectedProfileIds.size} 个实例</span>
+                  {selectedProfilesNeedRestart && (
+                    <span className="text-xs text-[var(--color-warning)]">运行中实例需重启后生效</span>
+                  )}
                 </div>
                 <FormItem label="绑定模式">
                   <Select
