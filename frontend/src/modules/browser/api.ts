@@ -1,4 +1,4 @@
-import type { BrowserProfile, BrowserProfileInput, BrowserTab, BrowserSettings, BrowserCore, BrowserCoreInput, BrowserCoreValidateResult, BrowserProxy, BrowserCoreExtended, BrowserExtension, CookieInfo, CookieImportResult, SnapshotInfo, BrowserBookmark, BrowserStartURL, BrowserGroup, BrowserGroupInput, BrowserGroupWithCount, ProxyIPHealthResult, DefaultContentRule, WindowSyncCandidate, WindowSyncLayoutSettings, WindowSyncSettings, WindowSyncStartInput, WindowSyncState } from './types'
+import type { BrowserProfile, BrowserProfileInput, BrowserTab, BrowserSettings, BrowserCore, BrowserCoreInput, BrowserCoreValidateResult, BrowserProxy, BrowserCoreExtended, BrowserExtension, BrowserExtensionImportInput, BrowserExtensionImportResult, CookieInfo, CookieImportResult, SnapshotInfo, BrowserBookmark, BrowserStartURL, BrowserGroup, BrowserGroupInput, BrowserGroupWithCount, ProxyIPHealthResult, DefaultContentRule, WindowSyncCandidate, WindowSyncLayoutSettings, WindowSyncSettings, WindowSyncStartInput, WindowSyncState } from './types'
 
 const getBindings = async () => {
   try {
@@ -564,6 +564,38 @@ export async function deleteBrowserExtension(extensionId: string): Promise<boole
   }
   mockExtensions = mockExtensions.filter(item => item.extensionId !== extensionId)
   return true
+}
+
+export async function chooseBrowserExtensionArchive(): Promise<{ cancelled: boolean; path: string }> {
+  const bindings: any = await getBindings()
+  if (bindings?.BrowserExtensionChooseArchive) {
+    return (await bindings.BrowserExtensionChooseArchive()) || { cancelled: true, path: '' }
+  }
+  return { cancelled: true, path: '' }
+}
+
+export async function chooseBrowserExtensionDirectory(): Promise<{ cancelled: boolean; path: string }> {
+  const bindings: any = await getBindings()
+  if (bindings?.BrowserExtensionChooseDirectory) {
+    return (await bindings.BrowserExtensionChooseDirectory()) || { cancelled: true, path: '' }
+  }
+  return { cancelled: true, path: '' }
+}
+
+export async function importBrowserExtensionArchive(input: BrowserExtensionImportInput): Promise<BrowserExtensionImportResult> {
+  const bindings: any = await getBindings()
+  if (bindings?.BrowserExtensionImportArchive) {
+    return (await bindings.BrowserExtensionImportArchive(input)) || { cancelled: false, duplicate: false, message: '' }
+  }
+  return { cancelled: true, duplicate: false, message: '当前运行环境不支持导入扩展压缩包' }
+}
+
+export async function importBrowserExtensionDirectory(input: BrowserExtensionImportInput): Promise<BrowserExtensionImportResult> {
+  const bindings: any = await getBindings()
+  if (bindings?.BrowserExtensionImportDirectory) {
+    return (await bindings.BrowserExtensionImportDirectory(input)) || { cancelled: false, duplicate: false, message: '' }
+  }
+  return { cancelled: true, duplicate: false, message: '当前运行环境不支持导入扩展目录' }
 }
 
 // ============================================================================

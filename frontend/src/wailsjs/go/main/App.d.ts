@@ -53,9 +53,17 @@ export function BrowserCoreSetDefault(arg1:string):Promise<void>;
 
 export function BrowserCoreValidate(arg1:string):Promise<browser.CoreValidateResult>;
 
+export function BrowserExtensionChooseArchive():Promise<Record<string, any>>;
+
+export function BrowserExtensionChooseDirectory():Promise<Record<string, any>>;
+
 export function BrowserExtensionDelete(arg1:string):Promise<void>;
 
 export function BrowserExtensionGet(arg1:string):Promise<browser.Extension>;
+
+export function BrowserExtensionImportArchive(arg1:backend.BrowserExtensionImportInput):Promise<backend.BrowserExtensionImportResult>;
+
+export function BrowserExtensionImportDirectory(arg1:backend.BrowserExtensionImportInput):Promise<backend.BrowserExtensionImportResult>;
 
 export function BrowserExtensionList():Promise<Array<browser.Extension>>;
 

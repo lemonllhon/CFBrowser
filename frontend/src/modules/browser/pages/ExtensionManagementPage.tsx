@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { FileCode2, RefreshCw, Trash2 } from 'lucide-react'
-import { Badge, Button, Card, ConfirmModal, Modal, Table, toast } from '../../../shared/components'
+import { Archive, FileCode2, FolderOpen, RefreshCw, Trash2 } from 'lucide-react'
+import { Badge, Button, Card, ConfirmModal, FormItem, Input, Modal, Table, toast } from '../../../shared/components'
 import type { TableColumn } from '../../../shared/components/Table'
-import type { BrowserExtension } from '../types'
-import { deleteBrowserExtension, fetchBrowserExtension, fetchBrowserExtensions } from '../api'
+import type { BrowserExtension, BrowserExtensionImportResult } from '../types'
+import { chooseBrowserExtensionArchive, chooseBrowserExtensionDirectory, deleteBrowserExtension, fetchBrowserExtension, fetchBrowserExtensions, importBrowserExtensionArchive, importBrowserExtensionDirectory } from '../api'
 
 const sourceTypeText: Record<string, string> = {
   zip: '压缩包',
@@ -32,6 +32,11 @@ export function ExtensionManagementPage() {
   const [selectedExtension, setSelectedExtension] = useState<BrowserExtension | null>(null)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [deletingExtension, setDeletingExtension] = useState<BrowserExtension | null>(null)
+  const [importModalOpen, setImportModalOpen] = useState(false)
+  const [importType, setImportType] = useState<'archive' | 'directory'>('archive')
+  const [importPath, setImportPath] = useState('')
+  const [importing, setImporting] = useState(false)
+  const [duplicateResult, setDuplicateResult] = useState<BrowserExtensionImportResult | null>(null)
 
   const loadData = async (silent = false) => {
     if (silent) {
@@ -93,6 +98,61 @@ export function ExtensionManagementPage() {
       toast.error(error?.message || '删除扩展插件失败')
     } finally {
       setDeletingExtension(null)
+    }
+  }
+
+  const openImportModal = (type: 'archive' | 'directory') => {
+    setImportType(type)
+    setImportPath('')
+    setDuplicateResult(null)
+    setImportModalOpen(true)
+  }
+
+  const handleChooseImportPath = async () => {
+    try {
+      const result = importType === 'archive'
+        ? await chooseBrowserExtensionArchive()
+        : await chooseBrowserExtensionDirectory()
+      if (!result?.cancelled && result?.path) {
+        setImportPath(result.path)
+      }
+    } catch (error: any) {
+      toast.error(error?.message || '选择路径失败')
+    }
+  }
+
+  const runImport = async (mode: 'ask' | 'overwrite' | 'new' | 'cancel' = 'ask') => {
+    const path = importPath.trim()
+    if (!path) {
+      toast.warning(importType === 'archive' ? '请选择扩展压缩包' : '请选择扩展目录')
+      return
+    }
+    setImporting(true)
+    try {
+      const result = importType === 'archive'
+        ? await importBrowserExtensionArchive({ path, mode })
+        : await importBrowserExtensionDirectory({ path, mode })
+      if (result.duplicate) {
+        setDuplicateResult(result)
+        return
+      }
+      if (result.cancelled) {
+        toast.info(result.message || '已取消导入')
+        setImportModalOpen(false)
+        return
+      }
+      toast.success(result.message || '扩展插件导入成功')
+      setImportModalOpen(false)
+      setDuplicateResult(null)
+      await loadData(true)
+      if (result.extension) {
+        setSelectedExtension(result.extension)
+        setDetailOpen(true)
+      }
+    } catch (error: any) {
+      toast.error(error?.message || '导入扩展插件失败')
+    } finally {
+      setImporting(false)
     }
   }
 
@@ -169,21 +229,31 @@ export function ExtensionManagementPage() {
       <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold text-[var(--color-text-primary)]">扩展插件管理</h1>
-          <p className="text-sm text-[var(--color-text-muted)] mt-1">管理已登记的浏览器扩展插件，导入和实例绑定将在后续阶段开放</p>
+          <p className="text-sm text-[var(--color-text-muted)] mt-1">管理已登记的浏览器扩展插件，本阶段支持本地压缩包和目录导入</p>
         </div>
-        <Button size="sm" variant="secondary" onClick={() => loadData(true)} loading={refreshing}>
-          {!refreshing && <RefreshCw className="w-4 h-4" />}
-          刷新
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="secondary" onClick={() => openImportModal('directory')}>
+            <FolderOpen className="w-4 h-4" />
+            导入目录
+          </Button>
+          <Button size="sm" onClick={() => openImportModal('archive')}>
+            <Archive className="w-4 h-4" />
+            导入压缩包
+          </Button>
+          <Button size="sm" variant="secondary" onClick={() => loadData(true)} loading={refreshing}>
+            {!refreshing && <RefreshCw className="w-4 h-4" />}
+            刷新
+          </Button>
+        </div>
       </div>
 
-      <Card title="扩展列表" subtitle="当前阶段支持查看详情和删除未绑定扩展">
+      <Card title="扩展列表" subtitle="支持查看详情、导入本地扩展和删除未绑定扩展">
         <Table
           columns={columns}
           data={extensions}
           rowKey="extensionId"
           loading={loading}
-          emptyText="暂无扩展插件。后续阶段会开放压缩包、目录和地址导入。"
+          emptyText="暂无扩展插件，可以从本地压缩包或解压目录导入。"
           onRowClick={handleOpenDetail}
           tableLayout="fixed"
           tableMinWidth="940px"
@@ -228,6 +298,90 @@ export function ExtensionManagementPage() {
         ) : (
           <div className="py-10 text-center text-sm text-[var(--color-text-muted)]">未选择扩展</div>
         )}
+      </Modal>
+
+      <Modal
+        open={importModalOpen}
+        onClose={() => {
+          if (!importing) setImportModalOpen(false)
+        }}
+        title={importType === 'archive' ? '导入扩展压缩包' : '导入扩展目录'}
+        width="620px"
+        footer={
+          duplicateResult ? (
+            <>
+              <Button variant="secondary" onClick={() => runImport('cancel')} disabled={importing}>取消导入</Button>
+              <Button variant="secondary" onClick={() => runImport('new')} loading={importing}>作为新扩展导入</Button>
+              <Button onClick={() => runImport('overwrite')} loading={importing}>覆盖已有扩展</Button>
+            </>
+          ) : (
+            <>
+              <Button variant="secondary" onClick={() => setImportModalOpen(false)} disabled={importing}>取消</Button>
+              <Button onClick={() => runImport('ask')} loading={importing}>导入</Button>
+            </>
+          )
+        }
+      >
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              variant={importType === 'archive' ? 'primary' : 'secondary'}
+              onClick={() => {
+                setImportType('archive')
+                setDuplicateResult(null)
+              }}
+              disabled={importing}
+            >
+              <Archive className="w-4 h-4" />
+              压缩包
+            </Button>
+            <Button
+              variant={importType === 'directory' ? 'primary' : 'secondary'}
+              onClick={() => {
+                setImportType('directory')
+                setDuplicateResult(null)
+              }}
+              disabled={importing}
+            >
+              <FolderOpen className="w-4 h-4" />
+              目录
+            </Button>
+          </div>
+
+          <FormItem label={importType === 'archive' ? '扩展压缩包路径' : '扩展目录路径'} required>
+            <div className="flex gap-2">
+              <Input
+                value={importPath}
+                onChange={(event) => {
+                  setImportPath(event.target.value)
+                  setDuplicateResult(null)
+                }}
+                placeholder={importType === 'archive' ? '选择或输入 .zip / .crx 文件路径' : '选择或输入包含 manifest.json 的目录'}
+                disabled={importing}
+              />
+              <Button variant="secondary" onClick={handleChooseImportPath} disabled={importing}>
+                选择
+              </Button>
+            </div>
+            <p className="text-xs text-[var(--color-text-muted)] mt-1">
+              {importType === 'archive'
+                ? '支持 ZIP 和可解包的 CRX，本地导入成功后会复制到扩展库。'
+                : '目录内需要包含 manifest.json，导入时会复制一份到扩展库。'}
+            </p>
+          </FormItem>
+
+          {duplicateResult?.existing && (
+            <div className="rounded-lg border border-[var(--color-warning)]/30 bg-[var(--color-warning)]/10 p-3">
+              <p className="text-sm font-medium text-[var(--color-text-primary)]">发现同名同版本扩展</p>
+              <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+                已有扩展：{duplicateResult.existing.name || duplicateResult.existing.extensionId} / {duplicateResult.existing.version || '-'}
+              </p>
+              <p className="mt-2 text-xs text-[var(--color-text-secondary)]">
+                可以覆盖已有扩展目录，也可以作为一个新的扩展副本导入。
+              </p>
+            </div>
+          )}
+        </div>
       </Modal>
 
       <ConfirmModal

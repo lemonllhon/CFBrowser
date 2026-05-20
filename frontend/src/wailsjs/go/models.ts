@@ -1,5 +1,59 @@
 export namespace backend {
 	
+	export class BrowserExtensionImportInput {
+	    path: string;
+	    mode: string;
+	    existing: string;
+
+	    static createFrom(source: any = {}) {
+	        return new BrowserExtensionImportInput(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.mode = source["mode"];
+	        this.existing = source["existing"];
+	    }
+	}
+	export class BrowserExtensionImportResult {
+	    cancelled: boolean;
+	    duplicate: boolean;
+	    message: string;
+	    existing?: browser.Extension;
+	    extension?: browser.Extension;
+
+	    static createFrom(source: any = {}) {
+	        return new BrowserExtensionImportResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.cancelled = source["cancelled"];
+	        this.duplicate = source["duplicate"];
+	        this.message = source["message"];
+	        this.existing = this.convertValues(source["existing"], browser.Extension);
+	        this.extension = this.convertValues(source["extension"], browser.Extension);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class CookieInfo {
 	    name: string;
 	    value: string;

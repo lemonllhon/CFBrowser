@@ -98,8 +98,24 @@ export function BrowserExtensionDelete(arg1) {
   return window['go']['main']['App']['BrowserExtensionDelete'](arg1);
 }
 
+export function BrowserExtensionChooseArchive() {
+  return window['go']['main']['App']['BrowserExtensionChooseArchive']();
+}
+
+export function BrowserExtensionChooseDirectory() {
+  return window['go']['main']['App']['BrowserExtensionChooseDirectory']();
+}
+
 export function BrowserExtensionGet(arg1) {
   return window['go']['main']['App']['BrowserExtensionGet'](arg1);
+}
+
+export function BrowserExtensionImportArchive(arg1) {
+  return window['go']['main']['App']['BrowserExtensionImportArchive'](arg1);
+}
+
+export function BrowserExtensionImportDirectory(arg1) {
+  return window['go']['main']['App']['BrowserExtensionImportDirectory'](arg1);
 }
 
 export function BrowserExtensionList() {

@@ -146,6 +146,22 @@ export interface BrowserExtension {
   updatedAt: string
 }
 
+export type BrowserExtensionImportMode = 'ask' | 'overwrite' | 'new' | 'cancel'
+
+export interface BrowserExtensionImportInput {
+  path: string
+  mode?: BrowserExtensionImportMode | string
+  existing?: string
+}
+
+export interface BrowserExtensionImportResult {
+  cancelled: boolean
+  duplicate: boolean
+  message: string
+  existing?: BrowserExtension | null
+  extension?: BrowserExtension | null
+}
+
 export interface CookieInfo {
   name: string
   value: string

@@ -11,6 +11,7 @@ import (
 type ExtensionDAO interface {
 	List() ([]Extension, error)
 	Get(extensionId string) (*Extension, error)
+	FindByNameVersion(name string, version string) (*Extension, error)
 	Upsert(extension Extension) error
 	Delete(extensionId string) error
 	CountBindings(extensionId string) (int, error)
@@ -69,6 +70,27 @@ func (d *SQLiteExtensionDAO) Get(extensionId string) (*Extension, error) {
 	item, err := scanExtension(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("扩展插件不存在: %s", extensionId)
+	}
+	return item, err
+}
+
+// FindByNameVersion 按 manifest 名称和版本查找已登记扩展。
+func (d *SQLiteExtensionDAO) FindByNameVersion(name string, version string) (*Extension, error) {
+	row := d.db.QueryRow(`
+		SELECT e.extension_id, e.name, e.version, e.manifest_version, e.description,
+		       e.source_type, e.source_url, e.install_dir, e.package_path, e.manifest_json,
+		       COALESCE(COUNT(pe.id), 0) AS bound_count,
+		       e.created_at, e.updated_at
+		FROM browser_extensions e
+		LEFT JOIN browser_profile_extensions pe
+		  ON pe.extension_id = e.extension_id AND COALESCE(pe.enabled, 1) = 1
+		WHERE lower(e.name) = lower(?) AND e.version = ?
+		GROUP BY e.extension_id
+		ORDER BY e.updated_at DESC
+		LIMIT 1`, name, version)
+	item, err := scanExtension(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
 	}
 	return item, err
 }
