@@ -31,13 +31,16 @@ type switchingProxyBridge struct {
 	server   *http.Server
 	listener net.Listener
 
-	mu        sync.RWMutex
-	current   config.BrowserProxy
-	hasCurrent bool
-	recent    []string
-	stopped   chan struct{}
-	stopOnce  sync.Once
-	rng       *rand.Rand
+	mu          sync.RWMutex
+	current     config.BrowserProxy
+	hasCurrent  bool
+	generation  uint64
+	recent      []string
+	stopped     chan struct{}
+	stopOnce    sync.Once
+	rng         *rand.Rand
+	activeMu    sync.Mutex
+	activeConns map[net.Conn]uint64
 }
 
 func newSwitchingProxyBridge(app *App, profile *BrowserProfile) *switchingProxyBridge {
@@ -49,13 +52,14 @@ func newSwitchingProxyBridge(app *App, profile *BrowserProfile) *switchingProxyB
 		intervalM = 24 * 60
 	}
 	return &switchingProxyBridge{
-		app:       app,
-		profileID: strings.TrimSpace(profile.ProfileId),
-		groupName: strings.TrimSpace(profile.AutoProxySwitchGroupName),
-		mode:      normalizeProxySwitchMode(profile.AutoProxySwitchMode),
-		interval:  time.Duration(intervalM) * time.Minute,
-		stopped:   make(chan struct{}),
-		rng:       rand.New(rand.NewSource(time.Now().UnixNano())),
+		app:         app,
+		profileID:   strings.TrimSpace(profile.ProfileId),
+		groupName:   strings.TrimSpace(profile.AutoProxySwitchGroupName),
+		mode:        normalizeProxySwitchMode(profile.AutoProxySwitchMode),
+		interval:    time.Duration(intervalM) * time.Minute,
+		stopped:     make(chan struct{}),
+		rng:         rand.New(rand.NewSource(time.Now().UnixNano())),
+		activeConns: make(map[net.Conn]uint64),
 	}
 }
 
@@ -83,6 +87,7 @@ func (b *switchingProxyBridge) start() (string, error) {
 func (b *switchingProxyBridge) stop() {
 	b.stopOnce.Do(func() {
 		close(b.stopped)
+		b.closeActiveConnections("代理中转停止")
 		if b.server != nil {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			_ = b.server.Shutdown(ctx)
@@ -111,14 +116,17 @@ func (b *switchingProxyBridge) switchNow() error {
 	if len(candidates) == 0 {
 		return fmt.Errorf("代理池分组 %q 没有可用代理", b.groupName)
 	}
-	candidates = preferHealthyProxyCandidates(candidates)
+	if b.mode == proxySwitchModeInterval {
+		candidates = preferHealthyProxyCandidates(candidates)
+	}
 
 	b.mu.Lock()
-	defer b.mu.Unlock()
 
 	currentID := ""
+	currentConfig := ""
 	if b.hasCurrent {
 		currentID = b.current.ProxyId
+		currentConfig = b.current.ProxyConfig
 	}
 	filtered := make([]config.BrowserProxy, 0, len(candidates))
 	recent := make(map[string]struct{}, len(b.recent)+1)
@@ -159,6 +167,14 @@ func (b *switchingProxyBridge) switchNow() error {
 	}
 	b.current = next
 	b.hasCurrent = true
+	changed := currentID != "" && (currentID != next.ProxyId || strings.TrimSpace(currentConfig) != strings.TrimSpace(next.ProxyConfig))
+	closeBeforeGeneration := b.generation
+	if changed {
+		b.generation++
+		closeBeforeGeneration = b.generation
+	}
+	b.mu.Unlock()
+
 	logger.New("ProxySwitch").Info("代理自动切换出口已更新",
 		logger.F("profile_id", b.profileID),
 		logger.F("proxy_id", next.ProxyId),
@@ -166,6 +182,10 @@ func (b *switchingProxyBridge) switchNow() error {
 		logger.F("group", b.groupName),
 		logger.F("mode", b.mode),
 	)
+	if changed {
+		b.closeConnectionsBefore("代理出口切换", closeBeforeGeneration)
+		b.syncCurrentProxyToProfile(next.ProxyId)
+	}
 	return nil
 }
 
@@ -261,7 +281,7 @@ func (b *switchingProxyBridge) dialTarget(ctx context.Context, target string) (n
 }
 
 func (b *switchingProxyBridge) dialTargetOnce(ctx context.Context, target string) (net.Conn, error) {
-	upstream, release, err := b.effectiveProxyURL()
+	upstream, generation, release, err := b.effectiveProxyURL()
 	if err != nil {
 		return nil, err
 	}
@@ -272,7 +292,7 @@ func (b *switchingProxyBridge) dialTargetOnce(ctx context.Context, target string
 			release()
 			return nil, err
 		}
-		return newReleaseOnCloseConn(conn, release), nil
+		return b.trackConn(newReleaseOnCloseConn(conn, release), generation), nil
 	}
 	u, err := url.Parse(upstream)
 	if err != nil {
@@ -293,11 +313,11 @@ func (b *switchingProxyBridge) dialTargetOnce(ctx context.Context, target string
 		release()
 		return nil, err
 	}
-	return newReleaseOnCloseConn(conn, release), nil
+	return b.trackConn(newReleaseOnCloseConn(conn, release), generation), nil
 }
 
 func (b *switchingProxyBridge) roundTripHTTP(r *http.Request) (*http.Response, func(), error) {
-	upstream, release, err := b.effectiveProxyURL()
+	upstream, _, release, err := b.effectiveProxyURL()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -329,44 +349,46 @@ func (b *switchingProxyBridge) roundTripHTTP(r *http.Request) (*http.Response, f
 	return resp, release, nil
 }
 
-func (b *switchingProxyBridge) effectiveProxyURL() (string, func(), error) {
+func (b *switchingProxyBridge) effectiveProxyURL() (string, uint64, func(), error) {
 	noopRelease := func() {}
 	b.mu.RLock()
 	current := b.current
 	hasCurrent := b.hasCurrent
+	generation := b.generation
 	b.mu.RUnlock()
 	if !hasCurrent {
 		if err := b.switchNow(); err != nil {
-			return "", nil, err
+			return "", 0, nil, err
 		}
 		b.mu.RLock()
 		current = b.current
+		generation = b.generation
 		b.mu.RUnlock()
 	}
 	proxies := b.app.getLatestProxies()
 	src := strings.TrimSpace(current.ProxyConfig)
 	if supported, errorMsg := proxy.ValidateProxyConfig(src, proxies, current.ProxyId); !supported {
-		return "", nil, fmt.Errorf("%s", errorMsg)
+		return "", generation, nil, fmt.Errorf("%s", errorMsg)
 	}
 	if strings.EqualFold(src, "direct://") {
-		return "", noopRelease, nil
+		return "", generation, noopRelease, nil
 	}
 	if proxy.IsSingBoxProtocol(src) {
 		if b.app.singboxMgr == nil {
-			return "", nil, fmt.Errorf("sing-box 管理器未初始化")
+			return "", generation, nil, fmt.Errorf("sing-box 管理器未初始化")
 		}
 		socksURL, err := b.app.singboxMgr.EnsureBridge(src, proxies, current.ProxyId)
-		return socksURL, noopRelease, err
+		return socksURL, generation, noopRelease, err
 	}
 	if proxy.RequiresBridge(src, proxies, current.ProxyId) {
 		if b.app.xrayMgr == nil {
-			return "", nil, fmt.Errorf("xray 管理器未初始化")
+			return "", generation, nil, fmt.Errorf("xray 管理器未初始化")
 		}
 		socksURL, bridgeKey, err := b.app.xrayMgr.AcquireBridge(src, proxies, current.ProxyId)
 		if err != nil {
-			return "", nil, err
+			return "", generation, nil, err
 		}
-		return socksURL, func() {
+		return socksURL, generation, func() {
 			if bridgeKey != "" {
 				b.app.xrayMgr.ReleaseBridge(bridgeKey)
 			}
@@ -374,16 +396,103 @@ func (b *switchingProxyBridge) effectiveProxyURL() (string, func(), error) {
 	}
 	standard, _, err := proxy.ParseProxyNode(src)
 	if err != nil {
-		return "", nil, err
+		return "", generation, nil, err
 	}
 	if standard == "" {
-		return "", nil, fmt.Errorf("代理节点无法转换为标准中转地址")
+		return "", generation, nil, fmt.Errorf("代理节点无法转换为标准中转地址")
 	}
-	return standard, noopRelease, nil
+	return standard, generation, noopRelease, nil
 }
 
 func (b *switchingProxyBridge) canFailoverOnRequestError() bool {
 	return b != nil && b.mode == proxySwitchModeInterval
+}
+
+func (b *switchingProxyBridge) syncCurrentProxyToProfile(proxyID string) {
+	if b == nil || b.app == nil || strings.TrimSpace(proxyID) == "" {
+		return
+	}
+	b.app.updateProfileSwitchProxyID(b.profileID, proxyID)
+}
+
+func (b *switchingProxyBridge) trackConn(conn net.Conn, generation uint64) net.Conn {
+	if b == nil || conn == nil {
+		return conn
+	}
+	tracked := &trackedSwitchConn{Conn: conn, bridge: b}
+	b.activeMu.Lock()
+	if b.activeConns == nil {
+		b.activeConns = make(map[net.Conn]uint64)
+	}
+	b.activeConns[tracked] = generation
+	b.activeMu.Unlock()
+	return tracked
+}
+
+func (b *switchingProxyBridge) untrackConn(conn net.Conn) {
+	if b == nil || conn == nil {
+		return
+	}
+	b.activeMu.Lock()
+	delete(b.activeConns, conn)
+	b.activeMu.Unlock()
+}
+
+func (b *switchingProxyBridge) closeConnectionsBefore(reason string, generation uint64) {
+	if b == nil {
+		return
+	}
+	b.activeMu.Lock()
+	conns := make([]net.Conn, 0, len(b.activeConns))
+	for conn, connGeneration := range b.activeConns {
+		if connGeneration < generation {
+			conns = append(conns, conn)
+		}
+	}
+	b.activeMu.Unlock()
+
+	b.closeConnections(reason, conns)
+}
+
+func (b *switchingProxyBridge) closeActiveConnections(reason string) {
+	if b == nil {
+		return
+	}
+	b.activeMu.Lock()
+	conns := make([]net.Conn, 0, len(b.activeConns))
+	for conn := range b.activeConns {
+		conns = append(conns, conn)
+	}
+	b.activeMu.Unlock()
+
+	b.closeConnections(reason, conns)
+}
+
+func (b *switchingProxyBridge) closeConnections(reason string, conns []net.Conn) {
+	if len(conns) == 0 {
+		return
+	}
+	log := logger.New("ProxySwitch")
+	log.Info("关闭旧代理连接", logger.F("profile_id", b.profileID), logger.F("reason", reason), logger.F("count", len(conns)))
+	for _, conn := range conns {
+		_ = conn.Close()
+	}
+}
+
+type trackedSwitchConn struct {
+	net.Conn
+	bridge *switchingProxyBridge
+	once   sync.Once
+}
+
+func (c *trackedSwitchConn) Close() error {
+	err := c.Conn.Close()
+	c.once.Do(func() {
+		if c.bridge != nil {
+			c.bridge.untrackConn(c)
+		}
+	})
+	return err
 }
 
 type releaseOnCloseConn struct {
