@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Activity, CheckCircle, ChevronDown, ChevronRight, ChevronUp, Copy, Edit2, FileText, Focus, Key, Layers, Pencil, Play, Plus, RefreshCw, RotateCcw, Settings, Shuffle, Sliders, Square, Star, Trash2, XCircle, LayoutGrid, List, MonitorUp } from 'lucide-react'
+import { Activity, CheckCircle, ChevronDown, ChevronRight, ChevronUp, Copy, Download, Edit2, Eraser, FileText, Focus, Key, Layers, Pencil, Play, Plus, RefreshCw, RotateCcw, Settings, Shuffle, Sliders, Square, Star, Trash2, XCircle, LayoutGrid, List, MonitorUp } from 'lucide-react'
 import { Badge, Button, Card, ConfirmModal, FormItem, Input, Modal, StatCard, Switch, Table, Textarea, toast } from '../../../shared/components'
 import type { TableColumn } from '../../../shared/components/Table'
 import type { BrowserCore, BrowserCoreInput, BrowserProfile, BrowserProxy, BrowserSettings, BrowserGroupWithCount, WindowSyncCandidate, WindowSyncLayoutSettings, WindowSyncSettings, WindowSyncState } from '../types'
@@ -11,11 +11,13 @@ import { EventsOn } from '../../../wailsjs/runtime/runtime'
 import { resolveActionErrorMessage, resolveActionFeedback } from '../utils/actionErrors'
 import {
   applyWindowSyncLayout,
+  clearBrowserCookies,
   copyBrowserProfile,
   deleteBrowserCore,
   deleteBrowserProfile,
   defaultWindowSyncSettings,
   defaultWindowSyncLayoutSettings,
+  exportBrowserCookies,
   fetchBrowserCores,
   fetchBrowserProfiles,
   fetchBrowserProxies,
@@ -134,6 +136,34 @@ const formatTime = (value?: string) => {
   if (!value) return '-'
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? '-' : date.toLocaleString('zh-CN')
+}
+
+const sanitizeFilenamePart = (value: string) => {
+  const safe = value
+    .trim()
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, '_')
+    .replace(/\s+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '')
+  return (safe || 'profile').slice(0, 80)
+}
+
+const downloadTextFile = (filename: string, content: string) => {
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+}
+
+const getCookieActionTitle = (profile: BrowserProfile, action: 'export' | 'clear') => {
+  if (!profile.running) return '实例启动后才能操作 Cookie'
+  if (!profile.debugReady) return '调试接口就绪后才能操作 Cookie'
+  return action === 'export' ? '导出 Cookie 文本' : '清空全部 Cookie'
 }
 
 const normalizeWindowSyncColor = (value?: string) => {
@@ -339,6 +369,9 @@ export function BrowserListPage() {
   const [stoppingIds, setStoppingIds] = useState<Set<string>>(new Set())
   const [switchingProxyIds, setSwitchingProxyIds] = useState<Set<string>>(new Set())
   const [pinningIds, setPinningIds] = useState<Set<string>>(new Set())
+  const [exportingCookieIds, setExportingCookieIds] = useState<Set<string>>(new Set())
+  const [clearingCookieIds, setClearingCookieIds] = useState<Set<string>>(new Set())
+  const [cookieClearTarget, setCookieClearTarget] = useState<BrowserProfile | null>(null)
   const profilesRef = useRef<BrowserProfile[]>([])
   const silentRefreshInFlightRef = useRef(false)
 
@@ -609,6 +642,8 @@ export function BrowserListPage() {
   const isProfileStopping = (profileId: string) => stoppingIds.has(profileId)
   const isProfileSwitchingProxy = (profileId: string) => switchingProxyIds.has(profileId)
   const isProfilePinning = (profileId: string) => pinningIds.has(profileId)
+  const isProfileExportingCookies = (profileId: string) => exportingCookieIds.has(profileId)
+  const isProfileClearingCookies = (profileId: string) => clearingCookieIds.has(profileId)
   const isProfileBusy = (profileId: string) => isProfileStarting(profileId) || isProfileStopping(profileId) || isProfileSwitchingProxy(profileId) || isProfilePinning(profileId)
   const isWindowSyncMaster = (profileId: string) => !!windowSyncState?.active && windowSyncState.masterProfileId === profileId
 
@@ -764,6 +799,44 @@ export function BrowserListPage() {
       toast.error(error?.message || '置顶居中失败')
     } finally {
       updatePendingIds(setPinningIds, profileId, false)
+    }
+  }
+
+  const handleExportCookies = async (profile: BrowserProfile) => {
+    if (!profile.running || !profile.debugReady) {
+      toast.warning(getCookieActionTitle(profile, 'export'))
+      return
+    }
+    updatePendingIds(setExportingCookieIds, profile.profileId, true)
+    try {
+      const content = await exportBrowserCookies(profile.profileId)
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+      const filename = `cookies_${sanitizeFilenamePart(profile.profileName || profile.profileId)}_${stamp}.txt`
+      downloadTextFile(filename, content)
+      toast.success(`Cookie 已导出：${profile.profileName || profile.profileId}`)
+    } catch (error: any) {
+      toast.error(error?.message || '导出 Cookie 失败')
+    } finally {
+      updatePendingIds(setExportingCookieIds, profile.profileId, false)
+    }
+  }
+
+  const handleConfirmClearCookies = async () => {
+    const target = cookieClearTarget
+    if (!target) return
+    if (!target.running || !target.debugReady) {
+      toast.warning(getCookieActionTitle(target, 'clear'))
+      return
+    }
+    updatePendingIds(setClearingCookieIds, target.profileId, true)
+    try {
+      await clearBrowserCookies(target.profileId)
+      toast.success(`Cookie 已清空：${target.profileName || target.profileId}`)
+    } catch (error: any) {
+      toast.error(error?.message || '清空 Cookie 失败')
+    } finally {
+      updatePendingIds(setClearingCookieIds, target.profileId, false)
+      setCookieClearTarget(null)
     }
   }
 
@@ -1249,9 +1322,12 @@ export function BrowserListPage() {
         const isStopping = isProfileStopping(record.profileId)
         const isSwitchingProxy = isProfileSwitchingProxy(record.profileId)
         const isPinning = isProfilePinning(record.profileId)
+        const isExportingCookies = isProfileExportingCookies(record.profileId)
+        const isClearingCookies = isProfileClearingCookies(record.profileId)
         const isBusy = isProfileBusy(record.profileId)
         const isSyncMaster = isWindowSyncMaster(record.profileId)
         const disabledBySync = isSyncMaster
+        const canOperateCookies = record.running && record.debugReady
 
         return (
           <div className="flex justify-end gap-1">
@@ -1276,6 +1352,28 @@ export function BrowserListPage() {
             )}
             <Button size="sm" variant="ghost" onClick={() => handleRestart(record.profileId)} title={disabledBySync ? '同步状态下无法修改主控窗口' : '重启'} disabled={disabledBySync || isBusy}><RotateCcw className="w-3.5 h-3.5" /></Button>
             <Button size="sm" variant="ghost" onClick={() => openKwModal(record)} title="关键字" disabled={isBusy}><Key className="w-3.5 h-3.5" /></Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => handleExportCookies(record)}
+              aria-label="导出 Cookie 文本"
+              title={getCookieActionTitle(record, 'export')}
+              loading={isExportingCookies}
+              disabled={!canOperateCookies || isClearingCookies || (isBusy && !isExportingCookies)}
+            >
+              {!isExportingCookies && <Download className="w-3.5 h-3.5" />}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setCookieClearTarget(record)}
+              aria-label="清空全部 Cookie"
+              title={getCookieActionTitle(record, 'clear')}
+              loading={isClearingCookies}
+              disabled={!canOperateCookies || isExportingCookies || (isBusy && !isClearingCookies)}
+            >
+              {!isClearingCookies && <Eraser className="w-3.5 h-3.5 text-red-500" />}
+            </Button>
             <Link to={`/browser/edit/${record.profileId}`}><Button size="sm" variant="ghost" title={disabledBySync ? '同步状态下无法修改主控窗口' : '配置'} disabled={disabledBySync || isBusy}><Settings className="w-3.5 h-3.5" /></Button></Link>
             <Button size="sm" variant="ghost" onClick={() => openCopyModal(record)} title="克隆" disabled={isBusy}><Copy className="w-3.5 h-3.5" /></Button>
             <Button size="sm" variant="ghost" onClick={() => handleDelete(record.profileId)} title={disabledBySync ? '同步状态下无法修改主控窗口' : '删除'} disabled={disabledBySync || isBusy}><Trash2 className="w-3.5 h-3.5 text-red-500" /></Button>
@@ -1429,9 +1527,12 @@ export function BrowserListPage() {
                 const isStopping = isProfileStopping(record.profileId)
                 const isSwitchingProxy = isProfileSwitchingProxy(record.profileId)
                 const isPinning = isProfilePinning(record.profileId)
+                const isExportingCookies = isProfileExportingCookies(record.profileId)
+                const isClearingCookies = isProfileClearingCookies(record.profileId)
                 const isBusy = isProfileBusy(record.profileId)
                 const isSyncMaster = isWindowSyncMaster(record.profileId)
                 const disabledBySync = isSyncMaster
+                const canOperateCookies = record.running && record.debugReady
 
                 return (
                   <div
@@ -1501,6 +1602,30 @@ export function BrowserListPage() {
                         <span className="w-px h-4 bg-[var(--color-border-muted)] mx-1"></span>
                         <Button size="sm" variant="ghost" onClick={() => handleRestart(record.profileId)} title={disabledBySync ? '同步状态下无法修改主控窗口' : '重启'} className="px-3" disabled={disabledBySync || isBusy}><RotateCcw className="w-4 h-4 mr-1.5" />重启</Button>
                         <Button size="sm" variant="ghost" onClick={() => openKwModal(record)} title="关键字管理" className="px-3" disabled={isBusy}><Key className="w-4 h-4 mr-1.5" />关键字</Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => handleExportCookies(record)}
+                          aria-label="导出 Cookie 文本"
+                          title={getCookieActionTitle(record, 'export')}
+                          className="px-3"
+                          loading={isExportingCookies}
+                          disabled={!canOperateCookies || isClearingCookies || (isBusy && !isExportingCookies)}
+                        >
+                          {!isExportingCookies && <Download className="w-4 h-4" />}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setCookieClearTarget(record)}
+                          aria-label="清空全部 Cookie"
+                          title={getCookieActionTitle(record, 'clear')}
+                          className="px-3 text-red-500 hover:text-red-600 hover:bg-red-50"
+                          loading={isClearingCookies}
+                          disabled={!canOperateCookies || isExportingCookies || (isBusy && !isClearingCookies)}
+                        >
+                          {!isClearingCookies && <Eraser className="w-4 h-4" />}
+                        </Button>
                         <Link to={`/browser/edit/${record.profileId}`}><Button size="sm" variant="ghost" title={disabledBySync ? '同步状态下无法修改主控窗口' : '配置'} className="px-3" disabled={disabledBySync || isBusy}><Settings className="w-4 h-4 mr-1.5" />配置</Button></Link>
                         <Button size="sm" variant="ghost" onClick={() => openCopyModal(record)} title="克隆" className="px-3" disabled={isBusy}><Copy className="w-4 h-4 mr-1.5" />克隆</Button>
                         <Button size="sm" variant="ghost" onClick={() => handleDelete(record.profileId)} title={disabledBySync ? '同步状态下无法修改主控窗口' : '删除'} className="px-3 text-red-500 hover:text-red-600 hover:bg-red-50" disabled={disabledBySync || isBusy}><Trash2 className="w-4 h-4 mr-1.5" />删除</Button>
@@ -2016,6 +2141,21 @@ export function BrowserListPage() {
       >
         <div className="text-[var(--color-text-secondary)] whitespace-pre-line">{opError}</div>
       </Modal>
+
+      <ConfirmModal
+        open={!!cookieClearTarget}
+        onClose={() => setCookieClearTarget(null)}
+        onConfirm={handleConfirmClearCookies}
+        title="清空 Cookie"
+        content={
+          <div className="space-y-2">
+            <p>确定清空实例「{cookieClearTarget?.profileName || ''}」的所有 Cookie？</p>
+            <p className="text-sm text-red-500">该操作会删除当前浏览器会话中的全部 Cookie，无法恢复。</p>
+          </div>
+        }
+        confirmText="清空 Cookie"
+        danger
+      />
 
       <ConfirmModal
         open={!!deleteTarget}
