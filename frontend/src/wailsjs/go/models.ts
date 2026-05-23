@@ -955,6 +955,7 @@ export namespace config {
 	    sourceId?: string;
 	    sourceUrl?: string;
 	    sourceNamePrefix?: string;
+	    sourceFilterJson?: string;
 	    sourceAutoRefresh?: boolean;
 	    sourceRefreshIntervalM?: number;
 	    sourceLastRefreshAt?: string;
@@ -978,6 +979,7 @@ export namespace config {
 	        this.sourceId = source["sourceId"];
 	        this.sourceUrl = source["sourceUrl"];
 	        this.sourceNamePrefix = source["sourceNamePrefix"];
+	        this.sourceFilterJson = source["sourceFilterJson"];
 	        this.sourceAutoRefresh = source["sourceAutoRefresh"];
 	        this.sourceRefreshIntervalM = source["sourceRefreshIntervalM"];
 	        this.sourceLastRefreshAt = source["sourceLastRefreshAt"];

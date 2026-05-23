@@ -33,7 +33,8 @@ func (d *SQLiteProxyDAO) List() ([]Proxy, error) {
 	rows, err := d.db.Query(`
 		SELECT proxy_id, proxy_name, proxy_config, dns_servers, COALESCE(group_name, ''),
 		       COALESCE(source_id, ''), COALESCE(source_url, ''), COALESCE(source_name_prefix, ''),
-		       COALESCE(source_auto_refresh, 0), COALESCE(source_refresh_interval_m, 0), COALESCE(source_last_refresh_at, ''),
+		       COALESCE(source_filter_json, ''), COALESCE(source_auto_refresh, 0),
+		       COALESCE(source_refresh_interval_m, 0), COALESCE(source_last_refresh_at, ''),
 		       COALESCE(last_latency_ms, -1), COALESCE(last_test_ok, 0), COALESCE(last_tested_at, ''),
 		       COALESCE(last_ip_health_json, ''),
 		       sort_order
@@ -50,7 +51,8 @@ func (d *SQLiteProxyDAO) ListByGroup(groupName string) ([]Proxy, error) {
 	rows, err := d.db.Query(`
 		SELECT proxy_id, proxy_name, proxy_config, dns_servers, COALESCE(group_name, ''),
 		       COALESCE(source_id, ''), COALESCE(source_url, ''), COALESCE(source_name_prefix, ''),
-		       COALESCE(source_auto_refresh, 0), COALESCE(source_refresh_interval_m, 0), COALESCE(source_last_refresh_at, ''),
+		       COALESCE(source_filter_json, ''), COALESCE(source_auto_refresh, 0),
+		       COALESCE(source_refresh_interval_m, 0), COALESCE(source_last_refresh_at, ''),
 		       COALESCE(last_latency_ms, -1), COALESCE(last_test_ok, 0), COALESCE(last_tested_at, ''),
 		       COALESCE(last_ip_health_json, ''),
 		       sort_order
@@ -94,10 +96,11 @@ func (d *SQLiteProxyDAO) Upsert(proxy Proxy) error {
 	_, err := d.db.Exec(`
 		INSERT INTO browser_proxies (
 		  proxy_id, proxy_name, proxy_config, dns_servers, group_name,
-		  source_id, source_url, source_name_prefix, source_auto_refresh, source_refresh_interval_m, source_last_refresh_at,
+		  source_id, source_url, source_name_prefix, source_filter_json,
+		  source_auto_refresh, source_refresh_interval_m, source_last_refresh_at,
 		  sort_order, created_at
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(proxy_id) DO UPDATE SET
 		  proxy_name   = excluded.proxy_name,
 		  proxy_config = excluded.proxy_config,
@@ -106,12 +109,14 @@ func (d *SQLiteProxyDAO) Upsert(proxy Proxy) error {
 		  source_id    = excluded.source_id,
 		  source_url   = excluded.source_url,
 		  source_name_prefix = excluded.source_name_prefix,
+		  source_filter_json = excluded.source_filter_json,
 		  source_auto_refresh = excluded.source_auto_refresh,
 		  source_refresh_interval_m = excluded.source_refresh_interval_m,
 		  source_last_refresh_at = excluded.source_last_refresh_at,
 		  sort_order   = excluded.sort_order`,
 		proxy.ProxyId, proxy.ProxyName, proxy.ProxyConfig, proxy.DnsServers, proxy.GroupName,
-		proxy.SourceID, proxy.SourceURL, proxy.SourceNamePrefix, autoRefreshInt, proxy.SourceRefreshIntervalM, proxy.SourceLastRefreshAt,
+		proxy.SourceID, proxy.SourceURL, proxy.SourceNamePrefix, proxy.SourceFilterJSON,
+		autoRefreshInt, proxy.SourceRefreshIntervalM, proxy.SourceLastRefreshAt,
 		proxy.SortOrder, now,
 	)
 	if err != nil {
@@ -172,7 +177,8 @@ func scanProxies(rows *sql.Rows) ([]Proxy, error) {
 		var autoRefreshInt int
 		if err := rows.Scan(
 			&p.ProxyId, &p.ProxyName, &p.ProxyConfig, &p.DnsServers, &p.GroupName,
-			&p.SourceID, &p.SourceURL, &p.SourceNamePrefix, &autoRefreshInt, &p.SourceRefreshIntervalM, &p.SourceLastRefreshAt,
+			&p.SourceID, &p.SourceURL, &p.SourceNamePrefix, &p.SourceFilterJSON,
+			&autoRefreshInt, &p.SourceRefreshIntervalM, &p.SourceLastRefreshAt,
 			&p.LastLatencyMs, &okInt, &p.LastTestedAt, &p.LastIPHealthJSON, &p.SortOrder,
 		); err != nil {
 			return nil, fmt.Errorf("读取代理行失败: %w", err)

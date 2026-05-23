@@ -81,6 +81,15 @@ type ProxyResourceView = 'proxies' | 'sources'
 type PreviewLatencyFilter = 'all' | 'untested' | 'testing' | 'ok' | 'fast' | 'slow' | 'timeout' | 'unsupported'
 type PreviewHealthFilter = 'all' | 'untested' | 'ok' | 'failed' | 'highRisk' | 'residential' | 'datacenter'
 
+interface SourceRefreshFilter {
+  keyword?: string
+  latencyFilter?: PreviewLatencyFilter
+  healthFilter?: PreviewHealthFilter
+  countryFilter?: string
+  requiresLatency?: boolean
+  requiresIPHealth?: boolean
+}
+
 const PREVIEW_LATENCY_FILTER_OPTIONS: { value: PreviewLatencyFilter; label: string }[] = [
   { value: 'all', label: '全部延迟' },
   { value: 'untested', label: '未测速' },
@@ -143,6 +152,7 @@ interface ProxyDisplayInfo {
   groupName: string
   sourceId: string
   sourceUrl: string
+  sourceFilterJson: string
   sourceAutoRefresh: boolean
   sourceRefreshIntervalM: number
   sourceLastRefreshAt: string
@@ -158,6 +168,7 @@ interface URLImportSourceMeta {
   sourceNamePrefix: string
   sourceGroupName: string
   sourceDnsServers: string
+  sourceFilterJson: string
   sourceAutoRefresh: boolean
   sourceRefreshIntervalM: number
   sourceLastRefreshAt: string
@@ -196,6 +207,7 @@ function toDisplayList(proxies: BrowserProxy[]): ProxyDisplayInfo[] {
       groupName: p.groupName || '',
       sourceId: p.sourceId || '',
       sourceUrl: p.sourceUrl || '',
+      sourceFilterJson: p.sourceFilterJson || '',
       sourceAutoRefresh: !!p.sourceAutoRefresh,
       sourceRefreshIntervalM: Math.max(0, Number(p.sourceRefreshIntervalM || 0)),
       sourceLastRefreshAt: p.sourceLastRefreshAt || '',
@@ -800,6 +812,7 @@ function buildImportPreview(candidates: ImportCandidate[], groupName: string): P
       groupName,
       sourceId: '',
       sourceUrl: '',
+      sourceFilterJson: '',
       sourceAutoRefresh: false,
       sourceRefreshIntervalM: 0,
       sourceLastRefreshAt: '',
@@ -825,6 +838,184 @@ function normalizeRefreshIntervalM(value: number): number {
   return Math.round(value)
 }
 
+function normalizeSourceRefreshFilter(input: unknown): SourceRefreshFilter | null {
+  if (!input || typeof input !== 'object') return null
+  const record = input as Record<string, unknown>
+  const keyword = typeof record.keyword === 'string' ? record.keyword.trim() : ''
+  const latencyFilter = PREVIEW_LATENCY_FILTER_OPTIONS.some(item => item.value === record.latencyFilter)
+    ? record.latencyFilter as PreviewLatencyFilter
+    : 'all'
+  const healthFilter = PREVIEW_HEALTH_FILTER_OPTIONS.some(item => item.value === record.healthFilter)
+    ? record.healthFilter as PreviewHealthFilter
+    : 'all'
+  const countryFilter = typeof record.countryFilter === 'string' && record.countryFilter.trim()
+    ? record.countryFilter.trim()
+    : 'all'
+  const requiresLatency = !!record.requiresLatency
+  const requiresIPHealth = !!record.requiresIPHealth
+
+  const active = !!keyword || latencyFilter !== 'all' || healthFilter !== 'all' || countryFilter !== 'all'
+  if (!active) return null
+  return {
+    keyword: keyword || undefined,
+    latencyFilter,
+    healthFilter,
+    countryFilter,
+    requiresLatency,
+    requiresIPHealth,
+  }
+}
+
+function parseSourceRefreshFilter(raw: string): SourceRefreshFilter | null {
+  const text = (raw || '').trim()
+  if (!text) return null
+  try {
+    return normalizeSourceRefreshFilter(JSON.parse(text))
+  } catch {
+    return null
+  }
+}
+
+function encodeSourceRefreshFilter(filter: SourceRefreshFilter | null): string {
+  const normalized = normalizeSourceRefreshFilter(filter)
+  return normalized ? JSON.stringify(normalized) : ''
+}
+
+function buildSourceRefreshFilterSnapshot(
+  keyword: string,
+  latencyFilter: PreviewLatencyFilter,
+  healthFilter: PreviewHealthFilter,
+  countryFilter: string,
+  hasIPHealthData: boolean
+): string {
+  const filter = normalizeSourceRefreshFilter({
+    keyword,
+    latencyFilter,
+    healthFilter,
+    countryFilter,
+    requiresLatency: latencyFilter !== 'all' && latencyFilter !== 'untested',
+    requiresIPHealth: countryFilter !== 'all' ||
+      (healthFilter !== 'all' && healthFilter !== 'untested') ||
+      (!!keyword.trim() && hasIPHealthData),
+  })
+  return encodeSourceRefreshFilter(filter)
+}
+
+function sourceRefreshFilterLabel(raw: string): string {
+  const filter = parseSourceRefreshFilter(raw)
+  if (!filter) return '-'
+  const parts: string[] = []
+  if (filter.countryFilter && filter.countryFilter !== 'all') parts.push(`地区:${filter.countryFilter}`)
+  if (filter.healthFilter && filter.healthFilter !== 'all') {
+    parts.push(PREVIEW_HEALTH_FILTER_OPTIONS.find(item => item.value === filter.healthFilter)?.label || filter.healthFilter)
+  }
+  if (filter.latencyFilter && filter.latencyFilter !== 'all') {
+    parts.push(PREVIEW_LATENCY_FILTER_OPTIONS.find(item => item.value === filter.latencyFilter)?.label || filter.latencyFilter)
+  }
+  if (filter.keyword) parts.push(`搜索:${filter.keyword}`)
+  return parts.join(' / ') || '-'
+}
+
+function previewItemMatchesSourceRefreshFilter(
+  item: ProxyDisplayInfo,
+  filter: SourceRefreshFilter,
+  latency: number | undefined,
+  health: ProxyIPHealthResult | undefined
+): boolean {
+  const latencyFilter = filter.latencyFilter || 'all'
+  if (!previewLatencyMatchesFilter(latency, latencyFilter)) return false
+
+  const healthFilter = filter.healthFilter || 'all'
+  if (!previewHealthMatchesFilter(health, false, healthFilter)) return false
+
+  const countryFilter = filter.countryFilter || 'all'
+  if (countryFilter !== 'all' && (health?.country || '') !== countryFilter) return false
+
+  const keyword = normalizePreviewSearchText(filter.keyword || '')
+  if (!keyword) return true
+  const searchText = [
+    item.proxyName,
+    item.groupName,
+    item.type,
+    item.server,
+    item.port,
+    health?.ip,
+    health?.country,
+    health?.region,
+    health?.city,
+    health?.asOrganization,
+    health?.fraudScore,
+    health?.isResidential ? '住宅 residential' : '机房 datacenter',
+  ].map(normalizePreviewSearchText).join(' ')
+  return searchText.includes(keyword)
+}
+
+async function applySourceRefreshFilterToParsedProxies(
+  parsedProxies: ClashProxy[],
+  meta: URLImportSourceMeta,
+  filter: SourceRefreshFilter | null
+): Promise<ClashProxy[]> {
+  if (!filter) return parsedProxies
+
+  const prefix = meta.sourceNamePrefix.trim()
+  const groupName = meta.sourceGroupName.trim()
+  const probeItems = parsedProxies.map((proxy, idx) => {
+    const proxyName = resolveImportedProxyName(proxy, idx, prefix)
+    const proxyConfig = proxyToYaml(proxy)
+    const parsed = parseProxyInfo(proxyConfig)
+    const display: ProxyDisplayInfo = {
+      proxyId: `refresh-preview-${idx}`,
+      proxyName,
+      proxyConfig,
+      groupName,
+      sourceId: meta.sourceId,
+      sourceUrl: meta.sourceUrl,
+      sourceFilterJson: meta.sourceFilterJson,
+      sourceAutoRefresh: meta.sourceAutoRefresh,
+      sourceRefreshIntervalM: meta.sourceRefreshIntervalM,
+      sourceLastRefreshAt: meta.sourceLastRefreshAt,
+      ...parsed,
+    }
+    return { proxy, display }
+  })
+
+  const latencyMap: Record<string, number> = {}
+  const needsLatency = !!filter.requiresLatency ||
+    (!!filter.latencyFilter && filter.latencyFilter !== 'all' && filter.latencyFilter !== 'untested')
+  if (needsLatency) {
+    const results = await browserProxyPreviewBatchTestSpeed(
+      probeItems.map(item => ({ proxyId: item.display.proxyId, proxyConfig: item.display.proxyConfig })),
+      20
+    )
+    results.forEach(result => {
+      latencyMap[result.proxyId] = toLatencyValue(result.ok, result.latencyMs, result.error)
+    })
+  }
+
+  const healthMap: Record<string, ProxyIPHealthResult> = {}
+  const needsIPHealth = !!filter.requiresIPHealth ||
+    (!!filter.countryFilter && filter.countryFilter !== 'all') ||
+    (!!filter.healthFilter && filter.healthFilter !== 'all' && filter.healthFilter !== 'untested')
+  if (needsIPHealth) {
+    const results = await browserProxyPreviewBatchCheckIPHealth(
+      probeItems.map(item => ({ proxyId: item.display.proxyId, proxyConfig: item.display.proxyConfig })),
+      10
+    )
+    results.forEach(result => {
+      healthMap[result.proxyId] = result
+    })
+  }
+
+  return probeItems
+    .filter(item => previewItemMatchesSourceRefreshFilter(
+      item.display,
+      filter,
+      latencyMap[item.display.proxyId],
+      healthMap[item.display.proxyId]
+    ))
+    .map(item => item.proxy)
+}
+
 function sourceHostLabel(sourceURL: string): string {
   const raw = (sourceURL || '').trim()
   if (!raw) return ''
@@ -848,8 +1039,8 @@ function normalizeSourceURL(sourceURL: string): string {
   }
 }
 
-function buildStableSourceID(sourceURL: string, sourceNamePrefix: string): string {
-  const key = `${normalizeSourceURL(sourceURL)}|||${sourceNamePrefix.trim()}`
+function buildStableSourceID(sourceURL: string, sourceNamePrefix: string, sourceGroupName: string): string {
+  const key = `${normalizeSourceURL(sourceURL)}|||${sourceGroupName.trim()}|||${sourceNamePrefix.trim()}`
   // djb2 变体，输出稳定且实现简单。
   let hash = 5381
   for (let i = 0; i < key.length; i += 1) {
@@ -859,18 +1050,32 @@ function buildStableSourceID(sourceURL: string, sourceNamePrefix: string): strin
   return `src-${unsigned.toString(36)}`
 }
 
-function resolveImportSourceID(list: BrowserProxy[], sourceURL: string, sourceNamePrefix: string): string {
+function resolveImportSourceID(list: BrowserProxy[], sourceURL: string, sourceNamePrefix: string, sourceGroupName: string): string {
   const normalizedURL = normalizeSourceURL(sourceURL)
   const normalizedPrefix = sourceNamePrefix.trim()
+  const normalizedGroup = sourceGroupName.trim()
   const existing = list.find(item =>
     normalizeSourceURL(item.sourceUrl || '') === normalizedURL &&
+    (item.groupName || '').trim() === normalizedGroup &&
     (item.sourceNamePrefix || '').trim() === normalizedPrefix &&
     (item.sourceId || '').trim() !== ''
   )
   if (existing?.sourceId?.trim()) {
     return existing.sourceId.trim()
   }
-  return buildStableSourceID(sourceURL, sourceNamePrefix)
+  const candidate = buildStableSourceID(sourceURL, sourceNamePrefix, sourceGroupName)
+  const collidesWithDifferentSource = list.some(item =>
+    (item.sourceId || '').trim() === candidate &&
+    (
+      normalizeSourceURL(item.sourceUrl || '') !== normalizedURL ||
+      (item.groupName || '').trim() !== normalizedGroup ||
+      (item.sourceNamePrefix || '').trim() !== normalizedPrefix
+    )
+  )
+  if (collidesWithDifferentSource) {
+    return `${candidate}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+  }
+  return candidate
 }
 
 function collectURLImportSources(list: BrowserProxy[]): URLImportSourceMeta[] {
@@ -889,6 +1094,7 @@ function collectURLImportSources(list: BrowserProxy[]): URLImportSourceMeta[] {
         sourceNamePrefix: (item.sourceNamePrefix || '').trim(),
         sourceGroupName: (item.groupName || '').trim(),
         sourceDnsServers: (item.dnsServers || '').trim(),
+        sourceFilterJson: (item.sourceFilterJson || '').trim(),
         sourceAutoRefresh: !!item.sourceAutoRefresh,
         sourceRefreshIntervalM: normalizeRefreshIntervalM(Number(item.sourceRefreshIntervalM || 0)),
         sourceLastRefreshAt: currentLastRefreshAt,
@@ -903,6 +1109,9 @@ function collectURLImportSources(list: BrowserProxy[]): URLImportSourceMeta[] {
       currentLastRefreshAt.trim()
     ) {
       last.sourceLastRefreshAt = currentLastRefreshAt
+    }
+    if (!last.sourceFilterJson && (item.sourceFilterJson || '').trim()) {
+      last.sourceFilterJson = (item.sourceFilterJson || '').trim()
     }
   }
   return Array.from(sourceMap.values())
@@ -976,6 +1185,7 @@ function buildRefreshedSourceProxies(
       sourceId: meta.sourceId,
       sourceUrl: meta.sourceUrl,
       sourceNamePrefix: prefix || undefined,
+      sourceFilterJson: meta.sourceFilterJson || undefined,
       sourceAutoRefresh: meta.sourceAutoRefresh,
       sourceRefreshIntervalM: meta.sourceRefreshIntervalM,
       sourceLastRefreshAt: refreshedAt,
@@ -1241,6 +1451,7 @@ export function ProxyPoolPage() {
   const [previewTestingAll, setPreviewTestingAll] = useState(false)
   const [previewCheckingAllIPHealth, setPreviewCheckingAllIPHealth] = useState(false)
   const [removedPreviewProxyNames, setRemovedPreviewProxyNames] = useState<string[]>([])
+  const [previewSourceFilterJson, setPreviewSourceFilterJson] = useState('')
   const [importing, setImporting] = useState(false)
   const [fetchingImportUrl, setFetchingImportUrl] = useState(false)
   const [refreshingAllSources, setRefreshingAllSources] = useState(false)
@@ -1402,9 +1613,14 @@ export function ProxyPoolPage() {
       if (!parsed.length) {
         throw new Error('订阅内容未解析到可用代理')
       }
+      const sourceFilter = parseSourceRefreshFilter(meta.sourceFilterJson)
+      const sourceFilteredParsed = await applySourceRefreshFilterToParsedProxies(parsed, meta, sourceFilter)
       const ignoredNameMap = readSourceIgnoredProxyNames()
       const sourceIgnoredNames = ignoredNameMap[sourceId] || []
-      const filteredParsed = applyIgnoredProxyNamesForSource(parsed, meta.sourceNamePrefix, sourceIgnoredNames)
+      const filteredParsed = applyIgnoredProxyNamesForSource(sourceFilteredParsed, meta.sourceNamePrefix, sourceIgnoredNames)
+      if (filteredParsed.length === 0) {
+        throw new Error('刷新后没有符合当前订阅筛选的节点，已保留原有节点')
+      }
 
       const latest = proxiesRef.current
       const oldSourceProxies = latest.filter(item => (item.sourceId || '').trim() === sourceId)
@@ -1634,6 +1850,14 @@ export function ProxyPoolPage() {
   const previewHasActiveFilter = !!previewKeyword.trim() || previewLatencyFilter !== 'all' || previewHealthFilter !== 'all' || previewCountryFilter !== 'all'
   const previewTestableList = filteredPreviewList.filter(p => p.proxyConfig !== 'direct://')
 
+  const buildCurrentPreviewSourceFilterJson = () => buildSourceRefreshFilterSnapshot(
+    previewKeyword,
+    previewLatencyFilter,
+    previewHealthFilter,
+    previewCountryFilter,
+    Object.keys(previewIPHealthMap).length > 0
+  )
+
   const resetPreviewDetectionState = () => {
     setPreviewSelectedIds(new Set())
     setPreviewKeyword('')
@@ -1645,6 +1869,7 @@ export function ProxyPoolPage() {
     setPreviewCheckingIPHealthIds(new Set())
     setPreviewTestingAll(false)
     setPreviewCheckingAllIPHealth(false)
+    setPreviewSourceFilterJson('')
   }
 
   const handleToggleAll = () => {
@@ -1840,10 +2065,24 @@ export function ProxyPoolPage() {
         filteredPreviewList.forEach(p => next.add(p.proxyId))
         return next
       })
+      if (previewSourceFilterJson && buildCurrentPreviewSourceFilterJson() !== previewSourceFilterJson) {
+        setPreviewSourceFilterJson('')
+      }
     }
   }
 
   const handleTogglePreviewOne = (proxyId: string) => {
+    const selectedNow = previewSelectedIds.has(proxyId)
+    const sourceFilter = parseSourceRefreshFilter(previewSourceFilterJson)
+    const record = previewList.find(item => item.proxyId === proxyId)
+    if (
+      sourceFilter &&
+      !selectedNow &&
+      record &&
+      !previewItemMatchesSourceRefreshFilter(record, sourceFilter, previewLatencyMap[proxyId], previewIPHealthMap[proxyId])
+    ) {
+      setPreviewSourceFilterJson('')
+    }
     setPreviewSelectedIds(prev => {
       const next = new Set(prev)
       next.has(proxyId) ? next.delete(proxyId) : next.add(proxyId)
@@ -1857,9 +2096,10 @@ export function ProxyPoolPage() {
       return
     }
     setPreviewSelectedIds(new Set(filteredPreviewList.map(item => item.proxyId)))
+    setPreviewSourceFilterJson(buildCurrentPreviewSourceFilterJson())
   }
 
-  const removePreviewItems = (removeIds: Set<string>) => {
+  const removePreviewItems = (removeIds: Set<string>, trackIgnored = true) => {
     if (removeIds.size === 0) return
     const removedNames = previewList
       .filter(item => removeIds.has(item.proxyId))
@@ -1885,7 +2125,9 @@ export function ProxyPoolPage() {
       removeIds.forEach(id => next.delete(id))
       return next
     })
-    setRemovedPreviewProxyNames(prev => [...prev, ...removedNames])
+    if (trackIgnored) {
+      setRemovedPreviewProxyNames(prev => [...prev, ...removedNames])
+    }
   }
 
   const handleRemoveFilteredPreview = () => {
@@ -1903,8 +2145,9 @@ export function ProxyPoolPage() {
     }
     const keepIds = new Set(filteredPreviewList.map(item => item.proxyId))
     const removeIds = new Set(previewList.filter(item => !keepIds.has(item.proxyId)).map(item => item.proxyId))
-    removePreviewItems(removeIds)
+    removePreviewItems(removeIds, false)
     setPreviewSelectedIds(keepIds)
+    setPreviewSourceFilterJson(buildCurrentPreviewSourceFilterJson())
   }
 
   const handlePreviewTestAll = async () => {
@@ -2493,10 +2736,21 @@ export function ProxyPoolPage() {
       const sourceURL = importMode === 'clash' ? importResolvedUrl.trim() : ''
       const isURLImport = !!sourceURL
       const sourceNamePrefix = importMode === 'clash' ? importNamePrefix.trim() : ''
-      const sourceID = isURLImport ? resolveImportSourceID(proxies, sourceURL, sourceNamePrefix) : ''
+      const sourceGroupName = importGroupName.trim()
+      const sourceID = isURLImport ? resolveImportSourceID(proxies, sourceURL, sourceNamePrefix, sourceGroupName) : ''
       const sourceAutoRefresh = isURLImport ? globalAutoRefreshEnabled : false
       const sourceRefreshIntervalM = sourceAutoRefresh ? globalRefreshInterval : 0
       const sourceLastRefreshAt = isURLImport ? new Date().toISOString() : ''
+      let sourceFilterJson = isURLImport ? previewSourceFilterJson : ''
+      if (isURLImport && !sourceFilterJson && previewHasActiveFilter) {
+        const filteredIds = new Set(filteredPreviewList.map(item => item.proxyId))
+        const selectedIdsMatchFilter = filteredIds.size === previewSelectedIds.size &&
+          Array.from(previewSelectedIds).every(id => filteredIds.has(id))
+        if (selectedIdsMatchFilter) {
+          sourceFilterJson = buildCurrentPreviewSourceFilterJson()
+        }
+      }
+      const sourceFilter = parseSourceRefreshFilter(sourceFilterJson)
       const oldSourceProxies = isURLImport
         ? proxies.filter(item => (item.sourceId || '').trim() === sourceID)
         : []
@@ -2507,10 +2761,11 @@ export function ProxyPoolPage() {
         proxyName: p.proxyName,
         proxyConfig: p.proxyConfig,
         dnsServers: importMode === 'clash' ? importDnsServers.trim() || undefined : undefined,
-        groupName: importGroupName.trim() || undefined,
+        groupName: sourceGroupName || undefined,
         sourceId: sourceID || undefined,
         sourceUrl: sourceURL || undefined,
         sourceNamePrefix: sourceNamePrefix || undefined,
+        sourceFilterJson: sourceFilterJson || undefined,
         sourceAutoRefresh,
         sourceRefreshIntervalM,
         sourceLastRefreshAt: sourceLastRefreshAt || undefined,
@@ -2521,6 +2776,12 @@ export function ProxyPoolPage() {
       await saveProxies(allProxies)
       const unselectedPreviewProxyNames = previewList
         .filter(item => !previewSelectedIds.has(item.proxyId))
+        .filter(item => !sourceFilter || previewItemMatchesSourceRefreshFilter(
+          item,
+          sourceFilter,
+          previewLatencyMap[item.proxyId],
+          previewIPHealthMap[item.proxyId]
+        ))
         .map(item => item.proxyName)
       const ignoredProxyNames = [...removedPreviewProxyNames, ...unselectedPreviewProxyNames]
       if (isURLImport && ignoredProxyNames.length > 0) {
@@ -2566,6 +2827,7 @@ export function ProxyPoolPage() {
     { key: 'proxyCount', title: '节点数', width: '80px', render: (val) => val || 0 },
     { key: 'sourceGroupName', title: '分组', width: '120px', render: (val) => val ? <span className="px-1.5 py-0.5 text-xs rounded bg-[var(--color-accent)]/10 text-[var(--color-accent)]">{val}</span> : '-' },
     { key: 'sourceNamePrefix', title: '名称前缀', width: '120px', render: (val) => val || '-' },
+    { key: 'sourceFilterJson', title: '刷新筛选', width: '150px', render: (_, record) => <span title={sourceRefreshFilterLabel(record.sourceFilterJson)}>{sourceRefreshFilterLabel(record.sourceFilterJson)}</span> },
     {
       key: 'sourceRefreshIntervalM',
       title: '刷新策略',
@@ -3001,8 +3263,8 @@ export function ProxyPoolPage() {
             <Button size="sm" variant="secondary" onClick={handlePreviewTestAll} loading={previewTestingAll} disabled={previewTestableList.length === 0}>检测延迟</Button>
             <Button size="sm" variant="secondary" onClick={handlePreviewCheckIPHealth} loading={previewCheckingAllIPHealth} disabled={previewTestableList.length === 0}>检测IP健康</Button>
             <Button size="sm" variant="ghost" onClick={handleSelectOnlyFilteredPreview} disabled={filteredPreviewList.length === 0}>只选择当前筛选</Button>
-            <Button size="sm" variant="ghost" onClick={() => setPreviewSelectedIds(new Set(previewList.map(item => item.proxyId)))} disabled={previewList.length === 0}>全选</Button>
-            <Button size="sm" variant="ghost" onClick={() => setPreviewSelectedIds(new Set())} disabled={previewSelectedCount === 0}>清空选择</Button>
+            <Button size="sm" variant="ghost" onClick={() => { setPreviewSelectedIds(new Set(previewList.map(item => item.proxyId))); setPreviewSourceFilterJson('') }} disabled={previewList.length === 0}>全选</Button>
+            <Button size="sm" variant="ghost" onClick={() => { setPreviewSelectedIds(new Set()); setPreviewSourceFilterJson('') }} disabled={previewSelectedCount === 0}>清空选择</Button>
             <Button size="sm" variant="secondary" onClick={handleKeepFilteredPreview} disabled={!previewHasActiveFilter || filteredPreviewList.length === 0}>只保留筛选</Button>
             <Button size="sm" variant="danger" onClick={handleRemoveFilteredPreview} disabled={filteredPreviewList.length === 0}>删除筛选</Button>
           </div>

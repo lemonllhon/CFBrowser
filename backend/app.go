@@ -1335,6 +1335,7 @@ func (a *App) SaveBrowserProxies(proxies []BrowserProxy) error {
 		sourceURL := strings.TrimSpace(item.SourceURL)
 		sourceID := strings.TrimSpace(item.SourceID)
 		sourceNamePrefix := strings.TrimSpace(item.SourceNamePrefix)
+		sourceFilterJSON := strings.TrimSpace(item.SourceFilterJSON)
 		sourceLastRefreshAt := strings.TrimSpace(item.SourceLastRefreshAt)
 		sourceRefreshIntervalM := item.SourceRefreshIntervalM
 		if sourceRefreshIntervalM < 0 {
@@ -1353,6 +1354,7 @@ func (a *App) SaveBrowserProxies(proxies []BrowserProxy) error {
 		if sourceURL == "" {
 			sourceID = ""
 			sourceNamePrefix = ""
+			sourceFilterJSON = ""
 			sourceLastRefreshAt = ""
 			sourceAutoRefresh = false
 			sourceRefreshIntervalM = 0
@@ -1366,6 +1368,7 @@ func (a *App) SaveBrowserProxies(proxies []BrowserProxy) error {
 			SourceID:               sourceID,
 			SourceURL:              sourceURL,
 			SourceNamePrefix:       sourceNamePrefix,
+			SourceFilterJSON:       sourceFilterJSON,
 			SourceAutoRefresh:      sourceAutoRefresh,
 			SourceRefreshIntervalM: sourceRefreshIntervalM,
 			SourceLastRefreshAt:    sourceLastRefreshAt,

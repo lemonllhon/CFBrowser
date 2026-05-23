@@ -159,6 +159,8 @@ type BrowserProxy struct {
 	SourceURL   string `yaml:"source_url,omitempty" json:"sourceUrl,omitempty"`
 	// URL 导入时的名称前缀，用于后续自动刷新时重建同名策略
 	SourceNamePrefix string `yaml:"source_name_prefix,omitempty" json:"sourceNamePrefix,omitempty"`
+	// URL 导入时的预览筛选策略，用于刷新订阅时定向重建节点
+	SourceFilterJSON string `yaml:"source_filter_json,omitempty" json:"sourceFilterJson,omitempty"`
 	// URL 导入自动刷新开关与间隔（分钟）
 	SourceAutoRefresh      bool   `yaml:"source_auto_refresh,omitempty" json:"sourceAutoRefresh,omitempty"`
 	SourceRefreshIntervalM int    `yaml:"source_refresh_interval_m,omitempty" json:"sourceRefreshIntervalM,omitempty"`

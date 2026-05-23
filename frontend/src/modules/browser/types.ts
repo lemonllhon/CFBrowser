@@ -98,6 +98,7 @@ export interface BrowserProxy {
   sourceId?: string
   sourceUrl?: string
   sourceNamePrefix?: string
+  sourceFilterJson?: string
   sourceAutoRefresh?: boolean
   sourceRefreshIntervalM?: number
   sourceLastRefreshAt?: string

@@ -197,6 +197,13 @@ var migrations = []migration{
 			`CREATE INDEX IF NOT EXISTS idx_browser_extensions_auto_bind ON browser_extensions(auto_bind_enabled)`,
 		},
 	},
+	{
+		version: 11,
+		desc:    "代理订阅添加刷新筛选策略",
+		stmts: []string{
+			`ALTER TABLE browser_proxies ADD COLUMN source_filter_json TEXT NOT NULL DEFAULT ''`,
+		},
+	},
 	// ── 新版本在此追加，格式：
 	// {
 	//     version: 4,
