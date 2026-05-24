@@ -6,6 +6,12 @@ vars:
   BIN_DIR: build/bin
 
 tasks:
+  frontend:build:
+    summary: Builds the React frontend assets required by go:embed.
+    dir: frontend
+    cmds:
+      - npm run build
+
   build:
     summary: Builds the experimental Wails3 application shell.
     cmds:
@@ -13,18 +19,24 @@ tasks:
 
   windows:build:
     summary: Builds the experimental Wails3 application shell for Windows.
+    deps:
+      - frontend:build
     cmds:
       - powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '{{.BIN_DIR}}' | Out-Null"
       - go build -trimpath -buildvcs=false -o {{.BIN_DIR}}/{{.WAILS3_APP_NAME}} .
 
   linux:build:
     summary: Builds the experimental Wails3 application shell for Linux.
+    deps:
+      - frontend:build
     cmds:
       - mkdir -p {{.BIN_DIR}}
       - go build -trimpath -buildvcs=false -o {{.BIN_DIR}}/{{.WAILS3_APP_NAME}} .
 
   darwin:build:
     summary: Builds the experimental Wails3 application shell for macOS.
+    deps:
+      - frontend:build
     cmds:
       - mkdir -p {{.BIN_DIR}}
       - go build -trimpath -buildvcs=false -o {{.BIN_DIR}}/{{.WAILS3_APP_NAME}} .
