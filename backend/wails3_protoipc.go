@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -82,8 +83,43 @@ func (ipc *Wails3ProtoIPC) RawMessageHandler() func(application.Window, string, 
 		if dispatcher == nil {
 			dispatcher = protoipc.NewDispatcher()
 		}
-		emitWails3ProtoResponse(window, dispatcher.Dispatch(ctx, payload))
+		go ipc.dispatchRawMessage(window, ctx, dispatcher, payload)
 	}
+}
+
+func (ipc *Wails3ProtoIPC) dispatchRawMessage(window application.Window, ctx context.Context, dispatcher *protoipc.Dispatcher, payload []byte) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			log.Printf("Wails3 Proto IPC raw dispatch panic: %v\n%s", recovered, debug.Stack())
+			emitWails3ProtoResponse(window, protoipc.EncodeResponse(protoipc.Response{
+				RequestID: requestIDFromProtoPayload(payload),
+				Error: &protoipc.RPCError{
+					Code:    protoipc.ErrorCodeInternal,
+					Message: "Proto IPC raw handler panic",
+					Details: fmt.Sprint(recovered),
+				},
+			}))
+		}
+	}()
+
+	startedAt := time.Now()
+	response := dispatcher.Dispatch(ctx, payload)
+	if elapsed := time.Since(startedAt); elapsed > 5*time.Second {
+		if request, err := protoipc.DecodeEnvelope(payload); err == nil {
+			log.Printf("Wails3 Proto IPC raw slow request: method=%s request_id=%s elapsed=%s", request.Method, request.RequestID, elapsed.String())
+		} else {
+			log.Printf("Wails3 Proto IPC raw slow invalid request: elapsed=%s error=%v", elapsed.String(), err)
+		}
+	}
+	emitWails3ProtoResponse(window, response)
+}
+
+func requestIDFromProtoPayload(payload []byte) string {
+	request, err := protoipc.DecodeEnvelope(payload)
+	if err != nil {
+		return ""
+	}
+	return request.RequestID
 }
 
 func (ipc *Wails3ProtoIPC) RegisterWindow(window application.Window) {

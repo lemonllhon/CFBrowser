@@ -7,6 +7,8 @@ const RAW_EVENT_NAME = 'trace:proto:event'
 const DEFAULT_TIMEOUT_MS = 10000
 const CONFIG_WAIT_MS = 5000
 const RAW_FALLBACK_COOLDOWN_MS = 10000
+const EVENT_DEDUP_TTL_MS = 60000
+const EVENT_DEDUP_MAX = 1000
 const BINARY_FRAME_RESPONSE = 1
 const BINARY_FRAME_EVENT = 2
 
@@ -50,6 +52,7 @@ type PendingRequest = {
 
 const pendingRequests = new Map<string, PendingRequest>()
 const eventListeners = new Map<string, Set<(event: RpcEvent) => void>>()
+const seenEventIds = new Map<string, number>()
 let rawFallbackPreferredUntil = 0
 
 export type TraceProtoIpcConfig = {
@@ -104,6 +107,15 @@ export class BinaryWebSocketProtoIpcClient {
   private socketPromise: Promise<WebSocket> | null = null
 
   private readonly pending = new Map<string, PendingRequest>()
+
+  async ensureConnected(timeoutMs = CONFIG_WAIT_MS): Promise<void> {
+    const config = getBinaryConfig() ?? await waitForBinaryConfig(timeoutMs)
+    const wsUrl = config.wsUrl
+    if (!wsUrl) {
+      throw new Error('Protobuf IPC WebSocket 配置无效')
+    }
+    await this.openSocket(wsUrl)
+  }
 
   async request(method: string, payload: Uint8Array, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<Uint8Array> {
     const config = getBinaryConfig() ?? await waitForBinaryConfig(CONFIG_WAIT_MS)
@@ -178,7 +190,6 @@ export class BinaryWebSocketProtoIpcClient {
       const response = decodeRpcResponse(frame.payload)
       const pending = this.pending.get(response.requestId)
       if (!pending) {
-        dispatchProtoEvent(frame.payload)
         return
       }
 
@@ -215,9 +226,12 @@ function decodeBinaryFrame(bytes: Uint8Array): { frameType: number; payload: Uin
   return { frameType: BINARY_FRAME_RESPONSE, payload: bytes }
 }
 
+const sharedBinaryClient = new BinaryWebSocketProtoIpcClient()
+const sharedRawClient = new RawProtoIpcClient()
+
 export class ProtoIpcClient {
-  private readonly binaryClient = new BinaryWebSocketProtoIpcClient()
-  private readonly rawClient = new RawProtoIpcClient()
+  private readonly binaryClient = sharedBinaryClient
+  private readonly rawClient = sharedRawClient
 
   async request(method: string, payload: Uint8Array, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<Uint8Array> {
     if (shouldPreferRawTransport()) {
@@ -237,6 +251,11 @@ export class ProtoIpcClient {
 
   onEvent(eventName: string, callback: (event: RpcEvent) => void): () => void {
     installWailsEventHook()
+    void this.binaryClient.ensureConnected().catch(error => {
+      if (!isRawChannelAvailable()) {
+        console.warn('Protobuf IPC event WebSocket unavailable:', error)
+      }
+    })
     return onProtoEvent(eventName, callback)
   }
 }
@@ -325,8 +344,35 @@ function dispatchProtoEvent(bytes: Uint8Array) {
   if (!listeners) {
     return
   }
+  if (isDuplicateEvent(event)) {
+    return
+  }
   for (const listener of listeners) {
     listener(event)
+  }
+}
+
+function isDuplicateEvent(event: RpcEvent): boolean {
+  if (!event.eventId) {
+    return false
+  }
+  const now = Date.now()
+  pruneSeenEventIds(now)
+  if (seenEventIds.has(event.eventId)) {
+    return true
+  }
+  seenEventIds.set(event.eventId, now)
+  return false
+}
+
+function pruneSeenEventIds(now: number) {
+  if (seenEventIds.size <= EVENT_DEDUP_MAX) {
+    return
+  }
+  for (const [eventId, seenAt] of seenEventIds) {
+    if (now - seenAt > EVENT_DEDUP_TTL_MS || seenEventIds.size > EVENT_DEDUP_MAX) {
+      seenEventIds.delete(eventId)
+    }
   }
 }
 
