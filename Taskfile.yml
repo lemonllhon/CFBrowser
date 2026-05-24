@@ -23,7 +23,8 @@ tasks:
       - frontend:build
     cmds:
       - powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '{{.BIN_DIR}}' | Out-Null"
-      - go build -trimpath -buildvcs=false -o {{.BIN_DIR}}/{{.WAILS3_APP_NAME}} .
+      - >-
+        powershell -NoProfile -Command "$version = $env:TRACE_BROWSER_VERSION; if ([string]::IsNullOrWhiteSpace($version)) { $version = $env:VERSION }; $ldflags = ''; if (-not [string]::IsNullOrWhiteSpace($version)) { $ldflags = '-X main.appBuildVersion=' + $version.Trim() }; $args = @('build','-trimpath','-buildvcs=false'); if ($ldflags) { $args += @('-ldflags', $ldflags) }; $args += @('-o','{{.BIN_DIR}}/{{.WAILS3_APP_NAME}}','.'); & go @args; exit $LASTEXITCODE"
 
   linux:build:
     summary: Builds the experimental Wails3 application shell for Linux.
@@ -31,7 +32,8 @@ tasks:
       - frontend:build
     cmds:
       - mkdir -p {{.BIN_DIR}}
-      - go build -trimpath -buildvcs=false -o {{.BIN_DIR}}/{{.WAILS3_APP_NAME}} .
+      - >-
+        sh -c 'version="${TRACE_BROWSER_VERSION:-${VERSION:-}}"; ldflags=""; if [ -n "$version" ]; then ldflags="-X main.appBuildVersion=$version"; fi; if [ -n "$ldflags" ]; then go build -trimpath -buildvcs=false -ldflags "$ldflags" -o "{{.BIN_DIR}}/{{.WAILS3_APP_NAME}}" .; else go build -trimpath -buildvcs=false -o "{{.BIN_DIR}}/{{.WAILS3_APP_NAME}}" .; fi'
 
   darwin:build:
     summary: Builds the experimental Wails3 application shell for macOS.
@@ -39,7 +41,8 @@ tasks:
       - frontend:build
     cmds:
       - mkdir -p {{.BIN_DIR}}
-      - go build -trimpath -buildvcs=false -o {{.BIN_DIR}}/{{.WAILS3_APP_NAME}} .
+      - >-
+        sh -c 'version="${TRACE_BROWSER_VERSION:-${VERSION:-}}"; ldflags=""; if [ -n "$version" ]; then ldflags="-X main.appBuildVersion=$version"; fi; if [ -n "$ldflags" ]; then go build -trimpath -buildvcs=false -ldflags "$ldflags" -o "{{.BIN_DIR}}/{{.WAILS3_APP_NAME}}" .; else go build -trimpath -buildvcs=false -o "{{.BIN_DIR}}/{{.WAILS3_APP_NAME}}" .; fi'
 
   run:
     summary: Runs the experimental Wails3 application shell.

@@ -148,6 +148,8 @@ jobs:
       - name: Build Windows app
         env:
           GOPROXY: https://proxy.golang.org,direct
+          TRACE_BROWSER_VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: wails3 build
 
       - name: Verify runtime binaries

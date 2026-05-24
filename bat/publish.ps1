@@ -253,8 +253,12 @@ function Build-WindowsBinary {
     )
 
     $previousGoProxy = $env:GOPROXY
+    $previousTraceBrowserVersion = $env:TRACE_BROWSER_VERSION
+    $previousVersion = $env:VERSION
     try {
         $env:GOPROXY = "https://goproxy.cn,direct"
+        $env:TRACE_BROWSER_VERSION = $script:Version
+        $env:VERSION = $script:Version
         Push-Location (Join-Path $repoRoot "frontend")
         try {
             Write-Host "[Windows] 预检前端依赖..."
@@ -279,6 +283,8 @@ function Build-WindowsBinary {
     }
     finally {
         $env:GOPROXY = $previousGoProxy
+        $env:TRACE_BROWSER_VERSION = $previousTraceBrowserVersion
+        $env:VERSION = $previousVersion
     }
 
     if (-not (Test-Path -LiteralPath $binaryPath -PathType Leaf)) {

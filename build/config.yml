@@ -7,7 +7,7 @@ info:
   description: "Desktop browser profile manager for isolated accounts and proxy-bound local environments"
   copyright: "Copyright (c) 2026"
   comments: "Trace Browser desktop application"
-  version: "0.0.27"
+  version: "0.0.87"
 
 dev_mode:
   root_path: .

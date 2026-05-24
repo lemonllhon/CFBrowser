@@ -208,7 +208,7 @@ PY
   rm -f "$APP_BIN"
   (
     cd "$ROOT_DIR"
-    wails3 build -s -platform "linux/$ARCH" -o trace-browser
+    TRACE_BROWSER_VERSION="$VERSION" VERSION="$VERSION" wails3 build -s -platform "linux/$ARCH" -o trace-browser
   )
 else
   echo "[WARN] skipping build step"

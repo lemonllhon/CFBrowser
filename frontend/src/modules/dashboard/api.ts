@@ -1,6 +1,7 @@
 import type { DashboardStats } from './types'
 import {
   generateCDKeys as generateCDKeysProto,
+  getAppConfig,
   getDashboardStats,
   getLicenseStatus,
   redeemCDKey as redeemCDKeyProto,
@@ -8,12 +9,19 @@ import {
   reloadAppConfig,
 } from '../../shared/backend/client'
 
+function normalizeAppVersion(version?: string): string {
+  const value = (version || '').trim()
+  return value && value.toLowerCase() !== 'unknown' ? value : ''
+}
+
 export async function fetchDashboardStats(): Promise<DashboardStats> {
   try {
-    const [data, licenseStatus] = await Promise.all([
+    const [data, licenseStatus, appConfig] = await Promise.all([
       getDashboardStats(),
       getLicenseStatus().catch(() => ({ maxLimit: 0 })),
+      getAppConfig().catch(() => ({ version: '' })),
     ])
+    const appVersion = normalizeAppVersion(data.appVersion) || normalizeAppVersion(appConfig.version) || 'dev'
     return {
       totalInstances: data.totalInstances ?? 0,
       runningInstances: data.runningInstances ?? 0,
@@ -21,12 +29,12 @@ export async function fetchDashboardStats(): Promise<DashboardStats> {
       coreCount: data.coreCount ?? 0,
       memUsedMB: data.memUsedMB ?? 0,
       maxProfileLimit: licenseStatus.maxLimit ?? 0,
-      appVersion: data.appVersion || 'unknown',
+      appVersion,
     }
   } catch (e) {
     console.error('fetchDashboardStats error:', e)
   }
-  return { totalInstances: 0, runningInstances: 0, proxyCount: 0, coreCount: 0, memUsedMB: 0, maxProfileLimit: 0, appVersion: 'unknown' }
+  return { totalInstances: 0, runningInstances: 0, proxyCount: 0, coreCount: 0, memUsedMB: 0, maxProfileLimit: 0, appVersion: 'dev' }
 }
 
 export async function redeemCDKey(cdkey: string): Promise<{ success: boolean, message?: string }> {

@@ -98,7 +98,7 @@ func (a *App) appName() string {
 func (a *App) appVersion() string {
 	version := strings.TrimSpace(a.version)
 	if version == "" {
-		return "unknown"
+		return "dev"
 	}
 	return version
 }

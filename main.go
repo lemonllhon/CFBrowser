@@ -27,6 +27,10 @@ var buildConfigYAML []byte
 //go:embed build/appicon.png
 var appIcon []byte
 
+// appBuildVersion is injected by release builds with:
+// go build -ldflags "-X main.appBuildVersion=0.0.87"
+var appBuildVersion string
+
 var appRoot string
 var isDevMode bool
 
@@ -92,17 +96,35 @@ func envFlagEnabled(name string) bool {
 	}
 }
 
+func normalizeBuildVersion(value string) string {
+	version := strings.TrimSpace(value)
+	if version == "" || strings.EqualFold(version, "unknown") {
+		return ""
+	}
+	if len(version) > 1 && (version[0] == 'v' || version[0] == 'V') {
+		version = strings.TrimSpace(version[1:])
+	}
+	return version
+}
+
 func resolveBuildVersion() string {
+	if version := normalizeBuildVersion(appBuildVersion); version != "" {
+		return version
+	}
+	if version := normalizeBuildVersion(os.Getenv("TRACE_BROWSER_VERSION")); version != "" {
+		return version
+	}
+
 	var cfg wailsBuildConfig
 	if err := yaml.Unmarshal(buildConfigYAML, &cfg); err != nil {
 		log.Printf("解析 build/config.yml 版本信息失败: %v", err)
-		return "unknown"
+		return "dev"
 	}
 
-	version := strings.TrimSpace(cfg.Info.Version)
+	version := normalizeBuildVersion(cfg.Info.Version)
 	if version == "" {
-		log.Printf("build/config.yml 未配置 info.version，回退为 unknown")
-		return "unknown"
+		log.Printf("build/config.yml 未配置 info.version，回退为 dev")
+		return "dev"
 	}
 
 	return version

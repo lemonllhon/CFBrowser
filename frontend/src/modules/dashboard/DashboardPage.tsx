@@ -41,7 +41,7 @@ export function DashboardPage() {
     coreCount: 0,
     memUsedMB: 0,
     maxProfileLimit: 0,
-    appVersion: 'unknown',
+    appVersion: 'dev',
   })
   const [loading, setLoading] = useState(true)
   useEffect(() => {
@@ -124,8 +124,9 @@ export function DashboardPage() {
           <div className="space-y-1">
             {[
               { label: '系统版本', value: loading ? '-' : stats.appVersion },
-              { label: '运行环境', value: 'Wails v2 + React' },
-              { label: '数据存储', value: 'SQLite + YAML' },
+              { label: '运行环境', value: 'Wails v3 + React' },
+              { label: '通信协议', value: 'Protocol Buffers Binary IPC' },
+              { label: '数据存储', value: 'SQLite 本地数据库 / YAML 配置文件' },
               { label: '内存占用', value: loading ? '-' : `${stats.memUsedMB} MB` },
               { label: '实例运行', value: loading ? '-' : `${stats.runningInstances} / ${stats.totalInstances}` },
               { label: '实例扩容', value: loading ? '-' : '无限制' },

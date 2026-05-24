@@ -337,7 +337,7 @@ export function decodeAppDashboardStats(payload: Uint8Array): ProtoAppDashboardS
     proxyCount: 0,
     coreCount: 0,
     memUsedMB: 0,
-    appVersion: 'unknown',
+    appVersion: 'dev',
   }
   for (const field of readFields(payload)) {
     if (field.wireType === WireType.LengthDelimited && field.fieldNumber === 6) {

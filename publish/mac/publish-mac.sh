@@ -208,7 +208,7 @@ if [[ "$SKIP_BUILD" -ne 1 ]]; then
   echo "[3/4] Building macOS app bundle with Wails3..."
   (
     cd "$ROOT_DIR"
-    wails3 build -s -platform "darwin/$ARCH" -o trace-browser
+    TRACE_BROWSER_VERSION="$VERSION" VERSION="$VERSION" wails3 build -s -platform "darwin/$ARCH" -o trace-browser
   )
 else
   echo "[WARN] skipping build step"
