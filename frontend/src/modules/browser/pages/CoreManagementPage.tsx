@@ -4,7 +4,7 @@ import { Badge, Button, Card, ConfirmModal, FormItem, Input, Modal, Table, Texta
 import type { TableColumn } from '../../../shared/components/Table'
 import type { BrowserCore, BrowserCoreInput, BrowserCoreValidateResult, BrowserSettings, BrowserCoreExtended, BrowserProxy } from '../types'
 import { fetchBrowserCores, saveBrowserCore, deleteBrowserCore, setDefaultBrowserCore, validateBrowserCorePath, openCorePath, fetchBrowserSettings, saveBrowserSettings, fetchCoreExtendedInfo, scanBrowserCores, BrowserCoreDownload, fetchBrowserProxies, onBrowserCoreDownloadProgress } from '../api'
-import { BrowserOpenURL } from '../../../shared/backend/runtime'
+import { openExternalURL } from '../../../shared/backend/runtime'
 
 interface CoreDisplayInfo {
   coreId: string
@@ -715,7 +715,7 @@ export function CoreManagementPage() {
                     {!githubLoading && <RefreshCw className="w-4 h-4" />}
                     刷新
                   </Button>
-                  <Button size="sm" variant="ghost" onClick={() => BrowserOpenURL(FINGERPRINT_CHROMIUM_RELEASES_PAGE)}>打开页面</Button>
+                  <Button size="sm" variant="ghost" onClick={() => openExternalURL(FINGERPRINT_CHROMIUM_RELEASES_PAGE)}>打开页面</Button>
                 </div>
               </div>
 

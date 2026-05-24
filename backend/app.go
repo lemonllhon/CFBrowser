@@ -121,7 +121,7 @@ func (a *App) emitEvent(eventName string, optionalData ...any) {
 	if a == nil || a.ctx == nil {
 		return
 	}
-	a.appRuntime().EventsEmit(a.ctx, eventName, optionalData...)
+	a.appRuntime().EmitEvent(a.ctx, eventName, optionalData...)
 	a.emitProtoRuntimeEvent(eventName, optionalData...)
 }
 
@@ -431,7 +431,7 @@ func ShouldBlockClose(a *App, ctx context.Context) bool {
 	if !platformSupportsTrayCloseFlow() {
 		return false
 	}
-	a.appRuntime().EventsEmit(ctx, "app:request-close")
+	a.appRuntime().EmitEvent(ctx, "app:request-close")
 	a.emitProtoRuntimeEvent("app:request-close")
 	return true
 }

@@ -41,7 +41,7 @@ func (r *Wails3Runtime) LogFatal(ctx context.Context, message string) {
 	log.Fatal(message)
 }
 
-func (r *Wails3Runtime) EventsEmit(ctx context.Context, eventName string, optionalData ...any) {
+func (r *Wails3Runtime) EmitEvent(ctx context.Context, eventName string, optionalData ...any) {
 	if r == nil || r.app == nil {
 		return
 	}
@@ -55,7 +55,7 @@ func (r *Wails3Runtime) Quit(ctx context.Context) {
 	r.app.Quit()
 }
 
-func (r *Wails3Runtime) BrowserOpenURL(ctx context.Context, url string) {
+func (r *Wails3Runtime) OpenExternalURL(ctx context.Context, url string) {
 	if r == nil || r.app == nil {
 		return
 	}
@@ -114,7 +114,7 @@ func (r *Wails3Runtime) SaveFileDialog(ctx context.Context, options SaveDialogOp
 	}).PromptForSingleSelection()
 }
 
-func (r *Wails3Runtime) WindowIsNormal(ctx context.Context) bool {
+func (r *Wails3Runtime) IsWindowNormal(ctx context.Context) bool {
 	window := r.currentWindow()
 	if window == nil {
 		return false
@@ -122,7 +122,7 @@ func (r *Wails3Runtime) WindowIsNormal(ctx context.Context) bool {
 	return !window.IsMinimised() && !window.IsMaximised() && !window.IsFullscreen()
 }
 
-func (r *Wails3Runtime) WindowIsMaximised(ctx context.Context) bool {
+func (r *Wails3Runtime) IsWindowMaximised(ctx context.Context) bool {
 	window := r.currentWindow()
 	if window == nil {
 		return false
@@ -130,7 +130,7 @@ func (r *Wails3Runtime) WindowIsMaximised(ctx context.Context) bool {
 	return window.IsMaximised()
 }
 
-func (r *Wails3Runtime) WindowIsMinimised(ctx context.Context) bool {
+func (r *Wails3Runtime) IsWindowMinimised(ctx context.Context) bool {
 	window := r.currentWindow()
 	if window == nil {
 		return false
@@ -138,7 +138,7 @@ func (r *Wails3Runtime) WindowIsMinimised(ctx context.Context) bool {
 	return window.IsMinimised()
 }
 
-func (r *Wails3Runtime) WindowGetSize(ctx context.Context) (int, int) {
+func (r *Wails3Runtime) GetWindowSize(ctx context.Context) (int, int) {
 	window := r.currentWindow()
 	if window == nil {
 		return 0, 0
@@ -146,7 +146,7 @@ func (r *Wails3Runtime) WindowGetSize(ctx context.Context) (int, int) {
 	return window.Size()
 }
 
-func (r *Wails3Runtime) WindowGetPosition(ctx context.Context) (int, int) {
+func (r *Wails3Runtime) GetWindowPosition(ctx context.Context) (int, int) {
 	window := r.currentWindow()
 	if window == nil {
 		return 0, 0
@@ -154,14 +154,14 @@ func (r *Wails3Runtime) WindowGetPosition(ctx context.Context) (int, int) {
 	return window.Position()
 }
 
-func (r *Wails3Runtime) WindowHide(ctx context.Context) {
+func (r *Wails3Runtime) HideWindow(ctx context.Context) {
 	window := r.currentWindow()
 	if window != nil {
 		window.Hide()
 	}
 }
 
-func (r *Wails3Runtime) WindowMinimise(ctx context.Context) {
+func (r *Wails3Runtime) MinimiseWindow(ctx context.Context) {
 	window := r.currentWindow()
 	if window != nil {
 		window.Minimise()

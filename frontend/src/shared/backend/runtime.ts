@@ -1,6 +1,6 @@
 import {
   forceQuitApp,
-  getRuntimeEnvironment,
+  getRuntimeEnvironment as requestRuntimeEnvironment,
   getWindowSize,
   getWindowState,
   hideWindow,
@@ -29,20 +29,20 @@ let fileDropUnsubscribe: RuntimeUnsubscribe | null = null
 
 function noop() {}
 
-export function EventsOn<T = unknown>(eventName: string, callback: (payload: T, ...args: unknown[]) => void): RuntimeUnsubscribe {
+export function onRuntimeEvent<T = unknown>(eventName: string, callback: (payload: T, ...args: unknown[]) => void): RuntimeUnsubscribe {
   return onAppRuntimeEvent(eventName, payload => callback(payload as T))
 }
 
-export function EventsOnce<T = unknown>(eventName: string, callback: (payload: T, ...args: unknown[]) => void): RuntimeUnsubscribe {
+export function onRuntimeEventOnce<T = unknown>(eventName: string, callback: (payload: T, ...args: unknown[]) => void): RuntimeUnsubscribe {
   let off: RuntimeUnsubscribe = noop
-  off = EventsOn<T>(eventName, (payload, ...args) => {
+  off = onRuntimeEvent<T>(eventName, (payload, ...args) => {
     off()
     callback(payload, ...args)
   })
   return off
 }
 
-export function BrowserOpenURL(url: string) {
+export function openExternalURL(url: string) {
   if (!url) {
     return
   }
@@ -51,15 +51,15 @@ export function BrowserOpenURL(url: string) {
   })
 }
 
-export function WindowHide() {
+export function hideRuntimeWindow() {
   void hideWindow()
 }
 
-export function WindowMinimise() {
+export function minimiseRuntimeWindow() {
   void minimiseWindow()
 }
 
-export async function WindowGetSize(): Promise<RuntimeWindowSize> {
+export async function getRuntimeWindowSize(): Promise<RuntimeWindowSize> {
   try {
     const size = await getWindowSize()
     return { w: size.width, h: size.height }
@@ -68,7 +68,7 @@ export async function WindowGetSize(): Promise<RuntimeWindowSize> {
   }
 }
 
-export async function WindowIsNormal(): Promise<boolean> {
+export async function isRuntimeWindowNormal(): Promise<boolean> {
   try {
     return (await getWindowState()).normal
   } catch {
@@ -76,7 +76,7 @@ export async function WindowIsNormal(): Promise<boolean> {
   }
 }
 
-export async function WindowIsMaximised(): Promise<boolean> {
+export async function isRuntimeWindowMaximised(): Promise<boolean> {
   try {
     return (await getWindowState()).maximised
   } catch {
@@ -84,7 +84,7 @@ export async function WindowIsMaximised(): Promise<boolean> {
   }
 }
 
-export async function WindowIsMinimised(): Promise<boolean> {
+export async function isRuntimeWindowMinimised(): Promise<boolean> {
   try {
     return (await getWindowState()).minimised
   } catch {
@@ -92,28 +92,28 @@ export async function WindowIsMinimised(): Promise<boolean> {
   }
 }
 
-export async function Environment(): Promise<RuntimeEnvironmentInfo> {
+export async function getRuntimeEnvironment(): Promise<RuntimeEnvironmentInfo> {
   try {
-    return await getRuntimeEnvironment()
+    return await requestRuntimeEnvironment()
   } catch {
     return { buildType: 'browser', platform: 'browser', arch: '' }
   }
 }
 
-export function Quit() {
+export function quitRuntime() {
   void forceQuitApp().catch(() => {
     window.close()
   })
 }
 
-export function OnFileDrop(callback: FileDropCallback, _useDropTarget: boolean) {
+export function onRuntimeFileDrop(callback: FileDropCallback, _useDropTarget: boolean) {
   fileDropUnsubscribe?.()
   fileDropUnsubscribe = onAppFileDrop(payload => {
     callback(payload.x, payload.y, payload.paths)
   })
 }
 
-export function OnFileDropOff() {
+export function clearRuntimeFileDrop() {
   fileDropUnsubscribe?.()
   fileDropUnsubscribe = null
 }

@@ -4,7 +4,7 @@ import { Copy, Globe, Play, RefreshCw, RotateCcw, Square } from 'lucide-react'
 import { Badge, Button, Card, Input, Table, toast } from '../../../shared/components'
 import type { TableColumn } from '../../../shared/components/Table'
 import type { BrowserProfile, BrowserTab } from '../types'
-import { EventsOn } from '../../../shared/backend/runtime'
+import { onRuntimeEvent } from '../../../shared/backend/runtime'
 import {
   fetchBrowserProfiles,
   fetchBrowserProxies,
@@ -90,10 +90,10 @@ export function BrowserDetailPage() {
       void loadTabs()
     }
 
-    const offStarted = EventsOn('browser:instance:started', handleRuntimeChange)
-    const offUpdated = EventsOn('browser:instance:updated', handleRuntimeChange)
-    const offStopped = EventsOn('browser:instance:stopped', handleRuntimeChange)
-    const offCrashed = EventsOn('browser:instance:crashed', handleRuntimeChange)
+    const offStarted = onRuntimeEvent('browser:instance:started', handleRuntimeChange)
+    const offUpdated = onRuntimeEvent('browser:instance:updated', handleRuntimeChange)
+    const offStopped = onRuntimeEvent('browser:instance:stopped', handleRuntimeChange)
+    const offCrashed = onRuntimeEvent('browser:instance:crashed', handleRuntimeChange)
 
     return () => {
       offStarted?.()

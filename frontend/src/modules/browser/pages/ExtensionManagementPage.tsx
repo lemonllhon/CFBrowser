@@ -4,7 +4,7 @@ import { Badge, Button, Card, ConfirmModal, FormItem, Input, Modal, Select, Swit
 import type { TableColumn } from '../../../shared/components/Table'
 import type { BrowserExtension, BrowserExtensionBinding, BrowserExtensionImportResult, BrowserProfile } from '../types'
 import { assignBrowserExtensionProfiles, chooseBrowserExtensionArchive, chooseBrowserExtensionDirectory, deleteBrowserExtension, fetchBrowserExtension, fetchBrowserExtensionProfileBindings, fetchBrowserExtensions, fetchBrowserProfiles, importBrowserExtensionArchive, importBrowserExtensionDirectory, setBrowserExtensionAutoBind, unassignBrowserExtensionProfiles } from '../api'
-import { OnFileDrop, OnFileDropOff } from '../../../shared/backend/runtime'
+import { clearRuntimeFileDrop, onRuntimeFileDrop } from '../../../shared/backend/runtime'
 
 const sourceTypeText: Record<string, string> = {
   zip: '压缩包',
@@ -104,12 +104,12 @@ export function ExtensionManagementPage() {
   }, [])
 
   useEffect(() => {
-    OnFileDrop((_, __, paths) => {
+    onRuntimeFileDrop((_, __, paths) => {
       setDragActive(false)
       void handleDroppedPaths(paths || [])
     }, false)
     return () => {
-      OnFileDropOff()
+      clearRuntimeFileDrop()
     }
   }, [])
 

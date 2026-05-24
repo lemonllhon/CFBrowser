@@ -56,9 +56,9 @@ func (a *App) saveCurrentWindowState(ctx context.Context) error {
 	if ctx == nil {
 		return nil
 	}
-	if !a.appRuntime().WindowIsNormal(ctx) {
+	if !a.appRuntime().IsWindowNormal(ctx) {
 		return nil
 	}
-	width, height := a.appRuntime().WindowGetSize(ctx)
+	width, height := a.appRuntime().GetWindowSize(ctx)
 	return a.SaveWindowState(width, height)
 }

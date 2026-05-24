@@ -7,7 +7,7 @@ import type { BrowserCore, BrowserCoreInput, BrowserProfile, BrowserProxy, Brows
 import { InstanceFilterBar, EMPTY_FILTERS } from '../components/InstanceFilterBar'
 import type { InstanceFilters } from '../components/InstanceFilterBar'
 import { KeywordsModal } from '../components/KeywordsModal'
-import { EventsOn } from '../../../shared/backend/runtime'
+import { onRuntimeEvent } from '../../../shared/backend/runtime'
 import { resolveActionErrorMessage, resolveActionFeedback } from '../utils/actionErrors'
 import {
   applyWindowSyncLayout,
@@ -530,7 +530,7 @@ export function BrowserListPage() {
     fetchBrowserCores().then(setCores)
 
     // 监听浏览器实例生命周期事件，自动更新状态
-    const offStarted = EventsOn('browser:instance:started', (payload: any) => {
+    const offStarted = onRuntimeEvent('browser:instance:started', (payload: any) => {
       const profileId = typeof payload === 'string' ? payload : payload?.profileId
       if (profileId) {
         updatePendingIds(setStartingIds, profileId, false)
@@ -538,16 +538,16 @@ export function BrowserListPage() {
       }
       void loadProfiles({ silent: true, syncRuntimeState: true })
     })
-    const offUpdated = EventsOn('browser:instance:updated', () => {
+    const offUpdated = onRuntimeEvent('browser:instance:updated', () => {
       void loadProfiles({ silent: true, syncRuntimeState: true })
     })
-    const offProfilesUpdated = EventsOn('browser:profiles:updated', () => {
+    const offProfilesUpdated = onRuntimeEvent('browser:profiles:updated', () => {
       void loadProfiles({ silent: true, syncRuntimeState: true })
     })
-    const offGroupsUpdated = EventsOn('browser:groups:updated', () => {
+    const offGroupsUpdated = onRuntimeEvent('browser:groups:updated', () => {
       void loadGroups()
     })
-    const offStopped = EventsOn('browser:instance:stopped', (payload: any) => {
+    const offStopped = onRuntimeEvent('browser:instance:stopped', (payload: any) => {
       const profileId = typeof payload === 'string' ? payload : payload?.profileId
       if (profileId) {
         updatePendingIds(setStartingIds, profileId, false)
@@ -555,7 +555,7 @@ export function BrowserListPage() {
       }
       void loadProfiles({ silent: true, syncRuntimeState: true })
     })
-    const offCrashed = EventsOn('browser:instance:crashed', (payload: any) => {
+    const offCrashed = onRuntimeEvent('browser:instance:crashed', (payload: any) => {
       const profileId = typeof payload === 'string' ? payload : payload?.profileId
       if (profileId) {
         updatePendingIds(setStartingIds, profileId, false)

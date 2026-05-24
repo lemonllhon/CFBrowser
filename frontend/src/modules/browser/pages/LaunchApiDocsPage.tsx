@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { CheckCircle, ChevronRight, Copy, FileText } from 'lucide-react'
 import { toast } from '../../../shared/components'
-import { BrowserOpenURL } from '../../../shared/backend/runtime'
+import { openExternalURL } from '../../../shared/backend/runtime'
 import { fetchLaunchServerInfo, type LaunchServerInfo } from '../api'
 
 // ============================================================================
@@ -1503,7 +1503,7 @@ function MarkdownContent({ content }: { content: string }) {
             onClick={(e) => {
               e.preventDefault()
               if (href) {
-                BrowserOpenURL(href)
+                openExternalURL(href)
               }
             }}
             className="text-[var(--color-accent)] hover:underline cursor-pointer"

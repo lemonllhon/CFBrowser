@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { BookOpen, Download, Globe, Keyboard, Layers, Monitor, Rocket } from 'lucide-react'
 import { Button, Card } from '../../../shared/components'
-import { BrowserOpenURL } from '../../../shared/backend/runtime'
+import { openExternalURL } from '../../../shared/backend/runtime'
 import type { ReactNode } from 'react'
 import { fetchLaunchServerInfo, type LaunchServerInfo } from '../api'
 
@@ -43,7 +43,7 @@ function LinkButton({ url, children }: { url: string; children: ReactNode }) {
       size="sm"
       variant="secondary"
       onClick={() => {
-        void BrowserOpenURL(url)
+        void openExternalURL(url)
       }}
     >
       {children}

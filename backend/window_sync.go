@@ -1776,8 +1776,8 @@ func (a *App) windowSyncAppWindowCenterPoint() (int, int, bool) {
 	defer func() {
 		_ = recover()
 	}()
-	x, y := a.appRuntime().WindowGetPosition(a.ctx)
-	width, height := a.appRuntime().WindowGetSize(a.ctx)
+	x, y := a.appRuntime().GetWindowPosition(a.ctx)
+	width, height := a.appRuntime().GetWindowSize(a.ctx)
 	if width <= 0 || height <= 0 {
 		return 0, 0, false
 	}

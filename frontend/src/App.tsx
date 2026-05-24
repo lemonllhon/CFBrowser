@@ -23,7 +23,17 @@ import {
   type AppUpdateInfo,
   type AppUpdatePendingUpdate,
 } from './modules/settings/api'
-import { Environment, EventsOn, Quit, WindowGetSize, WindowHide, WindowIsMaximised, WindowIsMinimised, WindowIsNormal, WindowMinimise } from './shared/backend/runtime'
+import {
+  getRuntimeEnvironment,
+  getRuntimeWindowSize,
+  hideRuntimeWindow,
+  isRuntimeWindowMaximised,
+  isRuntimeWindowMinimised,
+  isRuntimeWindowNormal,
+  minimiseRuntimeWindow,
+  onRuntimeEvent,
+  quitRuntime,
+} from './shared/backend/runtime'
 
 function lazyNamed<TModule extends Record<string, ComponentType<any>>>(
   loader: () => Promise<TModule>,
@@ -59,13 +69,13 @@ const QuickLaunchModal = lazyNamed(() => import('./modules/browser/components/Qu
 async function saveNormalWindowSize() {
   try {
     const [isNormal, isMaximised, isMinimised] = await Promise.all([
-      WindowIsNormal().catch(() => false),
-      WindowIsMaximised().catch(() => false),
-      WindowIsMinimised().catch(() => false),
+      isRuntimeWindowNormal().catch(() => false),
+      isRuntimeWindowMaximised().catch(() => false),
+      isRuntimeWindowMinimised().catch(() => false),
     ])
     if (!isNormal || isMaximised || isMinimised) return
 
-    const size = await WindowGetSize()
+    const size = await getRuntimeWindowSize()
     const width = Math.round(Number(size?.w || 0))
     const height = Math.round(Number(size?.h || 0))
     if (width <= 0 || height <= 0) return
@@ -79,7 +89,7 @@ function useWailsNotifications() {
   const addNotification = useNotificationStore((s) => s.addNotification)
 
   useEffect(() => {
-    const offCrashed = EventsOn(
+    const offCrashed = onRuntimeEvent(
       'browser:instance:crashed',
       (data: { profileId: string; profileName: string; error: string }) => {
         addNotification({
@@ -90,7 +100,7 @@ function useWailsNotifications() {
       }
     )
 
-    const offBridgeFailed = EventsOn(
+    const offBridgeFailed = onRuntimeEvent(
       'proxy:bridge:failed',
       (data: { profileId: string; profileName: string; error: string }) => {
         addNotification({
@@ -101,7 +111,7 @@ function useWailsNotifications() {
       }
     )
 
-    const offBridgeDied = EventsOn(
+    const offBridgeDied = onRuntimeEvent(
       'proxy:bridge:died',
       (data: { key: string; error: string }) => {
         addNotification({
@@ -392,7 +402,7 @@ function CloseConfirmModal() {
   const quitting = quittingAction !== null
 
   useEffect(() => {
-    const off = EventsOn('app:request-close', () => {
+    const off = onRuntimeEvent('app:request-close', () => {
       setQuittingAction(null)
       setOpen(true)
     })
@@ -404,7 +414,7 @@ function CloseConfirmModal() {
   useEffect(() => {
     let cancelled = false
 
-    Environment()
+    getRuntimeEnvironment()
       .then((info) => {
         if (!cancelled && info?.platform) {
           setPlatform(info.platform)
@@ -426,10 +436,10 @@ function CloseConfirmModal() {
     if (quitting) return
     setOpen(false)
     if (supportsTray) {
-      WindowHide()
+      hideRuntimeWindow()
       return
     }
-    WindowMinimise()
+    minimiseRuntimeWindow()
   }
 
   const handleQuitAppOnly = async () => {
@@ -452,9 +462,9 @@ function CloseConfirmModal() {
         new Promise((resolve) => setTimeout(resolve, 1200)),
       ])
     } catch (error) {
-      console.error('ForceQuit failed, falling back to runtime.Quit()', error)
+      console.error('ForceQuit failed, falling back to runtime quit', error)
     }
-    Quit()
+    quitRuntime()
   }
 
   return (

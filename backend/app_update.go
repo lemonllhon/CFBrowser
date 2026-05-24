@@ -320,7 +320,7 @@ func (a *App) OpenAppReleasePage(url string) error {
 		target = PROJECT_GITHUB_URL + "/latest"
 	}
 	if a.ctx != nil {
-		a.appRuntime().BrowserOpenURL(a.ctx, target)
+		a.appRuntime().OpenExternalURL(a.ctx, target)
 		return nil
 	}
 	return openURLWithSystem(target)

@@ -225,7 +225,7 @@ func (a *App) handleProtoAppEnvironmentGet(ctx context.Context, request protoipc
 }
 
 func (a *App) handleProtoAppWindowSizeGet(ctx context.Context, request protoipc.Envelope) ([]byte, *protoipc.RPCError) {
-	width, height := a.appRuntime().WindowGetSize(a.ctx)
+	width, height := a.appRuntime().GetWindowSize(a.ctx)
 	return protoipc.EncodeAppWindowSize(protoipc.AppWindowSize{
 		Width:  int32(width),
 		Height: int32(height),
@@ -235,19 +235,19 @@ func (a *App) handleProtoAppWindowSizeGet(ctx context.Context, request protoipc.
 func (a *App) handleProtoAppWindowStateGet(ctx context.Context, request protoipc.Envelope) ([]byte, *protoipc.RPCError) {
 	runtime := a.appRuntime()
 	return protoipc.EncodeAppWindowState(protoipc.AppWindowState{
-		Normal:    runtime.WindowIsNormal(a.ctx),
-		Maximised: runtime.WindowIsMaximised(a.ctx),
-		Minimised: runtime.WindowIsMinimised(a.ctx),
+		Normal:    runtime.IsWindowNormal(a.ctx),
+		Maximised: runtime.IsWindowMaximised(a.ctx),
+		Minimised: runtime.IsWindowMinimised(a.ctx),
 	}), nil
 }
 
 func (a *App) handleProtoAppWindowHide(ctx context.Context, request protoipc.Envelope) ([]byte, *protoipc.RPCError) {
-	a.appRuntime().WindowHide(a.ctx)
+	a.appRuntime().HideWindow(a.ctx)
 	return protoipc.EncodeBrowserActionResponse(protoipc.BrowserActionResponse{OK: true}), nil
 }
 
 func (a *App) handleProtoAppWindowMinimise(ctx context.Context, request protoipc.Envelope) ([]byte, *protoipc.RPCError) {
-	a.appRuntime().WindowMinimise(a.ctx)
+	a.appRuntime().MinimiseWindow(a.ctx)
 	return protoipc.EncodeBrowserActionResponse(protoipc.BrowserActionResponse{OK: true}), nil
 }
 

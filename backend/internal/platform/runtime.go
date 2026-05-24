@@ -34,19 +34,19 @@ type SaveDialogOptions struct {
 // Runtime is the narrow platform boundary used by business services.
 type Runtime interface {
 	LogFatal(ctx context.Context, message string)
-	EventsEmit(ctx context.Context, eventName string, optionalData ...any)
+	EmitEvent(ctx context.Context, eventName string, optionalData ...any)
 	Quit(ctx context.Context)
-	BrowserOpenURL(ctx context.Context, url string)
+	OpenExternalURL(ctx context.Context, url string)
 	OpenFileDialog(ctx context.Context, options OpenDialogOptions) (string, error)
 	OpenDirectoryDialog(ctx context.Context, options OpenDialogOptions) (string, error)
 	SaveFileDialog(ctx context.Context, options SaveDialogOptions) (string, error)
-	WindowIsNormal(ctx context.Context) bool
-	WindowIsMaximised(ctx context.Context) bool
-	WindowIsMinimised(ctx context.Context) bool
-	WindowGetSize(ctx context.Context) (int, int)
-	WindowGetPosition(ctx context.Context) (int, int)
-	WindowHide(ctx context.Context)
-	WindowMinimise(ctx context.Context)
+	IsWindowNormal(ctx context.Context) bool
+	IsWindowMaximised(ctx context.Context) bool
+	IsWindowMinimised(ctx context.Context) bool
+	GetWindowSize(ctx context.Context) (int, int)
+	GetWindowPosition(ctx context.Context) (int, int)
+	HideWindow(ctx context.Context)
+	MinimiseWindow(ctx context.Context)
 }
 
 var defaultRuntime Runtime
@@ -68,11 +68,11 @@ type noopRuntime struct{}
 
 func (noopRuntime) LogFatal(ctx context.Context, message string) {}
 
-func (noopRuntime) EventsEmit(ctx context.Context, eventName string, optionalData ...any) {}
+func (noopRuntime) EmitEvent(ctx context.Context, eventName string, optionalData ...any) {}
 
 func (noopRuntime) Quit(ctx context.Context) {}
 
-func (noopRuntime) BrowserOpenURL(ctx context.Context, url string) {}
+func (noopRuntime) OpenExternalURL(ctx context.Context, url string) {}
 
 func (noopRuntime) OpenFileDialog(ctx context.Context, options OpenDialogOptions) (string, error) {
 	return "", nil
@@ -86,26 +86,26 @@ func (noopRuntime) SaveFileDialog(ctx context.Context, options SaveDialogOptions
 	return "", nil
 }
 
-func (noopRuntime) WindowIsNormal(ctx context.Context) bool {
+func (noopRuntime) IsWindowNormal(ctx context.Context) bool {
 	return false
 }
 
-func (noopRuntime) WindowIsMaximised(ctx context.Context) bool {
+func (noopRuntime) IsWindowMaximised(ctx context.Context) bool {
 	return false
 }
 
-func (noopRuntime) WindowIsMinimised(ctx context.Context) bool {
+func (noopRuntime) IsWindowMinimised(ctx context.Context) bool {
 	return false
 }
 
-func (noopRuntime) WindowGetSize(ctx context.Context) (int, int) {
+func (noopRuntime) GetWindowSize(ctx context.Context) (int, int) {
 	return 0, 0
 }
 
-func (noopRuntime) WindowGetPosition(ctx context.Context) (int, int) {
+func (noopRuntime) GetWindowPosition(ctx context.Context) (int, int) {
 	return 0, 0
 }
 
-func (noopRuntime) WindowHide(ctx context.Context) {}
+func (noopRuntime) HideWindow(ctx context.Context) {}
 
-func (noopRuntime) WindowMinimise(ctx context.Context) {}
+func (noopRuntime) MinimiseWindow(ctx context.Context) {}
