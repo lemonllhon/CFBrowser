@@ -79,6 +79,7 @@ func StartBinaryServer(ctx context.Context, dispatcher *Dispatcher) (*BinaryServ
 		}
 	}()
 
+	log.Printf("Proto IPC binary server listening: addr=%s path=%s", listener.Addr().String(), WebSocketPath)
 	return result, nil
 }
 
@@ -148,6 +149,7 @@ func (s *BinaryServer) handleWebSocket(ctx context.Context) http.HandlerFunc {
 			return
 		}
 		defer conn.Close()
+		log.Printf("Proto IPC WebSocket client connected: remote=%s", r.RemoteAddr)
 		client := &binaryClient{conn: conn}
 		s.addClient(client)
 		defer s.removeClient(client)
@@ -155,6 +157,7 @@ func (s *BinaryServer) handleWebSocket(ctx context.Context) http.HandlerFunc {
 		for {
 			messageType, payload, err := conn.ReadMessage()
 			if err != nil {
+				log.Printf("Proto IPC WebSocket client disconnected: remote=%s error=%v", r.RemoteAddr, err)
 				return
 			}
 			if messageType != websocket.BinaryMessage {
@@ -193,16 +196,28 @@ func (s *BinaryServer) dispatchAndWrite(ctx context.Context, client *binaryClien
 	}()
 
 	startedAt := time.Now()
+	request, decodeErr := DecodeEnvelope(payload)
+	method := ""
+	requestID := ""
+	if decodeErr == nil {
+		method = request.Method
+		requestID = request.RequestID
+		log.Printf("Proto IPC binary request received: method=%s request_id=%s", method, requestID)
+	}
 	response := s.dispatcher.Dispatch(ctx, payload)
 	if elapsed := time.Since(startedAt); elapsed > 5*time.Second {
-		if request, err := DecodeEnvelope(payload); err == nil {
-			log.Printf("Proto IPC slow request: method=%s request_id=%s elapsed=%s", request.Method, request.RequestID, elapsed.String())
+		if decodeErr == nil {
+			log.Printf("Proto IPC slow request: method=%s request_id=%s elapsed=%s", method, requestID, elapsed.String())
 		} else {
-			log.Printf("Proto IPC slow invalid request: elapsed=%s error=%v", elapsed.String(), err)
+			log.Printf("Proto IPC slow invalid request: elapsed=%s error=%v", elapsed.String(), decodeErr)
 		}
 	}
 	if err := client.write(websocket.BinaryMessage, EncodeBinaryFrame(BinaryFrameResponse, response)); err != nil {
 		s.removeClient(client)
+		return
+	}
+	if decodeErr == nil {
+		log.Printf("Proto IPC binary response sent: method=%s request_id=%s elapsed=%s", method, requestID, time.Since(startedAt).String())
 	}
 }
 

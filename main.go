@@ -477,9 +477,12 @@ func main() {
 	if err != nil {
 		log.Printf("Wails3 Proto IPC 二进制服务启动失败，将保留 Wails3 raw message Protobuf 备用通道: %v", err)
 	}
+	protoConfigScript := ""
 	rawMessageHandler := backend.NewWails3ProtoRawMessageHandler(app.App, shutdownContext)
 	if protoIPC != nil {
 		rawMessageHandler = protoIPC.RawMessageHandler()
+		protoConfigScript = protoIPC.ConfigScript()
+		log.Printf("Wails3 Proto IPC 已初始化，主窗口将通过 Wails3 runtime 注入 Protobuf 通道配置")
 		defer protoIPC.Close()
 	}
 
@@ -527,8 +530,12 @@ func main() {
 		BackgroundColour: application.NewRGBA(245, 247, 250, 255),
 		EnableFileDrop:   true,
 		URL:              "/",
+		JS:               protoConfigScript,
 	})
 	wailsRuntime.SetWindow(mainWindow)
+	if protoIPC != nil {
+		registerProtoConfigInjection(mainWindow, protoIPC, "main", startupDebugEnabled)
+	}
 
 	mainWindow.OnWindowEvent(events.Common.WindowFilesDropped, func(event *application.WindowEvent) {
 		if event == nil {
@@ -556,14 +563,10 @@ func main() {
 	wailsApp.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(event *application.ApplicationEvent) {
 		startupOnce.Do(func() {
 			close(startupReached)
-			if startupDebugEnabled {
-				log.Printf("Wails3 ApplicationStarted 已触发")
-			}
+			log.Printf("Wails3 ApplicationStarted 已触发，开始初始化后端服务")
 			mainWindow.Center()
 			backend.Start(app.App, shutdownContext())
-			if protoIPC != nil {
-				registerProtoConfigInjection(mainWindow, protoIPC, "main", startupDebugEnabled)
-			}
+			log.Printf("Wails3 后端服务初始化完成")
 			go backend.RunTray(backend.TrayCallbacks{
 				OnShow: func() {
 					mainWindow.Show()
@@ -576,9 +579,6 @@ func main() {
 					app.ForceQuit()
 				},
 			})
-			if startupDebugEnabled {
-				log.Printf("后端 startup 已完成")
-			}
 		})
 	})
 

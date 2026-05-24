@@ -103,15 +103,26 @@ func (ipc *Wails3ProtoIPC) dispatchRawMessage(window application.Window, ctx con
 	}()
 
 	startedAt := time.Now()
+	request, decodeErr := protoipc.DecodeEnvelope(payload)
+	method := ""
+	requestID := ""
+	if decodeErr == nil {
+		method = request.Method
+		requestID = request.RequestID
+		log.Printf("Wails3 Proto IPC raw request received: method=%s request_id=%s", method, requestID)
+	}
 	response := dispatcher.Dispatch(ctx, payload)
 	if elapsed := time.Since(startedAt); elapsed > 5*time.Second {
-		if request, err := protoipc.DecodeEnvelope(payload); err == nil {
-			log.Printf("Wails3 Proto IPC raw slow request: method=%s request_id=%s elapsed=%s", request.Method, request.RequestID, elapsed.String())
+		if decodeErr == nil {
+			log.Printf("Wails3 Proto IPC raw slow request: method=%s request_id=%s elapsed=%s", method, requestID, elapsed.String())
 		} else {
-			log.Printf("Wails3 Proto IPC raw slow invalid request: elapsed=%s error=%v", elapsed.String(), err)
+			log.Printf("Wails3 Proto IPC raw slow invalid request: elapsed=%s error=%v", elapsed.String(), decodeErr)
 		}
 	}
 	emitWails3ProtoResponse(window, response)
+	if decodeErr == nil {
+		log.Printf("Wails3 Proto IPC raw response emitted: method=%s request_id=%s elapsed=%s", method, requestID, time.Since(startedAt).String())
+	}
 }
 
 func requestIDFromProtoPayload(payload []byte) string {
@@ -143,6 +154,7 @@ func (ipc *Wails3ProtoIPC) InjectConfig(window application.Window) {
 	if strings.TrimSpace(script) == "" {
 		return
 	}
+	log.Printf("Wails3 Proto IPC config inject requested: window=%s", window.Name())
 	window.ExecJS(script)
 }
 

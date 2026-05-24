@@ -32,24 +32,26 @@ const (
 
 // App 应用结构体
 type App struct {
-	ctx             context.Context
-	config          *config.Config
-	db              *database.DB
-	interceptor     *logger.MethodInterceptor
-	browserMgr      *browser.Manager
-	xrayMgr         *proxy.XrayManager
-	clashMgr        *proxy.ClashManager
-	singboxMgr      *proxy.SingBoxManager
-	launchCodeSvc   *launchcode.LaunchCodeService
-	launchServer    *launchcode.LaunchServer
-	speedScheduler  *browser.ProxySpeedScheduler
-	platformRuntime platform.Runtime
-	protoEventMu    sync.RWMutex
-	protoEventSink  func(eventName string, payload []byte)
-	appRoot         string
-	version         string
-	updateRuntimeMu sync.Mutex
-	updateRuntime   *wailsUpdateRuntime
+	ctx              context.Context
+	config           *config.Config
+	db               *database.DB
+	interceptor      *logger.MethodInterceptor
+	browserMgr       *browser.Manager
+	xrayMgr          *proxy.XrayManager
+	clashMgr         *proxy.ClashManager
+	singboxMgr       *proxy.SingBoxManager
+	launchCodeSvc    *launchcode.LaunchCodeService
+	launchServer     *launchcode.LaunchServer
+	speedScheduler   *browser.ProxySpeedScheduler
+	platformRuntime  platform.Runtime
+	protoEventMu     sync.RWMutex
+	protoEventSink   func(eventName string, payload []byte)
+	appRoot          string
+	version          string
+	startupReady     chan struct{}
+	startupReadyOnce sync.Once
+	updateRuntimeMu  sync.Mutex
+	updateRuntime    *wailsUpdateRuntime
 
 	forceQuit                bool       // 强制退出标志，用于跳过 OnBeforeClose 的拦截
 	quitMode                 quitMode   // 退出模式：全量退出 / 仅退出应用
@@ -83,6 +85,7 @@ func NewApp(appRoot string, appVersion ...string) *App {
 		xrayBridgeRefs:      make(map[string]string),
 		switchBridgeRefs:    make(map[string]*switchingProxyBridge),
 		authProxyBridgeRefs: make(map[string]*authenticatedProxyBridge),
+		startupReady:        make(chan struct{}),
 	}
 }
 
@@ -149,6 +152,7 @@ func (a *App) emitProtoEvent(eventName string, payload []byte) {
 
 // startup 应用启动时调用
 func (a *App) startup(ctx context.Context) {
+	defer a.markStartupReady()
 	a.ctx = ctx
 	if err := apppath.EnsureWritableLayout(a.appRoot); err != nil {
 		a.appRuntime().LogFatal(ctx, fmt.Sprintf("初始化 Linux 用户数据目录失败: %v", err))
@@ -303,6 +307,38 @@ func (a *App) startup(ctx context.Context) {
 
 	log.Info("应用启动成功")
 	a.emitPendingAppUpdateIfNeeded()
+}
+
+func (a *App) markStartupReady() {
+	if a == nil || a.startupReady == nil {
+		return
+	}
+	a.startupReadyOnce.Do(func() {
+		close(a.startupReady)
+	})
+}
+
+func (a *App) waitStartupReady(ctx context.Context, timeout time.Duration) error {
+	if a == nil || a.startupReady == nil {
+		return nil
+	}
+	select {
+	case <-a.startupReady:
+		return nil
+	default:
+	}
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case <-a.startupReady:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return fmt.Errorf("应用启动仍在初始化")
+	}
 }
 
 // ReloadConfig 开放给前端重新读取配置，用于应对手动修补后的配置重载

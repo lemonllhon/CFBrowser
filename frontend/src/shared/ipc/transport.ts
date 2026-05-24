@@ -5,7 +5,8 @@ const RAW_MESSAGE_PREFIX = 'trace-proto:'
 const RESPONSE_EVENT_NAME = 'trace:proto:response'
 const RAW_EVENT_NAME = 'trace:proto:event'
 const DEFAULT_TIMEOUT_MS = 10000
-const CONFIG_WAIT_MS = 30000
+const CONFIG_WAIT_MS = 5000
+const RAW_FALLBACK_CONFIG_WAIT_MS = 1200
 const RAW_FALLBACK_COOLDOWN_MS = 10000
 const EVENT_DEDUP_TTL_MS = 60000
 const EVENT_DEDUP_MAX = 1000
@@ -237,6 +238,15 @@ export class ProtoIpcClient {
     if (shouldPreferRawTransport()) {
       return this.rawClient.request(method, payload, timeoutMs)
     }
+    if (!getBinaryConfig() && isRawChannelAvailable()) {
+      try {
+        await this.binaryClient.ensureConnected(RAW_FALLBACK_CONFIG_WAIT_MS)
+      } catch (error) {
+        rawFallbackPreferredUntil = Date.now() + RAW_FALLBACK_COOLDOWN_MS
+        console.warn('Wails3 Proto IPC WebSocket config not ready, using raw Protobuf channel:', error)
+        return this.rawClient.request(method, payload, timeoutMs)
+      }
+    }
     try {
       return await this.binaryClient.request(method, payload, timeoutMs)
     } catch (error) {
@@ -411,18 +421,11 @@ function shouldUseRawFallback(error: unknown): boolean {
   if (error instanceof ProtoIpcError) {
     return false
   }
-  if (isWebSocketRequestTimeout(error)) {
-    return false
-  }
   return isRawChannelAvailable()
 }
 
 function shouldPreferRawTransport(): boolean {
   return Date.now() < rawFallbackPreferredUntil && isRawChannelAvailable()
-}
-
-function isWebSocketRequestTimeout(error: unknown): boolean {
-  return error instanceof Error && error.message.includes('Protobuf IPC WebSocket 请求超时:')
 }
 
 function ensureBridge(): WailsRuntimeBridge {

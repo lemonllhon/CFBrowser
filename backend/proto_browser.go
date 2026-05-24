@@ -4,6 +4,7 @@ import (
 	"ant-chrome/backend/internal/transport/protoipc"
 	"context"
 	"strings"
+	"time"
 )
 
 func registerProtoHandlers(app *App, dispatcher *protoipc.Dispatcher) {
@@ -580,6 +581,15 @@ func (a *App) ensureProtoBrowserReady(ctx context.Context) *protoipc.RPCError {
 			Code:    protoipc.ErrorCodeInternal,
 			Message: "请求上下文已取消",
 			Details: err.Error(),
+		}
+	}
+	if a != nil && a.browserMgr == nil {
+		if err := a.waitStartupReady(ctx, 8*time.Second); err != nil {
+			return &protoipc.RPCError{
+				Code:    protoipc.ErrorCodeInternal,
+				Message: "应用启动仍在初始化，请稍后重试",
+				Details: err.Error(),
+			}
 		}
 	}
 	if a == nil || a.browserMgr == nil {
