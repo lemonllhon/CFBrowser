@@ -6,7 +6,6 @@ const RESPONSE_EVENT_NAME = 'trace:proto:response'
 const RAW_EVENT_NAME = 'trace:proto:event'
 const DEFAULT_TIMEOUT_MS = 10000
 const CONFIG_WAIT_MS = 5000
-const RAW_FALLBACK_CONFIG_WAIT_MS = 1200
 const RAW_FALLBACK_COOLDOWN_MS = 10000
 const BINARY_FRAME_RESPONSE = 1
 const BINARY_FRAME_EVENT = 2
@@ -107,8 +106,7 @@ export class BinaryWebSocketProtoIpcClient {
   private readonly pending = new Map<string, PendingRequest>()
 
   async request(method: string, payload: Uint8Array, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<Uint8Array> {
-    const configWaitMs = isRawChannelAvailable() ? RAW_FALLBACK_CONFIG_WAIT_MS : CONFIG_WAIT_MS
-    const config = getBinaryConfig() ?? await waitForBinaryConfig(configWaitMs)
+    const config = getBinaryConfig() ?? await waitForBinaryConfig(CONFIG_WAIT_MS)
     const wsUrl = config.wsUrl
     if (!wsUrl) {
       throw new Error('Protobuf IPC WebSocket 配置无效')
@@ -367,11 +365,18 @@ function shouldUseRawFallback(error: unknown): boolean {
   if (error instanceof ProtoIpcError) {
     return false
   }
+  if (isWebSocketRequestTimeout(error)) {
+    return false
+  }
   return isRawChannelAvailable()
 }
 
 function shouldPreferRawTransport(): boolean {
   return Date.now() < rawFallbackPreferredUntil && isRawChannelAvailable()
+}
+
+function isWebSocketRequestTimeout(error: unknown): boolean {
+  return error instanceof Error && error.message.includes('Protobuf IPC WebSocket 请求超时:')
 }
 
 function ensureBridge(): WailsRuntimeBridge {

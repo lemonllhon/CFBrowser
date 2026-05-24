@@ -141,6 +141,42 @@ func protoConfigScript(protoIPC *backend.Wails3ProtoIPC) string {
 	return protoIPC.ConfigScript()
 }
 
+func startupSplashHTML() string {
+	return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    html, body { height: 100%; margin: 0; }
+    body {
+      display: grid;
+      place-items: center;
+      background: #f5f7fa;
+      color: #111827;
+      font-family: "Segoe UI", Arial, sans-serif;
+    }
+    .shell { display: flex; align-items: center; gap: 12px; font-size: 14px; color: #4b5563; }
+    .mark {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: #2563eb;
+      box-shadow: 0 0 0 0 rgba(37, 99, 235, .35);
+      animation: pulse 1.2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { transform: scale(.85); box-shadow: 0 0 0 0 rgba(37, 99, 235, .35); }
+      50% { transform: scale(1); box-shadow: 0 0 0 8px rgba(37, 99, 235, 0); }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell"><span class="mark"></span><span>Trace Browser 正在启动...</span></div>
+</body>
+</html>`
+}
+
 func initBootstrapLogFile(root string) *os.File {
 	logPath := backend.ResolveRuntimePath(root, filepath.Join("logs", "app.log"))
 	if err := os.MkdirAll(filepath.Dir(logPath), 0755); err != nil {
@@ -533,7 +569,7 @@ func main() {
 		BackgroundType:   application.BackgroundTypeSolid,
 		BackgroundColour: application.NewRGBA(245, 247, 250, 255),
 		EnableFileDrop:   true,
-		URL:              "/",
+		HTML:             startupSplashHTML(),
 		JS:               protoConfigScript(protoIPC),
 	})
 	wailsRuntime.SetWindow(mainWindow)
@@ -569,6 +605,8 @@ func main() {
 				log.Printf("Wails3 ApplicationStarted 已触发")
 			}
 			mainWindow.Center()
+			backend.Start(app.App, shutdownContext())
+			mainWindow.SetURL("/")
 			if protoIPC != nil {
 				scheduleProtoConfigInjection(mainWindow, protoIPC, "main", startupDebugEnabled)
 			}
@@ -584,7 +622,6 @@ func main() {
 					app.ForceQuit()
 				},
 			})
-			backend.Start(app.App, shutdownContext())
 			if startupDebugEnabled {
 				log.Printf("后端 startup 已完成")
 			}

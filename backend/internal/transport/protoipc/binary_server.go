@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -166,11 +167,42 @@ func (s *BinaryServer) handleWebSocket(ctx context.Context) http.HandlerFunc {
 				continue
 			}
 
-			response := s.dispatcher.Dispatch(ctx, payload)
+			requestPayload := append([]byte(nil), payload...)
+			go s.dispatchAndWrite(ctx, client, requestPayload)
+		}
+	}
+}
+
+func (s *BinaryServer) dispatchAndWrite(ctx context.Context, client *binaryClient, payload []byte) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			log.Printf("Proto IPC binary dispatch panic: %v\n%s", recovered, debug.Stack())
+			requestID := ""
+			if request, err := DecodeEnvelope(payload); err == nil {
+				requestID = request.RequestID
+			}
+			response := EncodeResponse(Response{Error: &RPCError{
+				Code:    ErrorCodeInternal,
+				Message: "Proto IPC handler panic",
+				Details: fmt.Sprint(recovered),
+			}, RequestID: requestID})
 			if err := client.write(websocket.BinaryMessage, EncodeBinaryFrame(BinaryFrameResponse, response)); err != nil {
-				return
+				s.removeClient(client)
 			}
 		}
+	}()
+
+	startedAt := time.Now()
+	response := s.dispatcher.Dispatch(ctx, payload)
+	if elapsed := time.Since(startedAt); elapsed > 5*time.Second {
+		if request, err := DecodeEnvelope(payload); err == nil {
+			log.Printf("Proto IPC slow request: method=%s request_id=%s elapsed=%s", request.Method, request.RequestID, elapsed.String())
+		} else {
+			log.Printf("Proto IPC slow invalid request: elapsed=%s error=%v", elapsed.String(), err)
+		}
+	}
+	if err := client.write(websocket.BinaryMessage, EncodeBinaryFrame(BinaryFrameResponse, response)); err != nil {
+		s.removeClient(client)
 	}
 }
 

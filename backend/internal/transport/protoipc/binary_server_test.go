@@ -156,3 +156,60 @@ func TestBinaryServerBroadcastEvent(t *testing.T) {
 		t.Fatalf("unexpected event payload: %s", decodedPayload.Message)
 	}
 }
+
+func TestBinaryServerDispatchesRequestsConcurrentlyOnSameConnection(t *testing.T) {
+	dispatcher := NewDispatcher()
+	dispatcher.Register("trace.test.Slow", func(ctx context.Context, request Envelope) ([]byte, *RPCError) {
+		time.Sleep(300 * time.Millisecond)
+		return EncodePingResponse(PingResponse{Message: "slow"}), nil
+	})
+	dispatcher.Register("trace.test.Fast", func(ctx context.Context, request Envelope) ([]byte, *RPCError) {
+		return EncodePingResponse(PingResponse{Message: "fast"}), nil
+	})
+
+	server, err := StartBinaryServer(context.Background(), dispatcher)
+	if err != nil {
+		t.Fatalf("StartBinaryServer failed: %v", err)
+	}
+	defer server.Close(context.Background())
+
+	conn, _, err := websocket.DefaultDialer.Dial(server.URL(), nil)
+	if err != nil {
+		t.Fatalf("Dial failed: %v", err)
+	}
+	defer conn.Close()
+
+	writeRequest := func(requestID string, method string) {
+		t.Helper()
+		if err := conn.WriteMessage(websocket.BinaryMessage, EncodeEnvelope(Envelope{
+			RequestID:     requestID,
+			Method:        method,
+			SchemaVersion: SchemaVersion,
+			TimestampMS:   time.Now().UnixMilli(),
+		})); err != nil {
+			t.Fatalf("WriteMessage(%s) failed: %v", method, err)
+		}
+	}
+
+	writeRequest("slow-req", "trace.test.Slow")
+	writeRequest("fast-req", "trace.test.Fast")
+
+	if err := conn.SetReadDeadline(time.Now().Add(180 * time.Millisecond)); err != nil {
+		t.Fatalf("SetReadDeadline failed: %v", err)
+	}
+	_, payload, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("expected fast response before slow handler completes: %v", err)
+	}
+	frameType, responseFrame, ok := DecodeBinaryFrame(payload)
+	if !ok || frameType != BinaryFrameResponse {
+		t.Fatalf("unexpected frame type: %d ok=%v", frameType, ok)
+	}
+	response, err := DecodeResponse(responseFrame)
+	if err != nil {
+		t.Fatalf("DecodeResponse failed: %v", err)
+	}
+	if response.RequestID != "fast-req" {
+		t.Fatalf("expected fast response first, got request id %q", response.RequestID)
+	}
+}
