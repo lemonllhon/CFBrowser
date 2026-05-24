@@ -1,7 +1,12 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react-swc'
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import yaml from 'js-yaml'
 
 const defaultDevPort = 5218
+const configDir = path.dirname(fileURLToPath(import.meta.url))
 
 function resolveBoolean(rawValue: string | undefined, fallbackValue: boolean) {
   const raw = String(rawValue ?? '').trim().toLowerCase()
@@ -25,11 +30,39 @@ function resolveDevPort() {
   return defaultDevPort
 }
 
+function normalizeBuildVersion(value: unknown) {
+  const version = String(value ?? '').trim()
+  if (!version || version.toLowerCase() === 'unknown') {
+    return ''
+  }
+  return version.replace(/^v/i, '')
+}
+
+function resolveBuildVersion() {
+  const envVersion = normalizeBuildVersion(process.env.TRACE_BROWSER_VERSION || process.env.VERSION)
+  if (envVersion) {
+    return envVersion
+  }
+
+  try {
+    const configPath = path.resolve(configDir, '..', 'build', 'config.yml')
+    const rawConfig = fs.readFileSync(configPath, 'utf8')
+    const config = yaml.load(rawConfig) as { info?: { version?: string } } | null
+    return normalizeBuildVersion(config?.info?.version) || 'dev'
+  } catch {
+    return 'dev'
+  }
+}
+
 const devPort = resolveDevPort()
 const disableHmr = resolveBoolean(process.env.FRONTEND_DISABLE_HMR, false)
+const buildVersion = resolveBuildVersion()
 
 export default defineConfig({
   plugins: [react()],
+  define: {
+    __TRACE_BROWSER_BUILD_VERSION__: JSON.stringify(buildVersion),
+  },
   server: {
     port: devPort,
     strictPort: true,

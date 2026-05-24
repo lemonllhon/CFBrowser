@@ -1,6 +1,7 @@
 // Settings 模块 API
 import type { AppSettings } from './types'
 import { defaultSettings } from './types'
+import { getBundledAppVersion, normalizeBuildVersion } from '../../shared/build/version'
 import {
   checkAppUpdate as checkAppUpdateProto,
   downloadAndExtractPortableUpdate as downloadAndExtractPortableUpdateProto,
@@ -146,10 +147,20 @@ export async function importSystemConfig(resetFirst: boolean): Promise<BackupAct
 }
 
 export async function fetchAppConfig(): Promise<AppConfigInfo> {
-  const data = await getAppConfigProto()
+  let data: Awaited<ReturnType<typeof getAppConfigProto>>
+  try {
+    data = await getAppConfigProto()
+  } catch (error) {
+    console.error('fetchAppConfig error:', error)
+    return {
+      name: defaultSettings.appName,
+      version: getBundledAppVersion(),
+      projectGithubUrl: 'https://github.com/lemon-casino/trace-browser-release/releases',
+    }
+  }
   return {
     name: String(data.name || defaultSettings.appName),
-    version: String(data.version || 'unknown'),
+    version: normalizeBuildVersion(data.version) || getBundledAppVersion(),
     projectGithubUrl: String(data.projectGithubUrl || 'https://github.com/lemon-casino/trace-browser-release/releases'),
   }
 }

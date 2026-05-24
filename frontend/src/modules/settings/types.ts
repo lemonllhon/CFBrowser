@@ -30,7 +30,7 @@ export interface AppSettings {
 
 export const defaultSettings: AppSettings = {
   appName: 'Trace Browser',
-  appDescription: '基于 Wails + React 的桌面应用',
+  appDescription: '基于 Wails3 + React 的桌面应用',
   theme: 'light',
   primaryColor: '#3B82F6',
   language: 'zh-CN',

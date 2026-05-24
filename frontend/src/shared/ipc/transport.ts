@@ -3,8 +3,11 @@ import type { RpcError, RpcEvent } from './envelope'
 
 const RAW_MESSAGE_PREFIX = 'trace-proto:'
 const RESPONSE_EVENT_NAME = 'trace:proto:response'
+const RAW_EVENT_NAME = 'trace:proto:event'
 const DEFAULT_TIMEOUT_MS = 10000
 const CONFIG_WAIT_MS = 5000
+const RAW_FALLBACK_CONFIG_WAIT_MS = 1200
+const RAW_FALLBACK_COOLDOWN_MS = 10000
 const BINARY_FRAME_RESPONSE = 1
 const BINARY_FRAME_EVENT = 2
 
@@ -48,9 +51,11 @@ type PendingRequest = {
 
 const pendingRequests = new Map<string, PendingRequest>()
 const eventListeners = new Map<string, Set<(event: RpcEvent) => void>>()
+let rawFallbackPreferredUntil = 0
 
 export type TraceProtoIpcConfig = {
   wsUrl?: string
+  rawAvailable?: boolean
 }
 
 export class ProtoIpcError extends Error {
@@ -102,7 +107,8 @@ export class BinaryWebSocketProtoIpcClient {
   private readonly pending = new Map<string, PendingRequest>()
 
   async request(method: string, payload: Uint8Array, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<Uint8Array> {
-    const config = getBinaryConfig() ?? await waitForBinaryConfig(CONFIG_WAIT_MS)
+    const configWaitMs = isRawChannelAvailable() ? RAW_FALLBACK_CONFIG_WAIT_MS : CONFIG_WAIT_MS
+    const config = getBinaryConfig() ?? await waitForBinaryConfig(configWaitMs)
     const wsUrl = config.wsUrl
     if (!wsUrl) {
       throw new Error('Protobuf IPC WebSocket 配置无效')
@@ -213,12 +219,26 @@ function decodeBinaryFrame(bytes: Uint8Array): { frameType: number; payload: Uin
 
 export class ProtoIpcClient {
   private readonly binaryClient = new BinaryWebSocketProtoIpcClient()
+  private readonly rawClient = new RawProtoIpcClient()
 
-  request(method: string, payload: Uint8Array, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<Uint8Array> {
-    return this.binaryClient.request(method, payload, timeoutMs)
+  async request(method: string, payload: Uint8Array, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<Uint8Array> {
+    if (shouldPreferRawTransport()) {
+      return this.rawClient.request(method, payload, timeoutMs)
+    }
+    try {
+      return await this.binaryClient.request(method, payload, timeoutMs)
+    } catch (error) {
+      if (!shouldUseRawFallback(error)) {
+        throw error
+      }
+      rawFallbackPreferredUntil = Date.now() + RAW_FALLBACK_COOLDOWN_MS
+      console.warn('Protobuf IPC WebSocket unavailable, using Wails3 raw Protobuf channel:', error)
+      return this.rawClient.request(method, payload, timeoutMs)
+    }
   }
 
   onEvent(eventName: string, callback: (event: RpcEvent) => void): () => void {
+    installWailsEventHook()
     return onProtoEvent(eventName, callback)
   }
 }
@@ -228,7 +248,7 @@ export function protoIpcRequest(method: string, payload: Uint8Array, timeoutMs =
 }
 
 export function isProtoIpcAvailable(): boolean {
-  return Boolean(getBinaryConfig()?.wsUrl)
+  return Boolean(getBinaryConfig()?.wsUrl || isRawChannelAvailable())
 }
 
 export function onProtoEvent(eventName: string, callback: (event: RpcEvent) => void): () => void {
@@ -269,6 +289,10 @@ function installWailsEventHook() {
 function dispatchWailsEvent(event: WailsEvent) {
   if (event.name === RESPONSE_EVENT_NAME && typeof event.data === 'string') {
     handleRawResponse(event.data)
+    return
+  }
+  if (event.name === RAW_EVENT_NAME && typeof event.data === 'string') {
+    dispatchProtoEvent(decodeRawMessage(event.data))
     return
   }
   const previous = getWailsWindow()._wails?.__traceProtoPreviousDispatch
@@ -327,6 +351,27 @@ function resolveInvoke(): (message: string) => void {
     return androidInvoke
   }
   throw new Error('当前环境不可用 Protobuf IPC raw message 通道')
+}
+
+function isRawChannelAvailable(): boolean {
+  const appWindow = getWailsWindow()
+  return Boolean(
+    appWindow._wails?.invoke ||
+    appWindow.chrome?.webview?.postMessage ||
+    appWindow.webkit?.messageHandlers?.external?.postMessage ||
+    appWindow.wails?.invoke,
+  )
+}
+
+function shouldUseRawFallback(error: unknown): boolean {
+  if (error instanceof ProtoIpcError) {
+    return false
+  }
+  return isRawChannelAvailable()
+}
+
+function shouldPreferRawTransport(): boolean {
+  return Date.now() < rawFallbackPreferredUntil && isRawChannelAvailable()
 }
 
 function ensureBridge(): WailsRuntimeBridge {

@@ -141,6 +141,60 @@ func protoConfigScript(protoIPC *backend.Wails3ProtoIPC) string {
 	return protoIPC.ConfigScript()
 }
 
+func initBootstrapLogFile(root string) *os.File {
+	logPath := backend.ResolveRuntimePath(root, filepath.Join("logs", "app.log"))
+	if err := os.MkdirAll(filepath.Dir(logPath), 0755); err != nil {
+		return nil
+	}
+	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return nil
+	}
+	log.SetOutput(file)
+	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
+	log.Printf("Trace Browser bootstrap log initialized: %s", logPath)
+	return file
+}
+
+func scheduleProtoConfigInjection(window application.Window, protoIPC *backend.Wails3ProtoIPC, label string, startupDebugEnabled bool) {
+	if protoIPC == nil || window == nil {
+		return
+	}
+	protoIPC.InjectConfig(window)
+	for _, delay := range []time.Duration{
+		120 * time.Millisecond,
+		350 * time.Millisecond,
+		900 * time.Millisecond,
+		1800 * time.Millisecond,
+		3500 * time.Millisecond,
+	} {
+		delay := delay
+		go func() {
+			time.Sleep(delay)
+			protoIPC.InjectConfig(window)
+			if startupDebugEnabled {
+				log.Printf("Wails3 Proto IPC 配置注入重试完成: window=%s delay=%s", label, delay.String())
+			}
+		}()
+	}
+}
+
+func registerProtoConfigInjection(window application.Window, protoIPC *backend.Wails3ProtoIPC, label string, startupDebugEnabled bool) {
+	if protoIPC == nil || window == nil {
+		return
+	}
+	scheduleProtoConfigInjection(window, protoIPC, label, startupDebugEnabled)
+	window.OnWindowEvent(events.Common.WindowRuntimeReady, func(event *application.WindowEvent) {
+		if startupDebugEnabled {
+			log.Printf("Wails3 WindowRuntimeReady 已触发，注入 Proto IPC 配置: window=%s", label)
+		}
+		scheduleProtoConfigInjection(window, protoIPC, label, startupDebugEnabled)
+	})
+	window.OnWindowEvent(events.Common.WindowShow, func(event *application.WindowEvent) {
+		scheduleProtoConfigInjection(window, protoIPC, label, startupDebugEnabled)
+	})
+}
+
 const (
 	wails3WindowSyncToolbarName           = "window-sync-toolbar"
 	wails3WindowSyncToolbarExpandedWidth  = 780
@@ -291,6 +345,7 @@ func (a *wails3WindowSyncToolbarAdapter) ensureWindow(cfg backend.WindowSyncTool
 		}
 		a.mu.Unlock()
 	})
+	registerProtoConfigInjection(toolbarWindow, a.protoIPC, wails3WindowSyncToolbarName, a.startupDebugEnabled)
 	a.window = toolbarWindow
 	if a.startupDebugEnabled {
 		log.Printf("Wails3 窗口同步工具栏已创建为同进程多窗口: %s", wails3WindowSyncToolbarName)
@@ -302,13 +357,7 @@ func (a *wails3WindowSyncToolbarAdapter) injectProtoConfig(window application.Wi
 	if a == nil || a.protoIPC == nil || window == nil {
 		return
 	}
-	a.protoIPC.InjectConfig(window)
-	go func() {
-		for _, delay := range []time.Duration{250 * time.Millisecond, 900 * time.Millisecond} {
-			time.Sleep(delay)
-			a.protoIPC.InjectConfig(window)
-		}
-	}()
+	scheduleProtoConfigInjection(window, a.protoIPC, wails3WindowSyncToolbarName, a.startupDebugEnabled)
 }
 
 func clampInt(value int, minValue int, maxValue int) int {
@@ -360,6 +409,10 @@ func resolveAppRoot() {
 
 func main() {
 	resolveAppRoot()
+	bootstrapLogFile := initBootstrapLogFile(appRoot)
+	if bootstrapLogFile != nil {
+		defer bootstrapLogFile.Close()
+	}
 
 	startupDebugEnabled := envFlagEnabled("ANT_BROWSER_DEBUG_STARTUP")
 	if startupDebugEnabled {
@@ -429,9 +482,9 @@ func main() {
 
 	protoIPC, err := backend.NewWails3ProtoIPC(app.App, shutdownContext)
 	if err != nil {
-		log.Printf("Wails3 Proto IPC 二进制服务启动失败，将仅保留 raw message 兜底: %v", err)
+		log.Printf("Wails3 Proto IPC 二进制服务启动失败，将保留 Wails3 raw message Protobuf 备用通道: %v", err)
 	}
-	rawMessageHandler := backend.NewWails3ProtoRawMessageHandler(shutdownContext)
+	rawMessageHandler := backend.NewWails3ProtoRawMessageHandler(app.App, shutdownContext)
 	if protoIPC != nil {
 		rawMessageHandler = protoIPC.RawMessageHandler()
 		defer protoIPC.Close()
@@ -484,6 +537,7 @@ func main() {
 		JS:               protoConfigScript(protoIPC),
 	})
 	wailsRuntime.SetWindow(mainWindow)
+	registerProtoConfigInjection(mainWindow, protoIPC, "main", startupDebugEnabled)
 
 	mainWindow.OnWindowEvent(events.Common.WindowFilesDropped, func(event *application.WindowEvent) {
 		if event == nil {
@@ -516,7 +570,7 @@ func main() {
 			}
 			mainWindow.Center()
 			if protoIPC != nil {
-				protoIPC.InjectConfig(mainWindow)
+				scheduleProtoConfigInjection(mainWindow, protoIPC, "main", startupDebugEnabled)
 			}
 			go backend.RunTray(backend.TrayCallbacks{
 				OnShow: func() {

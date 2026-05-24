@@ -7,51 +7,58 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
+const rawProtoEventName = "trace:proto:event"
+
 type Wails3ProtoIPC struct {
 	dispatcher   *protoipc.Dispatcher
 	binaryServer *protoipc.BinaryServer
 	ctxProvider  func() context.Context
+	windowsMu    sync.RWMutex
+	windows      map[application.Window]struct{}
 }
 
 func NewWails3ProtoIPC(app *App, ctxProvider func() context.Context) (*Wails3ProtoIPC, error) {
 	dispatcher := protoipc.NewDispatcher()
 	registerProtoHandlers(app, dispatcher)
+	ipc := &Wails3ProtoIPC{
+		dispatcher:  dispatcher,
+		ctxProvider: ctxProvider,
+		windows:     map[application.Window]struct{}{},
+	}
 	binaryServer, err := protoipc.StartBinaryServer(context.Background(), dispatcher)
 	if err != nil {
-		return nil, err
+		if app != nil {
+			app.setProtoEventSink(ipc.broadcastEvent)
+		}
+		return ipc, err
 	}
+	ipc.binaryServer = binaryServer
 	if app != nil {
-		app.setProtoEventSink(func(eventName string, payload []byte) {
-			binaryServer.BroadcastEvent(protoipc.Event{
-				EventID:     fmt.Sprintf("evt-%d", time.Now().UnixNano()),
-				EventName:   eventName,
-				Payload:     payload,
-				TimestampMS: time.Now().UnixMilli(),
-			})
-		})
+		app.setProtoEventSink(ipc.broadcastEvent)
 	}
-	return &Wails3ProtoIPC{
-		dispatcher:   dispatcher,
-		binaryServer: binaryServer,
-		ctxProvider:  ctxProvider,
-	}, nil
+	return ipc, nil
 }
 
-func NewWails3ProtoRawMessageHandler(ctxProvider func() context.Context) func(application.Window, string, *application.OriginInfo) {
+func NewWails3ProtoRawMessageHandler(app *App, ctxProvider func() context.Context) func(application.Window, string, *application.OriginInfo) {
+	dispatcher := protoipc.NewDispatcher()
+	registerProtoHandlers(app, dispatcher)
 	ipc := &Wails3ProtoIPC{
-		dispatcher:  protoipc.NewDispatcher(),
+		dispatcher:  dispatcher,
 		ctxProvider: ctxProvider,
+		windows:     map[application.Window]struct{}{},
 	}
 	return ipc.RawMessageHandler()
 }
 
 func (ipc *Wails3ProtoIPC) RawMessageHandler() func(application.Window, string, *application.OriginInfo) {
 	return func(window application.Window, message string, _ *application.OriginInfo) {
+		ipc.RegisterWindow(window)
 		payload, matched, err := protoipc.DecodeRawMessage(message)
 		if !matched {
 			return
@@ -71,14 +78,31 @@ func (ipc *Wails3ProtoIPC) RawMessageHandler() func(application.Window, string, 
 				ctx = provided
 			}
 		}
-		emitWails3ProtoResponse(window, ipc.dispatcher.Dispatch(ctx, payload))
+		dispatcher := ipc.dispatcher
+		if dispatcher == nil {
+			dispatcher = protoipc.NewDispatcher()
+		}
+		emitWails3ProtoResponse(window, dispatcher.Dispatch(ctx, payload))
 	}
 }
 
-func (ipc *Wails3ProtoIPC) InjectConfig(window application.Window) {
-	if ipc == nil || ipc.binaryServer == nil || window == nil {
+func (ipc *Wails3ProtoIPC) RegisterWindow(window application.Window) {
+	if ipc == nil || window == nil {
 		return
 	}
+	ipc.windowsMu.Lock()
+	if ipc.windows == nil {
+		ipc.windows = map[application.Window]struct{}{}
+	}
+	ipc.windows[window] = struct{}{}
+	ipc.windowsMu.Unlock()
+}
+
+func (ipc *Wails3ProtoIPC) InjectConfig(window application.Window) {
+	if ipc == nil || window == nil {
+		return
+	}
+	ipc.RegisterWindow(window)
 	script := ipc.ConfigScript()
 	if strings.TrimSpace(script) == "" {
 		return
@@ -87,17 +111,25 @@ func (ipc *Wails3ProtoIPC) InjectConfig(window application.Window) {
 }
 
 func (ipc *Wails3ProtoIPC) ConfigScript() string {
-	if ipc == nil || ipc.binaryServer == nil {
+	if ipc == nil {
 		return ""
 	}
-	configJSON, err := json.Marshal(ipc.binaryServer.Config())
+	config := struct {
+		RawAvailable bool   `json:"rawAvailable"`
+		WsURL        string `json:"wsUrl,omitempty"`
+	}{
+		RawAvailable: true,
+	}
+	if ipc.binaryServer != nil {
+		config.WsURL = ipc.binaryServer.URL()
+	}
+	configJSON, err := json.Marshal(config)
 	if err != nil {
 		log.Printf("Wails3 Proto IPC config marshal failed: %v", err)
 		return ""
 	}
 	return fmt.Sprintf(
-		`window.__TRACE_PROTO_IPC__=%s;window.dispatchEvent(new CustomEvent("trace-proto-config",{detail:%s}));`,
-		configJSON,
+		`window.__TRACE_PROTO_IPC__=Object.assign({},window.__TRACE_PROTO_IPC__||{},%s);window.dispatchEvent(new CustomEvent("trace-proto-config",{detail:window.__TRACE_PROTO_IPC__}));`,
 		configJSON,
 	)
 }
@@ -110,6 +142,41 @@ func (ipc *Wails3ProtoIPC) Close() {
 	defer cancel()
 	if err := ipc.binaryServer.Close(ctx); err != nil && !strings.Contains(err.Error(), "Server closed") {
 		log.Printf("Wails3 Proto IPC binary server shutdown failed: %v", err)
+	}
+}
+
+func (ipc *Wails3ProtoIPC) broadcastEvent(eventName string, payload []byte) {
+	if ipc == nil {
+		return
+	}
+	event := protoipc.Event{
+		EventID:     fmt.Sprintf("evt-%d", time.Now().UnixNano()),
+		EventName:   eventName,
+		Payload:     payload,
+		TimestampMS: time.Now().UnixMilli(),
+	}
+	if ipc.binaryServer != nil {
+		ipc.binaryServer.BroadcastEvent(event)
+	}
+	ipc.broadcastRawEvent(event)
+}
+
+func (ipc *Wails3ProtoIPC) broadcastRawEvent(event protoipc.Event) {
+	if ipc == nil {
+		return
+	}
+	payload := protoipc.EncodeRawMessage(protoipc.EncodeEvent(event))
+	ipc.windowsMu.RLock()
+	windows := make([]application.Window, 0, len(ipc.windows))
+	for window := range ipc.windows {
+		windows = append(windows, window)
+	}
+	ipc.windowsMu.RUnlock()
+
+	for _, window := range windows {
+		if window != nil {
+			window.EmitEvent(rawProtoEventName, payload)
+		}
 	}
 }
 

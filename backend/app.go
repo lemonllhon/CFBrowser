@@ -163,8 +163,8 @@ func (a *App) startup(ctx context.Context) {
 
 	logConfig := logger.LoggerConfig{
 		Level:           cfg.Logging.Level,
-		FileEnabled:     cfg.Logging.FileEnabled,
-		FilePath:        a.resolveAppPath(cfg.Logging.FilePath),
+		FileEnabled:     true,
+		FilePath:        a.resolveAppPath(filepath.Join("logs", "app.log")),
 		Format:          cfg.Logging.Format,
 		BufferSize:      cfg.Logging.BufferSize,
 		AsyncQueueSize:  cfg.Logging.AsyncQueueSize,
@@ -183,6 +183,7 @@ func (a *App) startup(ctx context.Context) {
 	log := logger.New("App")
 	log.Info("应用启动中...",
 		logger.F("version", a.appVersion()),
+		logger.F("log_file", logConfig.FilePath),
 		logger.F("max_memory_mb", cfg.Runtime.MaxMemoryMB),
 		logger.F("gc_percent", cfg.Runtime.GCPercent),
 	)
@@ -408,7 +409,7 @@ func platformSupportsTrayCloseFlow() bool {
 }
 
 func platformSupportsTrayCloseFlowForOS(goos string) bool {
-	return strings.EqualFold(strings.TrimSpace(goos), "windows")
+	return false
 }
 
 func (a *App) setQuitMode(mode quitMode) {
