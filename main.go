@@ -134,6 +134,13 @@ func NewApp(appRoot, version string) *App {
 	return &App{App: backend.NewApp(appRoot, version)}
 }
 
+func protoConfigScript(protoIPC *backend.Wails3ProtoIPC) string {
+	if protoIPC == nil {
+		return ""
+	}
+	return protoIPC.ConfigScript()
+}
+
 const (
 	wails3WindowSyncToolbarName           = "window-sync-toolbar"
 	wails3WindowSyncToolbarExpandedWidth  = 780
@@ -474,6 +481,7 @@ func main() {
 		BackgroundColour: application.NewRGBA(245, 247, 250, 255),
 		EnableFileDrop:   true,
 		URL:              "/",
+		JS:               protoConfigScript(protoIPC),
 	})
 	wailsRuntime.SetWindow(mainWindow)
 

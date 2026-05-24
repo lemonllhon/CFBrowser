@@ -373,6 +373,12 @@ function waitForBinaryConfig(timeoutMs: number): Promise<TraceProtoIpcConfig> {
     }
 
     window.addEventListener('trace-proto-config', onConfig)
+    const config = getBinaryConfig()
+    if (config?.wsUrl) {
+      window.clearTimeout(timer)
+      window.removeEventListener('trace-proto-config', onConfig)
+      resolve(config)
+    }
   })
 }
 

@@ -178,6 +178,7 @@ func (a *App) startup(ctx context.Context) {
 		},
 	}
 	logger.InitWithConfig(ctx, logConfig)
+	logger.InstallStandardLogBridge("Runtime")
 
 	log := logger.New("App")
 	log.Info("应用启动中...",
