@@ -1,0 +1,68 @@
+version: '3'
+
+vars:
+  WAILS3_APP_NAME: trace-browser{{exeExt}}
+  WAILS3_DEV_NAME: trace-browser-dev{{exeExt}}
+  BIN_DIR: build/bin
+
+tasks:
+  build:
+    summary: Builds the experimental Wails3 application shell.
+    cmds:
+      - task: '{{OS}}:build'
+
+  windows:build:
+    summary: Builds the experimental Wails3 application shell for Windows.
+    cmds:
+      - powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '{{.BIN_DIR}}' | Out-Null"
+      - go build -trimpath -buildvcs=false -o {{.BIN_DIR}}/{{.WAILS3_APP_NAME}} .
+
+  linux:build:
+    summary: Builds the experimental Wails3 application shell for Linux.
+    cmds:
+      - mkdir -p {{.BIN_DIR}}
+      - go build -trimpath -buildvcs=false -o {{.BIN_DIR}}/{{.WAILS3_APP_NAME}} .
+
+  darwin:build:
+    summary: Builds the experimental Wails3 application shell for macOS.
+    cmds:
+      - mkdir -p {{.BIN_DIR}}
+      - go build -trimpath -buildvcs=false -o {{.BIN_DIR}}/{{.WAILS3_APP_NAME}} .
+
+  run:
+    summary: Runs the experimental Wails3 application shell.
+    deps:
+      - build
+    cmds:
+      - '{{.BIN_DIR}}/{{.WAILS3_APP_NAME}}'
+
+  windows:run:
+    summary: Runs the experimental Wails3 application shell on Windows.
+    deps:
+      - windows:build
+    cmds:
+      - '{{.BIN_DIR}}/{{.WAILS3_APP_NAME}}'
+
+  linux:run:
+    summary: Runs the experimental Wails3 application shell on Linux.
+    deps:
+      - linux:build
+    cmds:
+      - '{{.BIN_DIR}}/{{.WAILS3_APP_NAME}}'
+
+  darwin:run:
+    summary: Runs the experimental Wails3 application shell on macOS.
+    deps:
+      - darwin:build
+    cmds:
+      - '{{.BIN_DIR}}/{{.WAILS3_APP_NAME}}'
+
+  dev:
+    summary: Runs the Wails3 dev flow using build/config.yml.
+    cmds:
+      - wails3 dev -config ./build/config.yml
+
+  generate:bindings:
+    summary: Generates Wails3 bindings.
+    cmds:
+      - wails3 generate bindings -ts -d frontend/src/wails3 .

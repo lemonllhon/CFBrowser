@@ -6,6 +6,7 @@ set "EXIT_CODE=0"
 set "NO_PAUSE=0"
 set "SHOW_USAGE=0"
 set "DEV_MODE=stable"
+set "ACTIVE_WAILS_BIN="
 set "LIMITED_WATCHER_PID_FILE=tmp-frontend-limited-watcher.pid"
 set "PREFERRED_FRONTEND_PORT=5218"
 set "FRONTEND_PORT="
@@ -69,6 +70,10 @@ if /I "%~1"=="-h" (
     shift
     goto :parse_args
 )
+if /I "%~1"=="--wails3" (
+    shift
+    goto :parse_args
+)
 if /I "%~1"=="stable" (
     set "DEV_MODE=stable"
     shift
@@ -92,12 +97,13 @@ exit /b 1
 
 :print_usage
 echo Usage:
-echo   bat\dev.bat [stable^|live^|limited] [--no-pause]
+echo   bat\dev.bat [stable^|live^|limited] [--wails3] [--no-pause]
 echo.
 echo Modes:
 echo   stable   Default. Build frontend static assets and start Wails without Vite dev server.
 echo   live     Start Vite watcher and connect Wails to the frontend dev server.
 echo   limited  Same as live, but add Windows Job Object memory limits to the watcher chain.
+echo   --wails3 Accepted for compatibility. This branch always runs the Wails3 shell.
 echo.
 echo Examples:
 echo   bat\dev.bat
@@ -106,144 +112,13 @@ echo   bat\dev.bat limited --no-pause
 exit /b 0
 
 :run_stable
-echo ========================================
-echo   Trace Browser - Dev Launcher
-echo ========================================
-echo.
-echo Current workdir: %CD%
-echo Mode: stable
-echo.
-
-call :cleanup_dev_logs
-call :apply_proxy_settings
-
-echo Frontend mode: stable static assets
-echo Frontend build: one-shot npm run build
-echo Wails frontend dev server: disabled
-call :print_proxy_settings
-
-call :cleanup_app_processes
-call :cleanup_frontend_dev_processes warn
-if errorlevel 1 exit /b 1
-
-call :cleanup_dev_binary
-if errorlevel 1 exit /b 1
-
-call :prepare_tooling
-if errorlevel 1 exit /b 1
-
-call :build_frontend_assets
-if errorlevel 1 exit /b 1
-
-echo Starting Wails dev...
-echo Asset source: frontend\dist
-echo Auto reload: disabled
-echo.
-
-wails dev -m -nogorebuild -noreload -s -skipbindings -assetdir frontend/dist
-set "EXIT_CODE=%errorlevel%"
-
-if not "%EXIT_CODE%"=="0" (
-    echo.
-    echo [ERROR] wails dev exited with code %EXIT_CODE%.
-)
-
-exit /b %EXIT_CODE%
+call :run_wails3
+exit /b %errorlevel%
 
 :run_live
-set "FRONTEND_LIMITED_MODE=%~1"
-
-if "%FRONTEND_LIMITED_MODE%"=="1" (
-    if not defined FRONTEND_PROCESS_MEMORY_LIMIT_MB set "FRONTEND_PROCESS_MEMORY_LIMIT_MB=512"
-    if not defined FRONTEND_NODE_MAX_OLD_SPACE_SIZE_MB set "FRONTEND_NODE_MAX_OLD_SPACE_SIZE_MB=256"
-    if not defined FRONTEND_NODE_RSS_WARN_MB set "FRONTEND_NODE_RSS_WARN_MB=256"
-    if not defined FRONTEND_NODE_RSS_AUTO_RESTART set "FRONTEND_NODE_RSS_AUTO_RESTART=0"
-    if not defined FRONTEND_NODE_RSS_RESTART_MAX_COUNT set "FRONTEND_NODE_RSS_RESTART_MAX_COUNT=1"
-) else (
-    if not defined FRONTEND_NODE_MAX_OLD_SPACE_SIZE_MB set "FRONTEND_NODE_MAX_OLD_SPACE_SIZE_MB=512"
-    if not defined FRONTEND_NODE_RSS_WARN_MB set "FRONTEND_NODE_RSS_WARN_MB=384"
-    if not defined FRONTEND_NODE_RSS_AUTO_RESTART set "FRONTEND_NODE_RSS_AUTO_RESTART=1"
-    if not defined FRONTEND_NODE_RSS_RESTART_MAX_COUNT set "FRONTEND_NODE_RSS_RESTART_MAX_COUNT=3"
-)
-if not defined FRONTEND_NODE_MAX_SEMI_SPACE_SIZE_MB set "FRONTEND_NODE_MAX_SEMI_SPACE_SIZE_MB=16"
-if not defined FRONTEND_NODE_RSS_HARD_LIMIT_MB set "FRONTEND_NODE_RSS_HARD_LIMIT_MB=0"
-if not defined FRONTEND_NODE_RSS_HARD_LIMIT_HITS set "FRONTEND_NODE_RSS_HARD_LIMIT_HITS=3"
-if not defined FRONTEND_NODE_RSS_RESTART_DELAY_MS set "FRONTEND_NODE_RSS_RESTART_DELAY_MS=1500"
-if not defined FRONTEND_NODE_RSS_RESTART_WINDOW_MS set "FRONTEND_NODE_RSS_RESTART_WINDOW_MS=300000"
-if not defined FRONTEND_NODE_MEMORY_POLL_MS set "FRONTEND_NODE_MEMORY_POLL_MS=3000"
-if not defined FRONTEND_DISABLE_HMR set "FRONTEND_DISABLE_HMR=0"
-
-echo ========================================
-echo   Trace Browser - Dev Launcher
-echo ========================================
-echo.
-echo Current workdir: %CD%
-if "%FRONTEND_LIMITED_MODE%"=="1" (
-    echo Mode: limited
-) else (
-    echo Mode: live
-)
-echo.
-
-call :cleanup_dev_logs
-call :apply_proxy_settings
-
-if "%FRONTEND_LIMITED_MODE%"=="1" (
-    echo Frontend mode: live dev server with Job Object memory limit
-) else (
-    echo Frontend mode: live dev server
-)
-echo Preferred frontend port: %PREFERRED_FRONTEND_PORT%
-echo Frontend Node old-space limit: %FRONTEND_NODE_MAX_OLD_SPACE_SIZE_MB% MB
-echo Frontend Node semi-space limit: %FRONTEND_NODE_MAX_SEMI_SPACE_SIZE_MB% MB
-echo Frontend Node RSS warning: %FRONTEND_NODE_RSS_WARN_MB% MB
-echo Frontend Node RSS hard limit: %FRONTEND_NODE_RSS_HARD_LIMIT_MB% MB
-echo Frontend Node RSS hard-limit hits: %FRONTEND_NODE_RSS_HARD_LIMIT_HITS%
-echo Frontend Node RSS auto restart: %FRONTEND_NODE_RSS_AUTO_RESTART%
-echo Frontend Node RSS restart delay: %FRONTEND_NODE_RSS_RESTART_DELAY_MS% ms
-echo Frontend Node RSS restart max count: %FRONTEND_NODE_RSS_RESTART_MAX_COUNT%
-echo Frontend Node RSS restart window: %FRONTEND_NODE_RSS_RESTART_WINDOW_MS% ms
-echo Frontend Node RSS poll interval: %FRONTEND_NODE_MEMORY_POLL_MS% ms
-echo Frontend HMR disabled: %FRONTEND_DISABLE_HMR%
-if "%FRONTEND_LIMITED_MODE%"=="1" echo Frontend process memory limit: %FRONTEND_PROCESS_MEMORY_LIMIT_MB% MB
-call :print_proxy_settings
-
-call :cleanup_app_processes
-call :cleanup_frontend_dev_processes strict
-if errorlevel 1 exit /b 1
-
-call :cleanup_dev_binary
-if errorlevel 1 exit /b 1
-
-call :resolve_frontend_dev_port
-if errorlevel 1 exit /b 1
-
-call :prepare_tooling
-if errorlevel 1 exit /b 1
-
-call :ensure_embed_dist
-if errorlevel 1 exit /b 1
-
-call :start_watcher
-if errorlevel 1 exit /b 1
-
-call :wait_for_frontend_dev_server
-if errorlevel 1 exit /b 1
-echo.
-
-echo Starting Wails dev...
-echo Frontend URL: http://127.0.0.1:%FRONTEND_PORT%
-echo.
-
-wails dev -m -s -skipbindings -frontenddevserverurl http://127.0.0.1:%FRONTEND_PORT% -viteservertimeout 60
-set "EXIT_CODE=%errorlevel%"
-
-if not "%EXIT_CODE%"=="0" (
-    echo.
-    echo [ERROR] wails dev exited with code %EXIT_CODE%.
-)
-
-exit /b %EXIT_CODE%
+echo [WARN] Wails3 live/limited frontend mode is not wired yet; using static frontend assets.
+call :run_wails3
+exit /b %errorlevel%
 
 :apply_proxy_settings
 if defined DEV_PROXY_URL (
@@ -260,6 +135,43 @@ if defined DEV_GOPROXY set "GOPROXY=%DEV_GOPROXY%"
 if not defined DEV_GOPROXY if not defined GOPROXY set "GOPROXY=https://goproxy.cn,direct"
 exit /b 0
 
+:resolve_wails3_command
+set "ACTIVE_WAILS_BIN="
+if defined WAILS_BIN set "ACTIVE_WAILS_BIN=%WAILS_BIN%"
+if not defined ACTIVE_WAILS_BIN if defined WAILS3_BIN set "ACTIVE_WAILS_BIN=%WAILS3_BIN%"
+if not defined ACTIVE_WAILS_BIN set "ACTIVE_WAILS_BIN=wails3"
+echo Wails3 command: %ACTIVE_WAILS_BIN%
+"%ACTIVE_WAILS_BIN%" version >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] Cannot run Wails3 command: %ACTIVE_WAILS_BIN%
+    echo         Set WAILS_BIN or WAILS3_BIN to a valid executable path.
+    exit /b 1
+)
+exit /b 0
+
+:ensure_go_command
+go version >nul 2>&1
+if not errorlevel 1 exit /b 0
+
+for /f "delims=" %%g in ('dir /B /AD ".tmp\toolchains\go*" 2^>nul') do (
+    if exist ".tmp\toolchains\%%g\go\bin\go.exe" (
+        set "GOROOT=%CD%\.tmp\toolchains\%%g\go"
+        if not defined GOPATH set "GOPATH=%CD%\.tmp\go"
+        if not defined GOBIN set "GOBIN=!GOPATH!\bin"
+        set "PATH=!GOROOT!\bin;!GOBIN!;!PATH!"
+        go version >nul 2>&1
+        if not errorlevel 1 (
+            echo Go command: !GOROOT!\bin\go.exe
+            echo.
+            exit /b 0
+        )
+    )
+)
+
+echo [ERROR] Cannot find Go command.
+echo         Install Go, add it to PATH, or place a portable Go toolchain under .tmp\toolchains\go*\go.
+exit /b 1
+
 :print_proxy_settings
 if defined DEV_PROXY_URL (
     echo HTTP/HTTPS proxy: %DEV_PROXY_URL%
@@ -275,6 +187,7 @@ exit /b 0
 
 :cleanup_app_processes
 echo Cleaning stale app processes...
+taskkill /F /IM trace-browser-dev.exe >nul 2>&1
 taskkill /F /IM trace-browser-dev.exe >nul 2>&1
 echo.
 exit /b 0
@@ -306,8 +219,64 @@ if exist "build\bin\trace-browser-dev.exe" (
     )
 )
 if exist "build\bin\trace-browser-dev.exe~" del /F /Q "build\bin\trace-browser-dev.exe~" >nul 2>&1
+if exist "build\bin\trace-browser-dev.exe" del /F /Q "build\bin\trace-browser-dev.exe" >nul 2>&1
 echo.
 exit /b 0
+
+:run_wails3
+echo ========================================
+echo   Trace Browser - Wails3 Dev Launcher
+echo ========================================
+echo.
+echo Current workdir: %CD%
+echo Mode: Wails3 shell
+if /I not "%DEV_MODE%"=="stable" (
+    echo [WARN] Wails3 live/limited frontend mode is not wired yet; using static frontend assets.
+)
+echo.
+
+call :cleanup_dev_logs
+call :apply_proxy_settings
+call :print_proxy_settings
+
+call :ensure_go_command
+if errorlevel 1 exit /b 1
+
+call :cleanup_app_processes
+call :cleanup_frontend_dev_processes warn
+if errorlevel 1 exit /b 1
+
+call :cleanup_dev_binary
+if errorlevel 1 exit /b 1
+
+call :resolve_wails3_command
+if errorlevel 1 exit /b 1
+
+call :download_go_dependencies
+if errorlevel 1 exit /b 1
+
+call :install_frontend_dependencies
+if errorlevel 1 exit /b 1
+
+echo Regenerating Wails3 bindings...
+call bat\generate-bindings.bat --no-pause --wails3
+if errorlevel 1 exit /b 1
+
+call :build_frontend_assets
+if errorlevel 1 exit /b 1
+
+echo Building Wails3 dev binary...
+powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path 'build/bin' | Out-Null"
+go build -o build\bin\trace-browser-dev.exe .
+if errorlevel 1 (
+    echo [ERROR] Failed to build Wails3 dev binary.
+    exit /b 1
+)
+
+echo Starting Wails3 dev binary...
+echo.
+build\bin\trace-browser-dev.exe
+exit /b %errorlevel%
 
 :resolve_frontend_dev_port
 echo Resolving frontend dev port...
@@ -344,8 +313,8 @@ if not exist "go.mod" (
     echo [ERROR] go.mod not found in repository root.
     exit /b 1
 )
-if not exist "wails.json" (
-    echo [ERROR] wails.json not found in repository root.
+if not exist "build\config.yml" (
+    echo [ERROR] build\config.yml not found in repository root.
     exit /b 1
 )
 exit /b 0
@@ -381,7 +350,7 @@ if errorlevel 1 (
     echo [ERROR] Failed to generate Wails bindings.
     exit /b 1
 )
-if not exist "frontend\src\wailsjs" (
+if not exist "frontend\src\wails3" (
     echo [ERROR] Wails bindings output folder not found.
     exit /b 1
 )
@@ -470,8 +439,6 @@ for %%f in (
     "tmp-frontend-limited-watcher.pid"
     "tmp-wails-err.log"
     "tmp-wails-out.log"
-    "tmp-wails2-err.log"
-    "tmp-wails2-out.log"
     "tmp-wails3-err.log"
     "tmp-wails3-out.log"
     "tmp-wails.err"

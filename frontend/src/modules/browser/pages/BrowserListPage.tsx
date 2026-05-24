@@ -7,7 +7,7 @@ import type { BrowserCore, BrowserCoreInput, BrowserProfile, BrowserProxy, Brows
 import { InstanceFilterBar, EMPTY_FILTERS } from '../components/InstanceFilterBar'
 import type { InstanceFilters } from '../components/InstanceFilterBar'
 import { KeywordsModal } from '../components/KeywordsModal'
-import { EventsOn } from '../../../wailsjs/runtime/runtime'
+import { EventsOn } from '../../../shared/backend/runtime'
 import { resolveActionErrorMessage, resolveActionFeedback } from '../utils/actionErrors'
 import {
   applyWindowSyncLayout,
@@ -27,6 +27,7 @@ import {
   getWindowSyncLayoutSettings,
   getWindowSyncSettings,
   listWindowSyncCandidates,
+  onWindowSyncStateChanged,
   pinCenterBrowserInstance,
   regenerateBrowserProfileCode,
   restartBrowserInstance,
@@ -562,13 +563,13 @@ export function BrowserListPage() {
       }
       void loadProfiles({ silent: true, syncRuntimeState: true })
     })
-    const offWindowSyncChanged = EventsOn('window-sync:state-changed', (payload: any) => {
-      setWindowSyncState(payload?.active ? payload : null)
-      if (payload?.active) {
+    const offWindowSyncChanged = onWindowSyncStateChanged(state => {
+      setWindowSyncState(state?.active ? state : null)
+      if (state?.active) {
         setWindowSyncSettings({
-          masterColor: payload.masterColor || '#2563eb',
-          syncKeyboard: payload.syncKeyboard !== false,
-          syncMouse: payload.syncMouse !== false,
+          masterColor: state.masterColor || '#2563eb',
+          syncKeyboard: state.syncKeyboard !== false,
+          syncMouse: state.syncMouse !== false,
         })
       }
     })

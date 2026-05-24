@@ -1,5 +1,6 @@
 import profilePageConfig from '../../config/profile.config'
 import type { AuthorProfile, IconKey, ProfileChannel, ProfilePageData, ProfileProject } from './types'
+import { fetchRemoteAuthorProfile } from '../../shared/backend/client'
 
 const PROFILE_ICON_KEYS: IconKey[] = [
   'book-open',
@@ -18,14 +19,6 @@ const CHANNEL_ICON_BY_NAME: Record<string, IconKey> = {
   微信公众号: 'message-square',
   github: 'github',
   邮件: 'mail',
-}
-
-const getBindings = async () => {
-  try {
-    return await import('../../wailsjs/go/main/App')
-  } catch {
-    return null
-  }
 }
 
 export function createDefaultProfilePageData(): ProfilePageData {
@@ -68,50 +61,7 @@ export async function loadProfilePageData(): Promise<ProfilePageData> {
 }
 
 async function fetchRemoteAuthorPayload(authorURL: string, timeoutMs: number): Promise<Record<string, any>> {
-  const bindings: any = await getBindings()
-  if (bindings?.FetchRemoteAuthorProfile) {
-    return (await bindings.FetchRemoteAuthorProfile(authorURL, timeoutMs)) || {}
-  }
-
-  const goApp = (window as any).go?.main?.App
-  if (goApp?.FetchRemoteAuthorProfile) {
-    return (await goApp.FetchRemoteAuthorProfile(authorURL, timeoutMs)) || {}
-  }
-
-  return await fetchRemoteAuthorPayloadViaBrowser(authorURL, timeoutMs)
-}
-
-async function fetchRemoteAuthorPayloadViaBrowser(authorURL: string, timeoutMs: number): Promise<Record<string, any>> {
-  const controller = new AbortController()
-  const timer = window.setTimeout(() => controller.abort(), clampTimeout(timeoutMs))
-
-  try {
-    const response = await fetch(authorURL, {
-      method: 'GET',
-      headers: {
-        Accept: 'application/json',
-      },
-      signal: controller.signal,
-    })
-
-    if (!response.ok) {
-      throw new Error(`远程作者配置返回异常状态码: ${response.status}`)
-    }
-
-    const payload = await response.json()
-    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-      throw new Error('远程作者配置格式无效')
-    }
-
-    return payload as Record<string, any>
-  } catch (error: any) {
-    if (error?.name === 'AbortError') {
-      throw new Error('远程作者配置请求超时')
-    }
-    throw error
-  } finally {
-    window.clearTimeout(timer)
-  }
+  return await fetchRemoteAuthorProfile(authorURL, timeoutMs)
 }
 
 function normalizeAuthorProfile(payload: Record<string, any>, fallback: AuthorProfile): AuthorProfile {
@@ -218,13 +168,6 @@ function normalizeStringArray(value: unknown, fallback: string[]): string[] {
 
 function stripProtocol(value: string): string {
   return value.replace(/^https?:\/\//, '').replace(/\/$/, '')
-}
-
-function clampTimeout(timeoutMs: number): number {
-  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
-    return 3000
-  }
-  return Math.min(timeoutMs, 15000)
 }
 
 function cloneAuthor(author: AuthorProfile): AuthorProfile {

@@ -3,7 +3,7 @@ import { Folder, FolderInput, FolderPlus, Pencil, Plus, Trash2, X } from 'lucide
 import { Badge, Button, Card, FormItem, Input, Select, toast } from '../../../shared/components'
 import type { BrowserGroupInput, BrowserGroupWithCount, BrowserProfile } from '../types'
 import { createGroup, deleteGroup, fetchBrowserProfiles, fetchGroups, moveInstancesToGroup, updateGroup } from '../api'
-import { EventsOn } from '../../../wailsjs/runtime/runtime'
+import { EventsOn } from '../../../shared/backend/runtime'
 
 interface TreeGroup extends BrowserGroupWithCount {
   level: number

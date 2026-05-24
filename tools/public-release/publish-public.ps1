@@ -187,17 +187,21 @@ function Resolve-VersionValue {
         return Assert-VersionValue -Value $explicit -Source "publish version"
     }
 
-    $wailsConfigPath = Join-Path $repoRoot "wails.json"
-    if (-not (Test-Path -LiteralPath $wailsConfigPath)) {
-        throw "wails.json was not found and -Version was not provided."
+    $buildConfigPath = Join-Path $repoRoot "build/config.yml"
+    if (-not (Test-Path -LiteralPath $buildConfigPath)) {
+        throw "build/config.yml was not found and -Version was not provided."
     }
 
-    $wailsConfig = Get-Content -LiteralPath $wailsConfigPath -Raw | ConvertFrom-Json
-    $resolvedVersion = Get-TrimmedText ([string]$wailsConfig.info.productVersion)
-    if ($resolvedVersion -eq "") {
-        throw "Could not resolve productVersion from wails.json. Pass -Version explicitly."
+    $configText = Get-Content -LiteralPath $buildConfigPath -Raw
+    $match = [regex]::Match($configText, '(?m)^\s{2}version:\s*["'']?([^"''\r\n]+)')
+    if (-not $match.Success) {
+        throw "Could not resolve info.version from build/config.yml. Pass -Version explicitly."
     }
-    return Assert-VersionValue -Value $resolvedVersion -Source "wails.json productVersion"
+    $resolvedVersion = Get-TrimmedText ([string]$match.Groups[1].Value)
+    if ($resolvedVersion -eq "") {
+        throw "Could not resolve info.version from build/config.yml. Pass -Version explicitly."
+    }
+    return Assert-VersionValue -Value $resolvedVersion -Source "build/config.yml info.version"
 }
 
 function Resolve-CommitterIdentity {

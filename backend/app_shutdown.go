@@ -40,6 +40,16 @@ func (a *App) stopRuntimeServices() {
 			a.speedScheduler = nil
 		}
 
+		a.updateRuntimeMu.Lock()
+		updateRuntime := a.updateRuntime
+		a.updateRuntime = nil
+		a.updateRuntimeMu.Unlock()
+		if updateRuntime != nil && updateRuntime.service != nil {
+			if err := updateRuntime.service.ServiceShutdown(); err != nil {
+				log.Error("Wails3 updater 关闭失败", logger.F("error", err.Error()))
+			}
+		}
+
 		if a.launchServer != nil {
 			if err := a.launchServer.Stop(); err != nil {
 				log.Error("LaunchServer 关闭失败", logger.F("error", err))

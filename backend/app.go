@@ -7,6 +7,7 @@ import (
 	"ant-chrome/backend/internal/database"
 	"ant-chrome/backend/internal/launchcode"
 	"ant-chrome/backend/internal/logger"
+	"ant-chrome/backend/internal/platform"
 	"ant-chrome/backend/internal/proxy"
 	"context"
 	"encoding/json"
@@ -20,8 +21,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 type quitMode uint8
@@ -33,35 +32,42 @@ const (
 
 // App 应用结构体
 type App struct {
-	ctx            context.Context
-	config         *config.Config
-	db             *database.DB
-	interceptor    *logger.MethodInterceptor
-	browserMgr     *browser.Manager
-	xrayMgr        *proxy.XrayManager
-	clashMgr       *proxy.ClashManager
-	singboxMgr     *proxy.SingBoxManager
-	launchCodeSvc  *launchcode.LaunchCodeService
-	launchServer   *launchcode.LaunchServer
-	speedScheduler *browser.ProxySpeedScheduler
-	appRoot        string
-	version        string
+	ctx             context.Context
+	config          *config.Config
+	db              *database.DB
+	interceptor     *logger.MethodInterceptor
+	browserMgr      *browser.Manager
+	xrayMgr         *proxy.XrayManager
+	clashMgr        *proxy.ClashManager
+	singboxMgr      *proxy.SingBoxManager
+	launchCodeSvc   *launchcode.LaunchCodeService
+	launchServer    *launchcode.LaunchServer
+	speedScheduler  *browser.ProxySpeedScheduler
+	platformRuntime platform.Runtime
+	protoEventMu    sync.RWMutex
+	protoEventSink  func(eventName string, payload []byte)
+	appRoot         string
+	version         string
+	updateRuntimeMu sync.Mutex
+	updateRuntime   *wailsUpdateRuntime
 
-	forceQuit        bool       // 强制退出标志，用于跳过 OnBeforeClose 的拦截
-	quitMode         quitMode   // 退出模式：全量退出 / 仅退出应用
-	maintenanceMu    sync.Mutex // 维护类操作（初始化/导入/导出）互斥锁
-	bridgeMu         sync.Mutex
-	xrayBridgeRefs   map[string]string
-	switchBridgeRefs map[string]*switchingProxyBridge
-	authProxyBridgeRefs map[string]*authenticatedProxyBridge
-	windowSyncMu     sync.Mutex
-	windowSyncState  *WindowSyncState
-	windowSyncLayout WindowSyncLayoutSettings
-	windowSyncCancel chan struct{}
-	windowSyncSeq    int
-	windowSyncToolbar windowSyncToolbarController
-	stopServicesOnce sync.Once
-	finalizeOnce     sync.Once
+	forceQuit                bool       // 强制退出标志，用于跳过 OnBeforeClose 的拦截
+	quitMode                 quitMode   // 退出模式：全量退出 / 仅退出应用
+	maintenanceMu            sync.Mutex // 维护类操作（初始化/导入/导出）互斥锁
+	bridgeMu                 sync.Mutex
+	xrayBridgeRefs           map[string]string
+	switchBridgeRefs         map[string]*switchingProxyBridge
+	authProxyBridgeRefs      map[string]*authenticatedProxyBridge
+	windowSyncMu             sync.Mutex
+	windowSyncState          *WindowSyncState
+	windowSyncLayout         WindowSyncLayoutSettings
+	windowSyncCancel         chan struct{}
+	windowSyncSeq            int
+	windowSyncToolbar        windowSyncToolbarController
+	windowSyncToolbarMu      sync.RWMutex
+	windowSyncToolbarAdapter WindowSyncToolbarAdapter
+	stopServicesOnce         sync.Once
+	finalizeOnce             sync.Once
 }
 
 // NewApp 创建新的应用实例
@@ -71,10 +77,11 @@ func NewApp(appRoot string, appVersion ...string) *App {
 		version = strings.TrimSpace(appVersion[0])
 	}
 	return &App{
-		appRoot:        strings.TrimSpace(appRoot),
-		version:        version,
-		xrayBridgeRefs: make(map[string]string),
-		switchBridgeRefs: make(map[string]*switchingProxyBridge),
+		appRoot:             strings.TrimSpace(appRoot),
+		version:             version,
+		platformRuntime:     platform.DefaultRuntime(),
+		xrayBridgeRefs:      make(map[string]string),
+		switchBridgeRefs:    make(map[string]*switchingProxyBridge),
 		authProxyBridgeRefs: make(map[string]*authenticatedProxyBridge),
 	}
 }
@@ -96,11 +103,55 @@ func (a *App) appVersion() string {
 	return version
 }
 
+func (a *App) appRuntime() platform.Runtime {
+	if a != nil && a.platformRuntime != nil {
+		return a.platformRuntime
+	}
+	return platform.DefaultRuntime()
+}
+
+func (a *App) useRuntime(runtime platform.Runtime) {
+	if a == nil || runtime == nil {
+		return
+	}
+	a.platformRuntime = runtime
+}
+
+func (a *App) emitEvent(eventName string, optionalData ...any) {
+	if a == nil || a.ctx == nil {
+		return
+	}
+	a.appRuntime().EventsEmit(a.ctx, eventName, optionalData...)
+	a.emitProtoRuntimeEvent(eventName, optionalData...)
+}
+
+func (a *App) setProtoEventSink(sink func(eventName string, payload []byte)) {
+	if a == nil {
+		return
+	}
+	a.protoEventMu.Lock()
+	a.protoEventSink = sink
+	a.protoEventMu.Unlock()
+}
+
+func (a *App) emitProtoEvent(eventName string, payload []byte) {
+	if a == nil {
+		return
+	}
+	a.protoEventMu.RLock()
+	sink := a.protoEventSink
+	a.protoEventMu.RUnlock()
+	if sink == nil {
+		return
+	}
+	sink(eventName, payload)
+}
+
 // startup 应用启动时调用
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	if err := apppath.EnsureWritableLayout(a.appRoot); err != nil {
-		runtime.LogFatal(ctx, fmt.Sprintf("初始化 Linux 用户数据目录失败: %v", err))
+		a.appRuntime().LogFatal(ctx, fmt.Sprintf("初始化 Linux 用户数据目录失败: %v", err))
 		return
 	}
 	cfg, err := LoadConfig(a.resolveAppPath("config.yaml"))
@@ -161,7 +212,7 @@ func (a *App) startup(ctx context.Context) {
 	db, err := database.NewDB(a.resolveAppPath(cfg.Database.SQLite.Path))
 	if err != nil {
 		log.Error("初始化数据库失败", logger.F("error", err))
-		runtime.LogFatal(ctx, fmt.Sprintf("初始化数据库失败: %v", err))
+		a.appRuntime().LogFatal(ctx, fmt.Sprintf("初始化数据库失败: %v", err))
 		return
 	}
 	a.db = db
@@ -219,7 +270,7 @@ func (a *App) startup(ctx context.Context) {
 	// 连接池失效通知
 	a.xrayMgr.OnBridgeDied = func(key string, err error) {
 		if a.ctx != nil {
-			runtime.EventsEmit(a.ctx, "proxy:bridge:died", map[string]interface{}{
+			a.emitEvent("proxy:bridge:died", map[string]interface{}{
 				"engine": "xray",
 				"key":    key[:8],
 				"error":  err.Error(),
@@ -228,7 +279,7 @@ func (a *App) startup(ctx context.Context) {
 	}
 	a.singboxMgr.OnBridgeDied = func(key string, err error) {
 		if a.ctx != nil {
-			runtime.EventsEmit(a.ctx, "proxy:bridge:died", map[string]interface{}{
+			a.emitEvent("proxy:bridge:died", map[string]interface{}{
 				"engine": "singbox",
 				"key":    key[:8],
 				"error":  err.Error(),
@@ -306,7 +357,7 @@ func (a *App) applyRuntimeConfig(cfg config.RuntimeConfig) {
 
 func (a *App) shutdown(ctx context.Context) {
 	log := logger.New("App")
-	_ = a.windowSyncToolbar.Hide()
+	a.hideWindowSyncToolbar()
 	if a.shouldStopRuntimeServicesOnShutdown() {
 		log.Info("应用正在关闭...")
 		a.stopRuntimeServices()
@@ -320,7 +371,7 @@ func (a *App) GetInterceptor() *logger.MethodInterceptor {
 	return a.interceptor
 }
 
-// ForceQuit 设置强制退出标志并调用 runtime.Quit
+// ForceQuit 设置强制退出标志并调用平台退出能力。
 func (a *App) ForceQuit() {
 	a.setQuitMode(quitModeFull)
 	a.stopRuntimeServices()
@@ -328,7 +379,7 @@ func (a *App) ForceQuit() {
 		if err := a.saveCurrentWindowState(a.ctx); err != nil {
 			logger.New("App").Warn("保存窗口尺寸失败", logger.F("error", err.Error()))
 		}
-		runtime.Quit(a.ctx)
+		a.appRuntime().Quit(a.ctx)
 	}
 }
 
@@ -339,7 +390,7 @@ func (a *App) QuitAppOnly() {
 		if err := a.saveCurrentWindowState(a.ctx); err != nil {
 			logger.New("App").Warn("保存窗口尺寸失败", logger.F("error", err.Error()))
 		}
-		runtime.Quit(a.ctx)
+		a.appRuntime().Quit(a.ctx)
 	}
 }
 
@@ -369,13 +420,17 @@ func (a *App) shouldStopRuntimeServicesOnShutdown() bool {
 }
 
 func ShouldBlockClose(a *App, ctx context.Context) bool {
+	if a == nil {
+		return false
+	}
 	if a.forceQuit {
 		return false
 	}
 	if !platformSupportsTrayCloseFlow() {
 		return false
 	}
-	runtime.EventsEmit(ctx, "app:request-close")
+	a.appRuntime().EventsEmit(ctx, "app:request-close")
+	a.emitProtoRuntimeEvent("app:request-close")
 	return true
 }
 
@@ -848,8 +903,7 @@ func (a *App) BrowserCoreDownload(coreName, url, proxyConfig string) error {
 	if a.ctx == nil {
 		return fmt.Errorf("app context is nil")
 	}
-	// 异步启动下载流程，以防阻塞前端请求，通过 Wails events 发送进度
-	go a.browserMgr.DownloadAndExtractCore(a.ctx, coreName, url, proxyConfig)
+	go a.browserMgr.DownloadAndExtractCore(a.ctx, coreName, url, proxyConfig, a.emitCoreDownloadProgressEvent)
 	return nil
 }
 
@@ -1003,7 +1057,7 @@ func (a *App) BrowserProxyBatchTestSpeed(proxyIds []string, concurrency int) []P
 
 				// 实时推送单个结果到前端
 				if a.ctx != nil {
-					runtime.EventsEmit(a.ctx, "proxy:speed:result", result)
+					a.emitProxyTestResultEvent("proxy:speed:result", result)
 				}
 			}
 		}()
@@ -1049,7 +1103,7 @@ func (a *App) BrowserProxyPreviewBatchTestSpeed(items []ProxyPreviewTestInput, c
 				result := ProxyTestResult{ProxyId: r.ProxyId, Ok: r.Ok, LatencyMs: r.LatencyMs, Error: r.Error}
 				results[job.Idx] = result
 				if a.ctx != nil {
-					runtime.EventsEmit(a.ctx, "proxy:preview:speed:result", result)
+					a.emitProxyTestResultEvent("proxy:preview:speed:result", result)
 				}
 			}
 		}()
@@ -1071,7 +1125,7 @@ func (a *App) BrowserProxyCheckIPHealth(proxyId string) ProxyIPHealthResult {
 	result := buildProxyIPHealthResult(proxyId, data, err)
 	a.persistProxyIPHealthResult(result)
 	if a.ctx != nil {
-		runtime.EventsEmit(a.ctx, "proxy:iphealth:result", result)
+		a.emitProxyIPHealthResultEvent("proxy:iphealth:result", result)
 	}
 	return result
 }
@@ -1107,7 +1161,7 @@ func (a *App) BrowserProxyBatchCheckIPHealth(proxyIds []string, concurrency int)
 				a.persistProxyIPHealthResult(result)
 				results[job.Idx] = result
 				if a.ctx != nil {
-					runtime.EventsEmit(a.ctx, "proxy:iphealth:result", result)
+					a.emitProxyIPHealthResultEvent("proxy:iphealth:result", result)
 				}
 			}
 		}()
@@ -1153,7 +1207,7 @@ func (a *App) BrowserProxyPreviewBatchCheckIPHealth(items []ProxyPreviewTestInpu
 				result := buildProxyIPHealthResult(job.ProxyId, data, err)
 				results[job.Idx] = result
 				if a.ctx != nil {
-					runtime.EventsEmit(a.ctx, "proxy:preview:iphealth:result", result)
+					a.emitProxyIPHealthResultEvent("proxy:preview:iphealth:result", result)
 				}
 			}
 		}()

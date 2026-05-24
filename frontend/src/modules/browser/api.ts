@@ -1,141 +1,143 @@
-import type { BrowserProfile, BrowserProfileInput, BrowserTab, BrowserSettings, BrowserCore, BrowserCoreInput, BrowserCoreValidateResult, BrowserProxy, BrowserCoreExtended, BrowserExtension, BrowserExtensionAssignInput, BrowserExtensionAutoBindInput, BrowserExtensionBinding, BrowserExtensionImportInput, BrowserExtensionImportResult, BrowserExtensionUnassignInput, CookieInfo, CookieImportResult, SnapshotInfo, BrowserBookmark, BrowserStartURL, BrowserGroup, BrowserGroupInput, BrowserGroupWithCount, ProxyIPHealthResult, DefaultContentRule, WindowSyncCandidate, WindowSyncLayoutSettings, WindowSyncSettings, WindowSyncStartInput, WindowSyncState } from './types'
-
-const getBindings = async () => {
-  try {
-    return await import('../../wailsjs/go/main/App')
-  } catch {
-    return null
-  }
-}
-
-let mockProfiles: BrowserProfile[] = [
-  {
-    profileId: 'mock-1',
-    profileName: '默认指纹配置',
-    userDataDir: 'data/default',
-    coreId: 'default',
-    fingerprintArgs: ['--fingerprint-brand=Chrome', '--fingerprint-platform=windows'],
-    proxyId: '',
-    proxyConfig: '',
-    launchArgs: ['--disable-features=Translate'],
-    tags: ['默认'],
-    keywords: [],
-    running: false,
-    debugPort: 0,
-    debugReady: false,
-    pid: 0,
-    runtimeWarning: '',
-    lastError: '',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-]
-
-let mockCores: BrowserCore[] = []
-
-let mockProxies: BrowserProxy[] = []
-
-let mockGroups: BrowserGroup[] = []
-
-let mockDefaultContentRules: DefaultContentRule[] = []
-
-let mockExtensions: BrowserExtension[] = []
-let mockExtensionBindings: BrowserExtensionBinding[] = []
+import type { BrowserProfile, BrowserProfileInput, BrowserTab, BrowserSettings, BrowserCore, BrowserCoreInput, BrowserCoreValidateResult, BrowserProxy, BrowserCoreExtended, BrowserExtension, BrowserExtensionAssignInput, BrowserExtensionAutoBindInput, BrowserExtensionBinding, BrowserExtensionImportInput, BrowserExtensionImportResult, BrowserExtensionUnassignInput, CookieInfo, CookieImportResult, SnapshotInfo, BrowserBookmark, BrowserStartURL, BrowserGroup, BrowserGroupInput, BrowserGroupWithCount, ProxyIPHealthResult, DefaultContentRule, WindowSyncActionResult, WindowSyncBatchInputDifferentItem, WindowSyncBatchInputResult, WindowSyncCandidate, WindowSyncLayoutSettings, WindowSyncSettings, WindowSyncStartInput, WindowSyncState } from './types'
+import {
+  applyWindowSyncLayout as applyWindowSyncLayoutProto,
+  batchRemoveBrowserProfileTags as batchRemoveBrowserProfileTagsProto,
+  batchSetBrowserProfileTags as batchSetBrowserProfileTagsProto,
+  checkBrowserProxyBatchIPHealth as checkBrowserProxyBatchIPHealthProto,
+  checkBrowserProxyIPHealth as checkBrowserProxyIPHealthProto,
+  checkBrowserProxyPreviewBatchIPHealth as checkBrowserProxyPreviewBatchIPHealthProto,
+  clearBrowserCookies as clearBrowserCookiesProto,
+  assignBrowserExtensionProfiles as assignBrowserExtensionProfilesProto,
+  chooseBrowserExtensionArchive as chooseBrowserExtensionArchiveProto,
+  chooseBrowserExtensionDirectory as chooseBrowserExtensionDirectoryProto,
+  copyBrowserProfile as copyBrowserProfileProto,
+  createBrowserGroup as createBrowserGroupProto,
+  createBrowserProfile as createBrowserProfileProto,
+  createBrowserSnapshot as createBrowserSnapshotProto,
+  deleteBrowserCore as deleteBrowserCoreProto,
+  deleteBrowserExtension as deleteBrowserExtensionProto,
+  deleteBrowserGroup as deleteBrowserGroupProto,
+  deleteBrowserProfile as deleteBrowserProfileProto,
+  deleteBrowserSnapshot as deleteBrowserSnapshotProto,
+  downloadBrowserCore as downloadBrowserCoreProto,
+  fetchClashImportFromURL as fetchClashImportFromURLProto,
+  getBrowserCoreExtendedInfo as getBrowserCoreExtendedInfoProto,
+  getBrowserSettings as getBrowserSettingsProto,
+  getBrowserProfileCode as getBrowserProfileCodeProto,
+  getLaunchServerInfo as getLaunchServerInfoProto,
+  getWindowSyncLayoutSettings as getWindowSyncLayoutSettingsProto,
+  getWindowSyncSettings as getWindowSyncSettingsProto,
+  getWindowSyncState as getWindowSyncStateProto,
+  exportBrowserCookies as exportBrowserCookiesProto,
+  getBrowserExtension as getBrowserExtensionProto,
+  importBrowserExtensionArchive as importBrowserExtensionArchiveProto,
+  importBrowserExtensionDirectory as importBrowserExtensionDirectoryProto,
+  importBrowserCookies as importBrowserCookiesProto,
+  listBrowserBookmarks as listBrowserBookmarksProto,
+  listBrowserCores as listBrowserCoresProto,
+  listBrowserCookies as listBrowserCookiesProto,
+  listBrowserExtensionBindingsForProfile as listBrowserExtensionBindingsForProfileProto,
+  listBrowserExtensionProfileBindings as listBrowserExtensionProfileBindingsProto,
+  listBrowserExtensions as listBrowserExtensionsProto,
+  listBrowserDefaultContentRules as listBrowserDefaultContentRulesProto,
+  listBrowserDefaultStartURLs as listBrowserDefaultStartURLsProto,
+  listBrowserGroups as listBrowserGroupsProto,
+  listBrowserProxies as listBrowserProxiesProto,
+  listBrowserProxyGroups as listBrowserProxyGroupsProto,
+  listBrowserProfiles as listBrowserProfilesProto,
+  listBrowserSnapshots as listBrowserSnapshotsProto,
+  listBrowserTabs as listBrowserTabsProto,
+  listBrowserTags as listBrowserTagsProto,
+  listWindowSyncCandidates as listWindowSyncCandidatesProto,
+  moveBrowserProfilesToGroup as moveBrowserProfilesToGroupProto,
+  onWindowSyncStateChanged as onWindowSyncStateChangedProto,
+  onBrowserProxyIPHealthResult as onBrowserProxyIPHealthResultProto,
+  onBrowserProxyPreviewIPHealthResult as onBrowserProxyPreviewIPHealthResultProto,
+  onBrowserProxyPreviewSpeedResult as onBrowserProxyPreviewSpeedResultProto,
+  onBrowserProxySpeedResult as onBrowserProxySpeedResultProto,
+  onBrowserCoreDownloadProgress as onBrowserCoreDownloadProgressProto,
+  openBrowserProfileUserDataDir as openBrowserProfileUserDataDirProto,
+  openBrowserCorePath as openBrowserCorePathProto,
+  openBrowserUserDataDir as openBrowserUserDataDirProto,
+  openBrowserURL as openBrowserURLProto,
+  pauseWindowSync as pauseWindowSyncProto,
+  pinCenterBrowserInstance as pinCenterBrowserInstanceProto,
+  regenerateBrowserProfileCode as regenerateBrowserProfileCodeProto,
+  renameBrowserTag as renameBrowserTagProto,
+  resetBrowserBookmarks as resetBrowserBookmarksProto,
+  resetBrowserDefaultStartURLs as resetBrowserDefaultStartURLsProto,
+  resumeWindowSync as resumeWindowSyncProto,
+  resizeWindowSyncToolbar as resizeWindowSyncToolbarProto,
+  restartBrowserInstance as restartBrowserInstanceProto,
+  restoreBrowserSnapshot as restoreBrowserSnapshotProto,
+  saveBrowserBookmarks as saveBrowserBookmarksProto,
+  saveBrowserCore as saveBrowserCoreProto,
+  saveBrowserDefaultContentRules as saveBrowserDefaultContentRulesProto,
+  saveBrowserDefaultStartURLs as saveBrowserDefaultStartURLsProto,
+  saveBrowserSettings as saveBrowserSettingsProto,
+  saveBrowserProxies as saveBrowserProxiesProto,
+  saveWindowSyncLayoutSettings as saveWindowSyncLayoutSettingsProto,
+  saveWindowSyncSettings as saveWindowSyncSettingsProto,
+  scanBrowserCores as scanBrowserCoresProto,
+  setBrowserProfileCode as setBrowserProfileCodeProto,
+  setBrowserProfileKeywords as setBrowserProfileKeywordsProto,
+  setBrowserExtensionAutoBind as setBrowserExtensionAutoBindProto,
+  setDefaultBrowserCore as setDefaultBrowserCoreProto,
+  showAllWindowSyncWindows as showAllWindowSyncWindowsProto,
+  startBrowserInstance as startBrowserInstanceProto,
+  startBrowserInstanceByCode as startBrowserInstanceByCodeProto,
+  startWindowSync as startWindowSyncProto,
+  stopBrowserInstance as stopBrowserInstanceProto,
+  stopWindowSync as stopWindowSyncProto,
+  switchBrowserProfileProxyNow as switchBrowserProfileProxyNowProto,
+  testBrowserProxyBatchSpeed as testBrowserProxyBatchSpeedProto,
+  testBrowserProxyPreviewBatchSpeed as testBrowserProxyPreviewBatchSpeedProto,
+  testBrowserProxySpeed as testBrowserProxySpeedProto,
+  testProxyConnectivity as testProxyConnectivityProto,
+  testProxyRealConnectivity as testProxyRealConnectivityProto,
+  updateBrowserGroup as updateBrowserGroupProto,
+  updateBrowserProfile as updateBrowserProfileProto,
+  unassignBrowserExtensionProfiles as unassignBrowserExtensionProfilesProto,
+  validateBrowserCorePath as validateBrowserCorePathProto,
+  validateProxyConfig as validateProxyConfigProto,
+  windowSyncBatchInputDifferent as windowSyncBatchInputDifferentProto,
+  windowSyncBatchInputSame as windowSyncBatchInputSameProto,
+  windowSyncCloseBlankTabs as windowSyncCloseBlankTabsProto,
+  windowSyncCloseCurrentTab as windowSyncCloseCurrentTabProto,
+  windowSyncCloseOtherTabs as windowSyncCloseOtherTabsProto,
+  windowSyncOpenUrls as windowSyncOpenUrlsProto,
+} from '../../shared/backend/client'
 
 // ============================================================================
 // Profile API
 // ============================================================================
 
 export async function fetchBrowserProfiles(): Promise<BrowserProfile[]> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserProfileList) {
-    return (await bindings.BrowserProfileList()) || []
-  }
-  return mockProfiles
+  return await listBrowserProfilesProto()
 }
 
 export async function fetchBrowserProfilesByTag(tag: string): Promise<BrowserProfile[]> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserProfileListByTag) {
-    return (await bindings.BrowserProfileListByTag(tag)) || []
-  }
-  return mockProfiles.filter(p => p.tags?.includes(tag))
+  return await listBrowserProfilesProto(tag)
 }
 
 export async function fetchAllTags(): Promise<string[]> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserGetAllTags) {
-    return (await bindings.BrowserGetAllTags()) || []
-  }
-  const set = new Set<string>()
-  mockProfiles.forEach(p => p.tags?.forEach(t => set.add(t)))
-  return Array.from(set).sort()
+  return await listBrowserTagsProto()
 }
 
 export async function createBrowserProfile(input: BrowserProfileInput): Promise<BrowserProfile | null> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserProfileCreate) {
-    return (await bindings.BrowserProfileCreate(input)) || null
-  }
-  const profile: BrowserProfile = {
-    profileId: `mock-${Date.now()}`,
-    ...input,
-    keywords: input.keywords || {},
-    running: false,
-    debugPort: 0,
-    debugReady: false,
-    pid: 0,
-    runtimeWarning: '',
-    lastError: '',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  }
-  mockProfiles = [profile, ...mockProfiles]
-  return profile
+  return await createBrowserProfileProto(input)
 }
 
 export async function updateBrowserProfile(profileId: string, input: BrowserProfileInput): Promise<BrowserProfile | null> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserProfileUpdate) {
-    return (await bindings.BrowserProfileUpdate(profileId, input)) || null
-  }
-  const index = mockProfiles.findIndex(item => item.profileId === profileId)
-  if (index === -1) return null
-  mockProfiles[index] = { ...mockProfiles[index], ...input, updatedAt: new Date().toISOString() }
-  return mockProfiles[index]
+  return await updateBrowserProfileProto(profileId, input)
 }
 
 export async function deleteBrowserProfile(profileId: string): Promise<boolean> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserProfileDelete) {
-    await bindings.BrowserProfileDelete(profileId)
-    return true
-  }
-  mockProfiles = mockProfiles.filter(item => item.profileId !== profileId)
-  return true
+  return await deleteBrowserProfileProto(profileId)
 }
 
 export async function copyBrowserProfile(profileId: string, newName: string): Promise<BrowserProfile | null> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserProfileCopy) {
-    return (await bindings.BrowserProfileCopy(profileId, newName)) || null
-  }
-  // mock
-  const src = mockProfiles.find(p => p.profileId === profileId)
-  if (!src) return null
-  const copy: BrowserProfile = {
-    ...src,
-    profileId: `mock-${Date.now()}`,
-    profileName: newName || src.profileName + ' (副本)',
-    userDataDir: `mock-${Date.now()}`,
-    running: false,
-    debugReady: false,
-    runtimeWarning: '',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  }
-  mockProfiles = [copy, ...mockProfiles]
-  return copy
+  return await copyBrowserProfileProto(profileId, newName)
 }
 
 // ============================================================================
@@ -143,95 +145,35 @@ export async function copyBrowserProfile(profileId: string, newName: string): Pr
 // ============================================================================
 
 export async function startBrowserInstance(profileId: string): Promise<BrowserProfile | null> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserInstanceStart) {
-    return (await bindings.BrowserInstanceStart(profileId)) || null
-  }
-  mockProfiles = mockProfiles.map(item =>
-    item.profileId === profileId ? { ...item, running: true, debugPort: 9222, debugReady: true, pid: Math.floor(Math.random() * 100000), runtimeWarning: '', lastStartAt: new Date().toISOString() } : item
-  )
-  return mockProfiles.find(item => item.profileId === profileId) || null
+  return await startBrowserInstanceProto(profileId)
 }
 
 export async function startBrowserInstanceByCode(code: string): Promise<BrowserProfile | null> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserInstanceStartByCode) {
-    return (await bindings.BrowserInstanceStartByCode(code)) || null
-  }
-  const normalized = code.trim().toUpperCase()
-  const profile = mockProfiles.find(item => (item.launchCode || '').toUpperCase() === normalized)
-  if (!profile) {
-    throw new Error('launch code not found')
-  }
-  return await startBrowserInstance(profile.profileId)
+  return await startBrowserInstanceByCodeProto(code)
 }
 
 export async function stopBrowserInstance(profileId: string): Promise<BrowserProfile | null> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserInstanceStop) {
-    return (await bindings.BrowserInstanceStop(profileId)) || null
-  }
-  mockProfiles = mockProfiles.map(item =>
-    item.profileId === profileId ? { ...item, running: false, debugReady: false, debugPort: 0, pid: 0, runtimeWarning: '', lastStopAt: new Date().toISOString() } : item
-  )
-  return mockProfiles.find(item => item.profileId === profileId) || null
+  return await stopBrowserInstanceProto(profileId)
 }
 
 export async function restartBrowserInstance(profileId: string): Promise<BrowserProfile | null> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserInstanceRestart) {
-    return (await bindings.BrowserInstanceRestart(profileId)) || null
-  }
-  await stopBrowserInstance(profileId)
-  return await startBrowserInstance(profileId)
+  return await restartBrowserInstanceProto(profileId)
 }
 
 export async function pinCenterBrowserInstance(profileId: string): Promise<boolean> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserInstancePinCenter) {
-    await bindings.BrowserInstancePinCenter(profileId)
-    return true
-  }
-  const goApp = (window as any).go?.main?.App
-  if (goApp?.BrowserInstancePinCenter) {
-    await goApp.BrowserInstancePinCenter(profileId)
-    return true
-  }
-  return true
+  return await pinCenterBrowserInstanceProto(profileId)
 }
 
 export async function switchBrowserProfileProxyNow(profileId: string): Promise<BrowserProfile | null> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserProfileSwitchProxyNow) {
-    return (await bindings.BrowserProfileSwitchProxyNow(profileId)) || null
-  }
-  const goApp = (window as any).go?.main?.App
-  if (goApp?.BrowserProfileSwitchProxyNow) {
-    return (await goApp.BrowserProfileSwitchProxyNow(profileId)) || null
-  }
-  mockProfiles = mockProfiles.map(item =>
-    item.profileId === profileId ? { ...item, autoProxySwitchLastProxyId: `mock-proxy-${Date.now()}`, updatedAt: new Date().toISOString() } : item
-  )
-  return mockProfiles.find(item => item.profileId === profileId) || null
+  return await switchBrowserProfileProxyNowProto(profileId)
 }
 
 export async function openBrowserUrl(profileId: string, targetUrl: string): Promise<boolean> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserInstanceOpenUrl) {
-    return (await bindings.BrowserInstanceOpenUrl(profileId, targetUrl)) === true
-  }
-  return true
+  return await openBrowserURLProto(profileId, targetUrl)
 }
 
 export async function fetchBrowserTabs(profileId: string): Promise<BrowserTab[]> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserInstanceGetTabs) {
-    return (await bindings.BrowserInstanceGetTabs(profileId)) || []
-  }
-  return [
-    { tabId: 'tab-1', title: '新标签页', url: 'about:blank', active: true },
-    { tabId: 'tab-2', title: '示例站点', url: 'https://example.com', active: false },
-  ]
+  return await listBrowserTabsProto(profileId)
 }
 
 // ============================================================================
@@ -239,70 +181,15 @@ export async function fetchBrowserTabs(profileId: string): Promise<BrowserTab[]>
 // ============================================================================
 
 export async function listWindowSyncCandidates(): Promise<WindowSyncCandidate[]> {
-  const bindings: any = await getBindings()
-  if (bindings?.WindowSyncListCandidates) {
-    return (await bindings.WindowSyncListCandidates()) || []
-  }
-  const goApp = (window as any).go?.main?.App
-  if (goApp?.WindowSyncListCandidates) {
-    return (await goApp.WindowSyncListCandidates()) || []
-  }
-  return mockProfiles
-    .filter(profile => profile.running && profile.debugReady && profile.debugPort > 0)
-    .map(profile => ({
-      profileId: profile.profileId,
-      profileName: profile.profileName,
-      debugPort: profile.debugPort,
-      pid: profile.pid,
-      running: profile.running,
-      debugReady: profile.debugReady,
-      canSync: true,
-      unavailable: '',
-    }))
+  return await listWindowSyncCandidatesProto()
 }
 
 export async function startWindowSync(input: WindowSyncStartInput): Promise<WindowSyncState | null> {
-  const bindings: any = await getBindings()
-  if (bindings?.WindowSyncStart) {
-    return (await bindings.WindowSyncStart(input)) || null
-  }
-  const goApp = (window as any).go?.main?.App
-  if (goApp?.WindowSyncStart) {
-    return (await goApp.WindowSyncStart(input)) || null
-  }
-  const candidates = await listWindowSyncCandidates()
-  const selected = candidates.filter(item => input.profileIds.includes(item.profileId))
-  const now = new Date().toISOString()
-  return {
-    sessionId: `mock-sync-${Date.now()}`,
-    active: true,
-    paused: false,
-    masterProfileId: input.masterProfileId,
-    profileIds: input.profileIds,
-    windows: selected.map(item => ({
-      ...item,
-      role: item.profileId === input.masterProfileId ? 'master' : 'controlled',
-      master: item.profileId === input.masterProfileId,
-    })),
-    masterColor: '#2563eb',
-    syncKeyboard: true,
-    syncMouse: true,
-    layout: defaultWindowSyncLayoutSettings(),
-    startedAt: now,
-    updatedAt: now,
-  }
+  return await startWindowSyncProto(input)
 }
 
 export async function getWindowSyncState(): Promise<WindowSyncState | null> {
-  const bindings: any = await getBindings()
-  if (bindings?.WindowSyncGetState) {
-    return (await bindings.WindowSyncGetState()) || null
-  }
-  const goApp = (window as any).go?.main?.App
-  if (goApp?.WindowSyncGetState) {
-    return (await goApp.WindowSyncGetState()) || null
-  }
-  return null
+  return await getWindowSyncStateProto()
 }
 
 export function defaultWindowSyncSettings(): WindowSyncSettings {
@@ -314,27 +201,11 @@ export function defaultWindowSyncSettings(): WindowSyncSettings {
 }
 
 export async function getWindowSyncSettings(): Promise<WindowSyncSettings> {
-  const bindings: any = await getBindings()
-  if (bindings?.WindowSyncGetSettings) {
-    return (await bindings.WindowSyncGetSettings()) || defaultWindowSyncSettings()
-  }
-  const goApp = (window as any).go?.main?.App
-  if (goApp?.WindowSyncGetSettings) {
-    return (await goApp.WindowSyncGetSettings()) || defaultWindowSyncSettings()
-  }
-  return defaultWindowSyncSettings()
+  return await getWindowSyncSettingsProto()
 }
 
 export async function saveWindowSyncSettings(settings: WindowSyncSettings): Promise<WindowSyncState | null> {
-  const bindings: any = await getBindings()
-  if (bindings?.WindowSyncSaveSettings) {
-    return (await bindings.WindowSyncSaveSettings(settings)) || null
-  }
-  const goApp = (window as any).go?.main?.App
-  if (goApp?.WindowSyncSaveSettings) {
-    return (await goApp.WindowSyncSaveSettings(settings)) || null
-  }
-  return null
+  return await saveWindowSyncSettingsProto(settings)
 }
 
 export function defaultWindowSyncLayoutSettings(): WindowSyncLayoutSettings {
@@ -349,87 +220,63 @@ export function defaultWindowSyncLayoutSettings(): WindowSyncLayoutSettings {
 }
 
 export async function getWindowSyncLayoutSettings(): Promise<WindowSyncLayoutSettings> {
-  const bindings: any = await getBindings()
-  if (bindings?.WindowSyncGetLayoutSettings) {
-    return (await bindings.WindowSyncGetLayoutSettings()) || defaultWindowSyncLayoutSettings()
-  }
-  const goApp = (window as any).go?.main?.App
-  if (goApp?.WindowSyncGetLayoutSettings) {
-    return (await goApp.WindowSyncGetLayoutSettings()) || defaultWindowSyncLayoutSettings()
-  }
-  return defaultWindowSyncLayoutSettings()
+  return await getWindowSyncLayoutSettingsProto()
 }
 
 export async function saveWindowSyncLayoutSettings(settings: WindowSyncLayoutSettings): Promise<WindowSyncLayoutSettings> {
-  const bindings: any = await getBindings()
-  if (bindings?.WindowSyncSaveLayoutSettings) {
-    return (await bindings.WindowSyncSaveLayoutSettings(settings)) || settings
-  }
-  const goApp = (window as any).go?.main?.App
-  if (goApp?.WindowSyncSaveLayoutSettings) {
-    return (await goApp.WindowSyncSaveLayoutSettings(settings)) || settings
-  }
-  return settings
+  return await saveWindowSyncLayoutSettingsProto(settings)
 }
 
 export async function applyWindowSyncLayout(settings: WindowSyncLayoutSettings): Promise<WindowSyncState | null> {
-  const bindings: any = await getBindings()
-  if (bindings?.WindowSyncApplyLayout) {
-    return (await bindings.WindowSyncApplyLayout(settings)) || null
-  }
-  const goApp = (window as any).go?.main?.App
-  if (goApp?.WindowSyncApplyLayout) {
-    return (await goApp.WindowSyncApplyLayout(settings)) || null
-  }
-  return null
+  return await applyWindowSyncLayoutProto(settings)
 }
 
 export async function pauseWindowSync(): Promise<WindowSyncState | null> {
-  const bindings: any = await getBindings()
-  if (bindings?.WindowSyncPause) {
-    return (await bindings.WindowSyncPause()) || null
-  }
-  const goApp = (window as any).go?.main?.App
-  if (goApp?.WindowSyncPause) {
-    return (await goApp.WindowSyncPause()) || null
-  }
-  return null
+  return await pauseWindowSyncProto()
 }
 
 export async function resumeWindowSync(): Promise<WindowSyncState | null> {
-  const bindings: any = await getBindings()
-  if (bindings?.WindowSyncResume) {
-    return (await bindings.WindowSyncResume()) || null
-  }
-  const goApp = (window as any).go?.main?.App
-  if (goApp?.WindowSyncResume) {
-    return (await goApp.WindowSyncResume()) || null
-  }
-  return null
+  return await resumeWindowSyncProto()
 }
 
 export async function showAllWindowSyncWindows(): Promise<WindowSyncState | null> {
-  const bindings: any = await getBindings()
-  if (bindings?.WindowSyncShowAll) {
-    return (await bindings.WindowSyncShowAll()) || null
-  }
-  const goApp = (window as any).go?.main?.App
-  if (goApp?.WindowSyncShowAll) {
-    return (await goApp.WindowSyncShowAll()) || null
-  }
-  return null
+  return await showAllWindowSyncWindowsProto()
 }
 
 export async function stopWindowSync(): Promise<WindowSyncState | null> {
-  const bindings: any = await getBindings()
-  if (bindings?.WindowSyncStop) {
-    return (await bindings.WindowSyncStop()) || null
-  }
-  const goApp = (window as any).go?.main?.App
-  if (goApp?.WindowSyncStop) {
-    return (await goApp.WindowSyncStop()) || null
-  }
-  return null
+  return await stopWindowSyncProto()
+}
+
+export async function windowSyncBatchInputSame(text: string): Promise<WindowSyncBatchInputResult> {
+  return await windowSyncBatchInputSameProto(text)
+}
+
+export async function windowSyncBatchInputDifferent(items: WindowSyncBatchInputDifferentItem[]): Promise<WindowSyncBatchInputResult> {
+  return await windowSyncBatchInputDifferentProto(items)
+}
+
+export async function windowSyncCloseOtherTabs(): Promise<WindowSyncActionResult> {
+  return await windowSyncCloseOtherTabsProto()
+}
+
+export async function windowSyncCloseCurrentTab(): Promise<WindowSyncActionResult> {
+  return await windowSyncCloseCurrentTabProto()
+}
+
+export async function windowSyncCloseBlankTabs(): Promise<WindowSyncActionResult> {
+  return await windowSyncCloseBlankTabsProto()
+}
+
+export async function windowSyncOpenUrls(urls: string[]): Promise<WindowSyncActionResult> {
+  return await windowSyncOpenUrlsProto(urls)
+}
+
+export async function resizeWindowSyncToolbar(width: number, height: number): Promise<boolean> {
+  return await resizeWindowSyncToolbarProto(width, height)
+}
+
+export function onWindowSyncStateChanged(callback: (state: WindowSyncState | null) => void): () => void {
+  return onWindowSyncStateChangedProto(callback)
 }
 
 // ============================================================================
@@ -437,20 +284,11 @@ export async function stopWindowSync(): Promise<WindowSyncState | null> {
 // ============================================================================
 
 export async function fetchBrowserSettings(): Promise<BrowserSettings> {
-  const bindings: any = await getBindings()
-  if (bindings?.GetBrowserSettings) {
-    return (await bindings.GetBrowserSettings()) || { userDataRoot: 'data', defaultFingerprintArgs: [], defaultLaunchArgs: [], defaultProxy: '', startReadyTimeoutMs: 3000, startStableWindowMs: 1200 }
-  }
-  return { userDataRoot: 'data', defaultFingerprintArgs: [], defaultLaunchArgs: [], defaultProxy: '', startReadyTimeoutMs: 3000, startStableWindowMs: 1200 }
+  return await getBrowserSettingsProto()
 }
 
 export async function saveBrowserSettings(settings: BrowserSettings): Promise<boolean> {
-  const bindings: any = await getBindings()
-  if (bindings?.SaveBrowserSettings) {
-    await bindings.SaveBrowserSettings(settings)
-    return true
-  }
-  return true
+  return await saveBrowserSettingsProto(settings)
 }
 
 // ============================================================================
@@ -458,79 +296,39 @@ export async function saveBrowserSettings(settings: BrowserSettings): Promise<bo
 // ============================================================================
 
 export async function fetchBrowserCores(): Promise<BrowserCore[]> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserCoreList) {
-    return (await bindings.BrowserCoreList()) || []
-  }
-  return mockCores
+  return await listBrowserCoresProto()
 }
 
 export async function saveBrowserCore(input: BrowserCoreInput): Promise<boolean> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserCoreSave) {
-    await bindings.BrowserCoreSave(input)
-    return true
-  }
-  const index = mockCores.findIndex(c => c.coreId === input.coreId)
-  if (index >= 0) {
-    mockCores[index] = input
-  } else {
-    mockCores.push({ ...input, coreId: input.coreId || `core-${Date.now()}` })
-  }
-  return true
+  return await saveBrowserCoreProto(input)
 }
 
 export async function deleteBrowserCore(coreId: string): Promise<boolean> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserCoreDelete) {
-    await bindings.BrowserCoreDelete(coreId)
-    return true
-  }
-  mockCores = mockCores.filter(c => c.coreId !== coreId)
-  return true
+  return await deleteBrowserCoreProto(coreId)
 }
 
 export async function setDefaultBrowserCore(coreId: string): Promise<boolean> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserCoreSetDefault) {
-    await bindings.BrowserCoreSetDefault(coreId)
-    return true
-  }
-  mockCores = mockCores.map(c => ({ ...c, isDefault: c.coreId === coreId }))
-  return true
+  return await setDefaultBrowserCoreProto(coreId)
 }
 
 export async function validateBrowserCorePath(corePath: string): Promise<BrowserCoreValidateResult> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserCoreValidate) {
-    return (await bindings.BrowserCoreValidate(corePath)) || { valid: false, message: '验证失败' }
-  }
-  return { valid: true, message: '路径有效（模拟）' }
+  return await validateBrowserCorePathProto(corePath)
 }
 
 export async function fetchCoreExtendedInfo(): Promise<BrowserCoreExtended[]> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserCoreExtendedInfo) {
-    return (await bindings.BrowserCoreExtendedInfo()) || []
-  }
-  return []
+  return await getBrowserCoreExtendedInfoProto()
 }
 
 export async function scanBrowserCores(): Promise<BrowserCore[]> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserCoreScan) {
-    return (await bindings.BrowserCoreScan()) || []
-  }
-  return mockCores
+  return await scanBrowserCoresProto()
 }
 
 export async function BrowserCoreDownload(coreName: string, url: string, proxyConfig?: string): Promise<boolean> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserCoreDownload) {
-    await bindings.BrowserCoreDownload(coreName, url, proxyConfig || '')
-    return true
-  }
-  return true
+  return await downloadBrowserCoreProto(coreName, url, proxyConfig || '')
+}
+
+export function onBrowserCoreDownloadProgress(callback: (progress: { phase: string; progress: number; message: string }) => void): () => void {
+  return onBrowserCoreDownloadProgressProto(callback)
 }
 
 // ============================================================================
@@ -538,135 +336,51 @@ export async function BrowserCoreDownload(coreName: string, url: string, proxyCo
 // ============================================================================
 
 export async function fetchBrowserExtensions(): Promise<BrowserExtension[]> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserExtensionList) {
-    return (await bindings.BrowserExtensionList()) || []
-  }
-  return mockExtensions
+  return await listBrowserExtensionsProto()
 }
 
 export async function fetchBrowserExtension(extensionId: string): Promise<BrowserExtension | null> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserExtensionGet) {
-    return (await bindings.BrowserExtensionGet(extensionId)) || null
-  }
-  return mockExtensions.find(item => item.extensionId === extensionId) || null
+  return await getBrowserExtensionProto(extensionId)
 }
 
 export async function deleteBrowserExtension(extensionId: string): Promise<boolean> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserExtensionDelete) {
-    await bindings.BrowserExtensionDelete(extensionId)
-    return true
-  }
-  const extension = mockExtensions.find(item => item.extensionId === extensionId)
-  if (extension && extension.boundCount > 0) {
-    throw new Error(`扩展插件已绑定 ${extension.boundCount} 个实例，不能删除`)
-  }
-  mockExtensions = mockExtensions.filter(item => item.extensionId !== extensionId)
-  return true
+  return await deleteBrowserExtensionProto(extensionId)
 }
 
 export async function chooseBrowserExtensionArchive(): Promise<{ cancelled: boolean; path: string }> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserExtensionChooseArchive) {
-    return (await bindings.BrowserExtensionChooseArchive()) || { cancelled: true, path: '' }
-  }
-  return { cancelled: true, path: '' }
+  return await chooseBrowserExtensionArchiveProto()
 }
 
 export async function chooseBrowserExtensionDirectory(): Promise<{ cancelled: boolean; path: string }> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserExtensionChooseDirectory) {
-    return (await bindings.BrowserExtensionChooseDirectory()) || { cancelled: true, path: '' }
-  }
-  return { cancelled: true, path: '' }
+  return await chooseBrowserExtensionDirectoryProto()
 }
 
 export async function importBrowserExtensionArchive(input: BrowserExtensionImportInput): Promise<BrowserExtensionImportResult> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserExtensionImportArchive) {
-    return (await bindings.BrowserExtensionImportArchive(input)) || { cancelled: false, duplicate: false, message: '' }
-  }
-  return { cancelled: true, duplicate: false, message: '当前运行环境不支持导入扩展压缩包' }
+  return await importBrowserExtensionArchiveProto(input)
 }
 
 export async function importBrowserExtensionDirectory(input: BrowserExtensionImportInput): Promise<BrowserExtensionImportResult> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserExtensionImportDirectory) {
-    return (await bindings.BrowserExtensionImportDirectory(input)) || { cancelled: false, duplicate: false, message: '' }
-  }
-  return { cancelled: true, duplicate: false, message: '当前运行环境不支持导入扩展目录' }
+  return await importBrowserExtensionDirectoryProto(input)
 }
 
 export async function fetchBrowserExtensionProfileBindings(extensionId: string): Promise<BrowserExtensionBinding[]> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserExtensionListProfileBindings) {
-    return (await bindings.BrowserExtensionListProfileBindings(extensionId)) || []
-  }
-  return mockExtensionBindings.filter(item => item.extensionId === extensionId)
+  return await listBrowserExtensionProfileBindingsProto(extensionId)
 }
 
 export async function fetchBrowserExtensionBindingsForProfile(profileId: string): Promise<BrowserExtensionBinding[]> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserExtensionListForProfile) {
-    return (await bindings.BrowserExtensionListForProfile(profileId)) || []
-  }
-  return mockExtensionBindings.filter(item => item.profileId === profileId)
+  return await listBrowserExtensionBindingsForProfileProto(profileId)
 }
 
 export async function assignBrowserExtensionProfiles(input: BrowserExtensionAssignInput): Promise<BrowserExtensionBinding[]> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserExtensionAssignProfiles) {
-    return (await bindings.BrowserExtensionAssignProfiles(input)) || []
-  }
-  const now = new Date().toISOString()
-  input.profileIds.forEach(profileId => {
-    const profile = mockProfiles.find(item => item.profileId === profileId)
-    const extension = mockExtensions.find(item => item.extensionId === input.extensionId)
-    mockExtensionBindings = mockExtensionBindings.filter(item => !(item.profileId === profileId && item.extensionId === input.extensionId))
-    mockExtensionBindings.push({
-      id: Date.now() + Math.floor(Math.random() * 10000),
-      profileId,
-      profileName: profile?.profileName || profileId,
-      extensionId: input.extensionId,
-      extensionName: extension?.name || input.extensionId,
-      extensionVersion: extension?.version || '',
-      mode: input.mode || 'shared',
-      enabled: input.enabled,
-      exclusiveDir: input.mode === 'exclusive' ? `data/extensions/exclusive/${profileId}/${input.extensionId}` : '',
-      createdAt: now,
-      updatedAt: now,
-    })
-  })
-  return mockExtensionBindings.filter(item => item.extensionId === input.extensionId)
+  return await assignBrowserExtensionProfilesProto(input)
 }
 
 export async function setBrowserExtensionAutoBind(input: BrowserExtensionAutoBindInput): Promise<BrowserExtension | null> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserExtensionSetAutoBind) {
-    return (await bindings.BrowserExtensionSetAutoBind(input)) || null
-  }
-  const mode = input.mode || 'shared'
-  mockExtensions = mockExtensions.map(item => item.extensionId === input.extensionId ? { ...item, autoBindEnabled: input.enabled, autoBindMode: mode } : item)
-  if (input.enabled) {
-    await assignBrowserExtensionProfiles({
-      extensionId: input.extensionId,
-      profileIds: mockProfiles.map(item => item.profileId),
-      mode,
-      enabled: true,
-    })
-  }
-  return mockExtensions.find(item => item.extensionId === input.extensionId) || null
+  return await setBrowserExtensionAutoBindProto(input)
 }
 
 export async function unassignBrowserExtensionProfiles(input: BrowserExtensionUnassignInput): Promise<BrowserExtensionBinding[]> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserExtensionUnassignProfiles) {
-    return (await bindings.BrowserExtensionUnassignProfiles(input)) || []
-  }
-  mockExtensionBindings = mockExtensionBindings.filter(item => !(item.extensionId === input.extensionId && input.profileIds.includes(item.profileId)))
-  return mockExtensionBindings.filter(item => item.extensionId === input.extensionId)
+  return await unassignBrowserExtensionProfilesProto(input)
 }
 
 // ============================================================================
@@ -674,27 +388,15 @@ export async function unassignBrowserExtensionProfiles(input: BrowserExtensionUn
 // ============================================================================
 
 export async function fetchBrowserProxies(): Promise<BrowserProxy[]> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserProxyList) {
-    return (await bindings.BrowserProxyList()) || []
-  }
-  return mockProxies
+  return await listBrowserProxiesProto()
 }
 
 export async function fetchBrowserProxyGroups(): Promise<string[]> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserProxyListGroups) {
-    return (await bindings.BrowserProxyListGroups()) || []
-  }
-  return []
+  return await listBrowserProxyGroupsProto()
 }
 
 export async function fetchBrowserProxiesByGroup(groupName: string): Promise<BrowserProxy[]> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserProxyListByGroup) {
-    return (await bindings.BrowserProxyListByGroup(groupName)) || []
-  }
-  return mockProxies.filter(p => p.groupName === groupName)
+  return await listBrowserProxiesProto(groupName)
 }
 
 export interface ClashImportURLResult {
@@ -706,216 +408,75 @@ export interface ClashImportURLResult {
 }
 
 export async function fetchClashImportFromURL(targetURL: string): Promise<ClashImportURLResult> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserProxyFetchClashByURL) {
-    return (await bindings.BrowserProxyFetchClashByURL(targetURL)) || {
-      url: targetURL,
-      content: '',
-      proxyCount: 0,
-    }
-  }
-
-  // 兜底：wailsjs 尚未刷新时，直接通过 window.go 调用后端绑定
-  const goApp = (window as any).go?.main?.App
-  if (goApp?.BrowserProxyFetchClashByURL) {
-    return (await goApp.BrowserProxyFetchClashByURL(targetURL)) || {
-      url: targetURL,
-      content: '',
-      proxyCount: 0,
-    }
-  }
-
-  throw new Error('当前环境不支持 URL 导入 Clash 配置')
+  return await fetchClashImportFromURLProto(targetURL)
 }
 
 export async function saveBrowserProxies(proxies: BrowserProxy[]): Promise<boolean> {
-  const bindings: any = await getBindings()
-  if (bindings?.SaveBrowserProxies) {
-    await bindings.SaveBrowserProxies(proxies)
-    return true
-  }
-  mockProxies = proxies
-  return true
+  return await saveBrowserProxiesProto(proxies)
 }
 
 export async function validateProxyConfig(proxyConfig: string, proxyId: string): Promise<{ supported: boolean; errorMsg: string }> {
-  const bindings: any = await getBindings()
-  if (bindings?.ValidateProxyConfig) {
-    return (await bindings.ValidateProxyConfig(proxyConfig, proxyId)) || { supported: true, errorMsg: '' }
-  }
-  return { supported: true, errorMsg: '' }
+  return await validateProxyConfigProto(proxyConfig, proxyId)
 }
 
 export async function testProxyConnectivity(proxyId: string, proxyConfig: string): Promise<{ proxyId: string; ok: boolean; latencyMs: number; error: string }> {
-  const bindings: any = await getBindings()
-  if (bindings?.TestProxyConnectivity) {
-    return (await bindings.TestProxyConnectivity(proxyId, proxyConfig)) || { proxyId, ok: false, latencyMs: 0, error: '调用失败' }
-  }
-  // mock: simulate latency
-  await new Promise(r => setTimeout(r, 300 + Math.random() * 500))
-  return { proxyId, ok: true, latencyMs: Math.floor(100 + Math.random() * 200), error: '' }
+  return await testProxyConnectivityProto(proxyId, proxyConfig)
 }
 
 export async function testProxyRealConnectivity(proxyId: string): Promise<{ proxyId: string; ok: boolean; latencyMs: number; error: string }> {
-  const bindings: any = await getBindings()
-  if (bindings?.TestProxyRealConnectivity) {
-    return (await bindings.TestProxyRealConnectivity(proxyId)) || { proxyId, ok: false, latencyMs: 0, error: '调用失败' }
-  }
-  // mock: simulate latency 300-800ms
-  await new Promise(r => setTimeout(r, 300 + Math.random() * 500))
-  return { proxyId, ok: true, latencyMs: Math.floor(100 + Math.random() * 400), error: '' }
+  return await testProxyRealConnectivityProto(proxyId)
 }
 
 export async function browserProxyTestSpeed(proxyId: string): Promise<{ proxyId: string; ok: boolean; latencyMs: number; error: string }> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserProxyTestSpeed) {
-    return (await bindings.BrowserProxyTestSpeed(proxyId)) || { proxyId, ok: false, latencyMs: 0, error: '调用失败' }
-  }
-  await new Promise(r => setTimeout(r, 300 + Math.random() * 500))
-  return { proxyId, ok: true, latencyMs: Math.floor(100 + Math.random() * 400), error: '' }
+  return await testBrowserProxySpeedProto(proxyId)
 }
 
 export async function browserProxyBatchTestSpeed(proxyIds: string[], concurrency: number = 20): Promise<{ proxyId: string; ok: boolean; latencyMs: number; error: string }[]> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserProxyBatchTestSpeed) {
-    return (await bindings.BrowserProxyBatchTestSpeed(proxyIds, concurrency)) || []
-  }
-  // mock
-  await new Promise(r => setTimeout(r, 1000))
-  return proxyIds.map(id => ({ proxyId: id, ok: true, latencyMs: Math.floor(100 + Math.random() * 400), error: '' }))
+  return await testBrowserProxyBatchSpeedProto(proxyIds, concurrency)
 }
 
 export async function browserProxyPreviewBatchTestSpeed(items: { proxyId: string; proxyConfig: string }[], concurrency: number = 20): Promise<{ proxyId: string; ok: boolean; latencyMs: number; error: string }[]> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserProxyPreviewBatchTestSpeed) {
-    return (await bindings.BrowserProxyPreviewBatchTestSpeed(items, concurrency)) || []
-  }
-  await new Promise(r => setTimeout(r, 1000))
-  return items.map(item => ({ proxyId: item.proxyId, ok: true, latencyMs: Math.floor(100 + Math.random() * 400), error: '' }))
+  return await testBrowserProxyPreviewBatchSpeedProto(items, concurrency)
 }
 
 export async function browserProxyCheckIPHealth(proxyId: string): Promise<ProxyIPHealthResult> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserProxyCheckIPHealth) {
-    return (await bindings.BrowserProxyCheckIPHealth(proxyId)) || {
-      proxyId,
-      ok: false,
-      source: 'ippure',
-      error: '调用失败',
-      ip: '',
-      fraudScore: 0,
-      isResidential: false,
-      isBroadcast: false,
-      country: '',
-      region: '',
-      city: '',
-      asOrganization: '',
-      rawData: {},
-      updatedAt: new Date().toISOString(),
-    }
-  }
-  await new Promise(r => setTimeout(r, 600))
-  return {
-    proxyId,
-    ok: true,
-    source: 'ippure',
-    error: '',
-    ip: '127.0.0.1',
-    fraudScore: Math.floor(Math.random() * 100),
-    isResidential: Math.random() > 0.5,
-    isBroadcast: false,
-    country: 'Mock',
-    region: 'Mock',
-    city: 'Mock',
-    asOrganization: 'Mock ISP',
-    rawData: {},
-    updatedAt: new Date().toISOString(),
-  }
+  return await checkBrowserProxyIPHealthProto(proxyId)
 }
 
 export async function browserProxyBatchCheckIPHealth(proxyIds: string[], concurrency: number = 10): Promise<ProxyIPHealthResult[]> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserProxyBatchCheckIPHealth) {
-    return (await bindings.BrowserProxyBatchCheckIPHealth(proxyIds, concurrency)) || []
-  }
-  await new Promise(r => setTimeout(r, 1200))
-  return proxyIds.map(proxyId => ({
-    proxyId,
-    ok: true,
-    source: 'ippure',
-    error: '',
-    ip: '127.0.0.1',
-    fraudScore: Math.floor(Math.random() * 100),
-    isResidential: Math.random() > 0.5,
-    isBroadcast: false,
-    country: 'Mock',
-    region: 'Mock',
-    city: 'Mock',
-    asOrganization: 'Mock ISP',
-    rawData: {},
-    updatedAt: new Date().toISOString(),
-  }))
+  return await checkBrowserProxyBatchIPHealthProto(proxyIds, concurrency)
 }
 
 export async function browserProxyPreviewBatchCheckIPHealth(items: { proxyId: string; proxyConfig: string }[], concurrency: number = 10): Promise<ProxyIPHealthResult[]> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserProxyPreviewBatchCheckIPHealth) {
-    return (await bindings.BrowserProxyPreviewBatchCheckIPHealth(items, concurrency)) || []
-  }
-  await new Promise(r => setTimeout(r, 1200))
-  return items.map(item => ({
-    proxyId: item.proxyId,
-    ok: true,
-    source: 'ippure',
-    error: '',
-    ip: '127.0.0.1',
-    fraudScore: Math.floor(Math.random() * 100),
-    isResidential: Math.random() > 0.5,
-    isBroadcast: false,
-    country: 'Mock',
-    region: 'Mock',
-    city: 'Mock',
-    asOrganization: 'Mock ISP',
-    rawData: {},
-    updatedAt: new Date().toISOString(),
-  }))
+  return await checkBrowserProxyPreviewBatchIPHealthProto(items, concurrency)
+}
+
+export function onBrowserProxySpeedResult(callback: (result: { proxyId: string; ok: boolean; latencyMs: number; error: string }) => void): () => void {
+  return onBrowserProxySpeedResultProto(callback)
+}
+
+export function onBrowserProxyIPHealthResult(callback: (result: ProxyIPHealthResult) => void): () => void {
+  return onBrowserProxyIPHealthResultProto(callback)
+}
+
+export function onBrowserProxyPreviewSpeedResult(callback: (result: { proxyId: string; ok: boolean; latencyMs: number; error: string }) => void): () => void {
+  return onBrowserProxyPreviewSpeedResultProto(callback)
+}
+
+export function onBrowserProxyPreviewIPHealthResult(callback: (result: ProxyIPHealthResult) => void): () => void {
+  return onBrowserProxyPreviewIPHealthResultProto(callback)
 }
 
 export async function openUserDataDir(userDataDir: string): Promise<boolean> {
-  const bindings: any = await getBindings()
-  if (bindings?.OpenUserDataDir) {
-    await bindings.OpenUserDataDir(userDataDir)
-    return true
-  }
-  const goApp = (window as any).go?.main?.App
-  if (goApp?.OpenUserDataDir) {
-    await goApp.OpenUserDataDir(userDataDir)
-    return true
-  }
-  return false
+  return await openBrowserUserDataDirProto(userDataDir)
 }
 
 export async function openProfileUserDataDir(profileId: string): Promise<boolean> {
-  const bindings: any = await getBindings()
-  if (bindings?.OpenProfileUserDataDir) {
-    await bindings.OpenProfileUserDataDir(profileId)
-    return true
-  }
-  const goApp = (window as any).go?.main?.App
-  if (goApp?.OpenProfileUserDataDir) {
-    await goApp.OpenProfileUserDataDir(profileId)
-    return true
-  }
-  return false
+  return await openBrowserProfileUserDataDirProto(profileId)
 }
 
 export async function openCorePath(corePath: string): Promise<boolean> {
-  const bindings: any = await getBindings()
-  if (bindings?.OpenCorePath) {
-    await bindings.OpenCorePath(corePath)
-    return true
-  }
-  return false
+  return await openBrowserCorePathProto(corePath)
 }
 
 // ============================================================================
@@ -923,40 +484,19 @@ export async function openCorePath(corePath: string): Promise<boolean> {
 // ============================================================================
 
 export async function fetchBrowserCookies(profileId: string): Promise<CookieInfo[]> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserGetCookies) {
-    return (await bindings.BrowserGetCookies(profileId)) || []
-  }
-  // mock data
-  return [
-    { name: 'session', value: 'abc123', domain: '.example.com', path: '/', expires: Date.now() / 1000 + 3600, httpOnly: true, secure: true, sameSite: 'Lax' },
-    { name: 'pref', value: 'dark', domain: 'example.com', path: '/', expires: -1, httpOnly: false, secure: false, sameSite: 'None' },
-  ]
+  return await listBrowserCookiesProto(profileId)
 }
 
 export async function clearBrowserCookies(profileId: string): Promise<boolean> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserClearCookies) {
-    await bindings.BrowserClearCookies(profileId)
-    return true
-  }
-  return true
+  return await clearBrowserCookiesProto(profileId)
 }
 
 export async function exportBrowserCookies(profileId: string): Promise<string> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserExportCookies) {
-    return (await bindings.BrowserExportCookies(profileId)) || ''
-  }
-  return '# Netscape HTTP Cookie File\n# Generated by BrowserManager\n\n.example.com\tTRUE\t/\tTRUE\t0\tsession\tabc123\n'
+  return await exportBrowserCookiesProto(profileId)
 }
 
 export async function importBrowserCookies(profileId: string, content: string): Promise<CookieImportResult> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserImportCookies) {
-    return (await bindings.BrowserImportCookies(profileId, content)) || { imported: 0, skipped: 0 }
-  }
-  return { imported: 0, skipped: 0 }
+  return await importBrowserCookiesProto(profileId, content)
 }
 
 // ============================================================================
@@ -964,44 +504,19 @@ export async function importBrowserCookies(profileId: string, content: string): 
 // ============================================================================
 
 export async function listSnapshots(profileId: string): Promise<SnapshotInfo[]> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserSnapshotList) {
-    return (await bindings.BrowserSnapshotList(profileId)) || []
-  }
-  return []
+  return await listBrowserSnapshotsProto(profileId)
 }
 
 export async function createSnapshot(profileId: string, name: string): Promise<SnapshotInfo | null> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserSnapshotCreate) {
-    return (await bindings.BrowserSnapshotCreate(profileId, name)) || null
-  }
-  // mock
-  return {
-    snapshotId: `snap-${Date.now()}`,
-    profileId,
-    name,
-    sizeMB: 12.5,
-    createdAt: new Date().toISOString(),
-  }
+  return await createBrowserSnapshotProto(profileId, name)
 }
 
 export async function restoreSnapshot(profileId: string, snapshotId: string): Promise<boolean> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserSnapshotRestore) {
-    await bindings.BrowserSnapshotRestore(profileId, snapshotId)
-    return true
-  }
-  return true
+  return await restoreBrowserSnapshotProto(profileId, snapshotId)
 }
 
 export async function deleteSnapshot(profileId: string, snapshotId: string): Promise<boolean> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserSnapshotDelete) {
-    await bindings.BrowserSnapshotDelete(profileId, snapshotId)
-    return true
-  }
-  return true
+  return await deleteBrowserSnapshotProto(profileId, snapshotId)
 }
 
 // ============================================================================
@@ -1009,35 +524,15 @@ export async function deleteSnapshot(profileId: string, snapshotId: string): Pro
 // ============================================================================
 
 export async function fetchBookmarks(): Promise<BrowserBookmark[]> {
-  const bindings: any = await getBindings()
-  if (bindings?.BookmarkList) {
-    return (await bindings.BookmarkList()) || []
-  }
-  return [
-    { name: 'Google', url: 'https://www.google.com/' },
-    { name: 'Gmail', url: 'https://mail.google.com/' },
-    { name: 'Claude', url: 'https://claude.ai/' },
-    { name: 'ChatGPT', url: 'https://chatgpt.com/' },
-    { name: 'YouTube', url: 'https://www.youtube.com/' },
-  ]
+  return await listBrowserBookmarksProto()
 }
 
 export async function saveBookmarks(items: BrowserBookmark[]): Promise<boolean> {
-  const bindings: any = await getBindings()
-  if (bindings?.BookmarkSave) {
-    await bindings.BookmarkSave(items)
-    return true
-  }
-  return true
+  return await saveBrowserBookmarksProto(items)
 }
 
 export async function resetBookmarks(): Promise<boolean> {
-  const bindings: any = await getBindings()
-  if (bindings?.BookmarkReset) {
-    await bindings.BookmarkReset()
-    return true
-  }
-  return true
+  return await resetBrowserBookmarksProto()
 }
 
 // ============================================================================
@@ -1045,14 +540,7 @@ export async function resetBookmarks(): Promise<boolean> {
 // ============================================================================
 
 export async function setProfileKeywords(profileId: string, keywords: string[]): Promise<BrowserProfile | null> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserProfileSetKeywords) {
-    return (await bindings.BrowserProfileSetKeywords(profileId, keywords)) || null
-  }
-  mockProfiles = mockProfiles.map(p =>
-    p.profileId === profileId ? { ...p, keywords, updatedAt: new Date().toISOString() } : p
-  )
-  return mockProfiles.find(p => p.profileId === profileId) || null
+  return await setBrowserProfileKeywordsProto(profileId, keywords)
 }
 
 // ============================================================================
@@ -1105,83 +593,32 @@ function normalizeLaunchServerInfo(payload: any): LaunchServerInfo {
 }
 
 export async function fetchLaunchServerInfo(): Promise<LaunchServerInfo> {
-  const bindings: any = await getBindings()
-  if (bindings?.GetLaunchServerInfo) {
-    return normalizeLaunchServerInfo(await bindings.GetLaunchServerInfo())
-  }
-
-  const goApp = (window as any).go?.main?.App
-  if (goApp?.GetLaunchServerInfo) {
-    return normalizeLaunchServerInfo(await goApp.GetLaunchServerInfo())
-  }
-
-  return {
-    host: '127.0.0.1',
-    port: 19876,
-    preferredPort: 19876,
-    baseUrl: 'http://127.0.0.1:19876',
-    cdpUrl: 'http://127.0.0.1:19876',
-    activeDebugPort: 0,
-    ready: false,
-    apiAuth: {
-      requested: false,
-      configured: false,
-      enabled: false,
-      header: 'X-Ant-Api-Key',
-    },
-  }
+  return normalizeLaunchServerInfo(await getLaunchServerInfoProto())
 }
 
 export async function getBrowserProfileCode(profileId: string): Promise<string> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserProfileGetCode) {
-    return (await bindings.BrowserProfileGetCode(profileId)) || ''
-  }
-  return ''
+  return await getBrowserProfileCodeProto(profileId)
 }
 
 export async function regenerateBrowserProfileCode(profileId: string): Promise<string> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserProfileRegenerateCode) {
-    return (await bindings.BrowserProfileRegenerateCode(profileId)) || ''
-  }
-  return ''
+  return await regenerateBrowserProfileCodeProto(profileId)
 }
 
 export async function setBrowserProfileCode(profileId: string, code: string): Promise<string> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserProfileSetCode) {
-    return (await bindings.BrowserProfileSetCode(profileId, code)) || ''
-  }
-  return code.trim().toUpperCase()
+  return await setBrowserProfileCodeProto(profileId, code)
 }
 
 
 export async function batchSetProfileTags(profileIds: string[], tags: string[], replace: boolean): Promise<boolean> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserProfileBatchSetTags) {
-    await bindings.BrowserProfileBatchSetTags(profileIds, tags, replace)
-    return true
-  }
-  return true
+  return await batchSetBrowserProfileTagsProto(profileIds, tags, replace)
 }
 
 export async function batchRemoveProfileTags(profileIds: string[], tags: string[]): Promise<boolean> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserProfileBatchRemoveTags) {
-    await bindings.BrowserProfileBatchRemoveTags(profileIds, tags)
-    return true
-  }
-  return true
+  return await batchRemoveBrowserProfileTagsProto(profileIds, tags)
 }
 
 export async function renameBrowserTag(oldName: string, newName: string): Promise<boolean> {
-  const bindings: any = await getBindings()
-  if (bindings?.BrowserRenameTag) {
-    await bindings.BrowserRenameTag(oldName, newName)
-    return true
-  }
-  return true
+  return await renameBrowserTagProto(oldName, newName)
 }
 
 // ============================================================================
@@ -1189,155 +626,41 @@ export async function renameBrowserTag(oldName: string, newName: string): Promis
 // ============================================================================
 
 export async function fetchGroups(): Promise<BrowserGroupWithCount[]> {
-  const bindings: any = await getBindings()
-  if (bindings?.ListGroups) {
-    return (await bindings.ListGroups()) || []
-  }
-  return mockGroups.map(group => ({
-    ...group,
-    instanceCount: mockProfiles.filter(profile => profile.groupId === group.groupId).length,
-  }))
+  return await listBrowserGroupsProto()
 }
 
 export async function fetchDefaultContentRules(): Promise<DefaultContentRule[]> {
-  const bindings: any = await getBindings()
-  if (bindings?.DefaultContentRuleList) {
-    return (await bindings.DefaultContentRuleList()) || []
-  }
-  return mockDefaultContentRules
+  return await listBrowserDefaultContentRulesProto()
 }
 
 export async function saveDefaultContentRules(items: DefaultContentRule[]): Promise<boolean> {
-  const bindings: any = await getBindings()
-  if (bindings?.DefaultContentRuleSave) {
-    await bindings.DefaultContentRuleSave(items)
-    return true
-  }
-  mockDefaultContentRules = items
-  return true
+  return await saveBrowserDefaultContentRulesProto(items)
 }
 
 export async function fetchDefaultStartURLs(): Promise<BrowserStartURL[]> {
-  const bindings: any = await getBindings()
-  if (bindings?.DefaultStartURLList) {
-    return (await bindings.DefaultStartURLList()) || []
-  }
-  return [
-    { name: 'IPPure', url: 'https://ippure.com/' },
-    { name: 'IPLark', url: 'https://iplark.com/' },
-    { name: 'Ping0', url: 'https://ping0.cc/' },
-  ]
+  return await listBrowserDefaultStartURLsProto()
 }
 
 export async function saveDefaultStartURLs(items: BrowserStartURL[]): Promise<boolean> {
-  const bindings: any = await getBindings()
-  if (bindings?.DefaultStartURLSave) {
-    await bindings.DefaultStartURLSave(items)
-    return true
-  }
-  return true
+  return await saveBrowserDefaultStartURLsProto(items)
 }
 
 export async function resetDefaultStartURLs(): Promise<boolean> {
-  const bindings: any = await getBindings()
-  if (bindings?.DefaultStartURLReset) {
-    await bindings.DefaultStartURLReset()
-    return true
-  }
-  return true
+  return await resetBrowserDefaultStartURLsProto()
 }
 
 export async function createGroup(input: BrowserGroupInput): Promise<BrowserGroup | null> {
-  const bindings: any = await getBindings()
-  if (bindings?.CreateGroup) {
-    return (await bindings.CreateGroup(input)) || null
-  }
-  if (!input.groupName.trim()) {
-    throw new Error('分组名称不能为空')
-  }
-  if (input.parentId && !mockGroups.some(group => group.groupId === input.parentId)) {
-    throw new Error('父分组不存在')
-  }
-  const now = new Date().toISOString()
-  const group: BrowserGroup = {
-    groupId: `mock-group-${Date.now()}`,
-    groupName: input.groupName.trim(),
-    parentId: input.parentId || '',
-    sortOrder: input.sortOrder || 0,
-    createdAt: now,
-    updatedAt: now,
-  }
-  mockGroups = [...mockGroups, group]
-  return group
+  return await createBrowserGroupProto(input)
 }
 
 export async function updateGroup(groupId: string, input: BrowserGroupInput): Promise<BrowserGroup | null> {
-  const bindings: any = await getBindings()
-  if (bindings?.UpdateGroup) {
-    return (await bindings.UpdateGroup(groupId, input)) || null
-  }
-  const index = mockGroups.findIndex(group => group.groupId === groupId)
-  if (index === -1) {
-    throw new Error('分组不存在')
-  }
-  if (!input.groupName.trim()) {
-    throw new Error('分组名称不能为空')
-  }
-  if (input.parentId === groupId) {
-    throw new Error('不能将分组设为自己的子分组')
-  }
-  if (input.parentId && !mockGroups.some(group => group.groupId === input.parentId)) {
-    throw new Error('父分组不存在')
-  }
-  let currentParentId = input.parentId
-  while (currentParentId) {
-    if (currentParentId === groupId) {
-      throw new Error('不能将分组设为自己的后代分组')
-    }
-    currentParentId = mockGroups.find(group => group.groupId === currentParentId)?.parentId || ''
-  }
-  const updated = {
-    ...mockGroups[index],
-    groupName: input.groupName.trim(),
-    parentId: input.parentId || '',
-    sortOrder: input.sortOrder || 0,
-    updatedAt: new Date().toISOString(),
-  }
-  mockGroups = mockGroups.map(group => group.groupId === groupId ? updated : group)
-  return updated
+  return await updateBrowserGroupProto(groupId, input)
 }
 
 export async function deleteGroup(groupId: string): Promise<boolean> {
-  const bindings: any = await getBindings()
-  if (bindings?.DeleteGroup) {
-    await bindings.DeleteGroup(groupId)
-    return true
-  }
-  const group = mockGroups.find(item => item.groupId === groupId)
-  if (!group) {
-    throw new Error('分组不存在')
-  }
-  mockGroups = mockGroups
-    .filter(item => item.groupId !== groupId)
-    .map(item => item.parentId === groupId ? { ...item, parentId: group.parentId, updatedAt: new Date().toISOString() } : item)
-  mockProfiles = mockProfiles.map(profile => (
-    profile.groupId === groupId ? { ...profile, groupId: group.parentId, updatedAt: new Date().toISOString() } : profile
-  ))
-  return true
+  return await deleteBrowserGroupProto(groupId)
 }
 
 export async function moveInstancesToGroup(profileIds: string[], groupId: string): Promise<boolean> {
-  const bindings: any = await getBindings()
-  if (bindings?.MoveInstancesToGroup) {
-    await bindings.MoveInstancesToGroup(profileIds, groupId)
-    return true
-  }
-  if (groupId && !mockGroups.some(group => group.groupId === groupId)) {
-    throw new Error('分组不存在')
-  }
-  const idSet = new Set(profileIds)
-  mockProfiles = mockProfiles.map(profile => (
-    idSet.has(profile.profileId) ? { ...profile, groupId, updatedAt: new Date().toISOString() } : profile
-  ))
-  return true
+  return await moveBrowserProfilesToGroupProto(profileIds, groupId)
 }

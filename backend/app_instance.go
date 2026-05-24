@@ -11,8 +11,6 @@ import (
 	stdruntime "runtime"
 	"strings"
 	"time"
-
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // ============================================================================
@@ -201,7 +199,7 @@ func (a *App) browserInstanceStartInternal(profileId string, extraLaunchArgs []s
 			log.Error("代理桥接失败(sing-box)", logger.F("error", bridgeErr.Error()), logger.F("reason", startErr.Error()))
 			profile.LastError = startErr.Error()
 			if a.ctx != nil {
-				runtime.EventsEmit(a.ctx, "proxy:bridge:failed", map[string]interface{}{
+				a.emitEvent("proxy:bridge:failed", map[string]interface{}{
 					"profileId":   profileId,
 					"profileName": profile.ProfileName,
 					"error":       startErr.Error(),
@@ -219,7 +217,7 @@ func (a *App) browserInstanceStartInternal(profileId string, extraLaunchArgs []s
 			log.Error("代理桥接失败(xray)", logger.F("error", bridgeErr.Error()), logger.F("reason", startErr.Error()))
 			profile.LastError = startErr.Error()
 			if a.ctx != nil {
-				runtime.EventsEmit(a.ctx, "proxy:bridge:failed", map[string]interface{}{
+				a.emitEvent("proxy:bridge:failed", map[string]interface{}{
 					"profileId":   profileId,
 					"profileName": profile.ProfileName,
 					"error":       startErr.Error(),
@@ -682,13 +680,13 @@ func (a *App) waitBrowserProcess(profileId string, monitor *browserProcessMonito
 			profile.LastError = fmt.Sprintf("实例运行异常退出：%s", err.Error())
 		}
 		log.Error("浏览器进程异常退出", logger.F("profile_id", profileId), logger.F("profile_name", profileName), logger.F("error", err))
-		runtime.EventsEmit(a.ctx, "browser:instance:crashed", map[string]interface{}{
+		a.emitEvent("browser:instance:crashed", map[string]interface{}{
 			"profileId":   profileId,
 			"profileName": profileName,
 			"error":       err.Error(),
 		})
 	} else {
-		runtime.EventsEmit(a.ctx, "browser:instance:stopped", profileId)
+		a.emitEvent("browser:instance:stopped", profileId)
 	}
 }
 
@@ -730,7 +728,7 @@ func (a *App) waitDetachedBrowser(profileId string, debugPort int) {
 			logger.F("debug_port", debugPort),
 		)
 		if a.ctx != nil {
-			runtime.EventsEmit(a.ctx, "browser:instance:stopped", profileId)
+			a.emitEvent("browser:instance:stopped", profileId)
 		}
 		return
 	}

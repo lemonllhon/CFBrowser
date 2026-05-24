@@ -1,0 +1,78 @@
+syntax = "proto3";
+
+package trace.v1;
+
+option go_package = "ant-chrome/proto/trace/v1;tracev1";
+
+message AppUpdateAsset {
+  string name = 1;
+  int64 size = 2;
+  string download_url = 3;
+  string checksum = 4;
+}
+
+message AppUpdateInfo {
+  string current_version = 1;
+  string latest_version = 2;
+  string release_name = 3;
+  string release_url = 4;
+  string published_at = 5;
+  string body = 6;
+  bool has_update = 7;
+  AppUpdateAsset asset = 8;
+  AppUpdateAsset installer_asset = 9;
+  AppUpdateAsset portable_asset = 10;
+  string distribution_kind = 11;
+  string recommended_package_kind = 12;
+  bool can_self_update_portable = 13;
+  string message = 14;
+}
+
+message AppUpdateDownloadRequest {
+  AppUpdateInfo info = 1;
+  bool install_on_restart = 2;
+}
+
+message AppUpdateInfoRequest {
+  AppUpdateInfo info = 1;
+}
+
+message AppUpdateInstallDownloadedRequest {
+  string installer_path = 1;
+}
+
+message AppUpdateDownloadResult {
+  bool cancelled = 1;
+  string message = 2;
+  string version = 3;
+  string installer_path = 4;
+  string package_path = 5;
+  string extracted_path = 6;
+  bool install_on_restart = 7;
+  bool restart_scheduled = 8;
+  string package_kind = 9;
+}
+
+message AppUpdateDownloadProgress {
+  string phase = 1;
+  int32 progress = 2;
+  string message = 3;
+}
+
+message AppUpdatePendingUpdate {
+  string version = 1;
+  string installer_path = 2;
+  string release_url = 3;
+  bool install_on_next_start = 4;
+  string created_at = 5;
+}
+
+message AppUpdatePendingNotification {
+  string version = 1;
+  string message = 2;
+}
+
+message AppUpdatePendingInstallFailed {
+  string version = 1;
+  string error = 2;
+}

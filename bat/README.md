@@ -26,6 +26,7 @@ bat\dev.bat limited
 - `bat\dev.bat`：默认稳定模式。先生成 Wails bindings，再构建 `frontend/dist`，最后以静态资源模式启动 Wails
 - `bat\dev.bat live`：显式启动 `frontend/scripts/dev-watcher.mjs`，并通过 `-frontenddevserverurl` 接入 Vite dev server
 - `bat\dev.bat limited`：在 `live` 基础上通过 `scripts/run-limited-frontend-dev.ps1` 给 watcher 及其子进程附加 Windows Job Object 内存限制
+- `bat\dev.bat --wails3`：兼容旧命令习惯；当前分支默认就是 Wails3 启动壳
 
 默认行为：
 
@@ -57,7 +58,12 @@ FRONTEND_DISABLE_HMR
 DEV_PROXY_URL   -> 为 npm / Node / Go 下载流量注入 HTTP(S) 代理
 DEV_NO_PROXY    -> 设置 NO_PROXY / no_proxy
 DEV_GOPROXY     -> 覆盖 GOPROXY；未设置时默认使用 https://goproxy.cn,direct
+WAILS_BIN       -> 覆盖当前脚本使用的 Wails 可执行文件
+WAILS3_BIN      -> 覆盖 Wails3 可执行文件
+WAILS_VERSION   -> 已废弃；当前分支固定使用 Wails3
 ```
+
+如果系统 PATH 中没有 `go`，`dev.bat` 和 `generate-bindings.bat` 会自动尝试使用仓库内 `.tmp\toolchains\go*\go` 便携 Go。
 
 日志：
 
@@ -82,7 +88,9 @@ bat\build.bat
 说明：
 
 - 开发分支默认按完整源码构建
-- 若缺少 `go.mod`、`main.go`、`wails.json` 等核心入口文件，脚本会直接失败，避免复用旧产物掩盖问题
+- 若缺少 `go.mod`、`main.go`、`build\config.yml` 等核心入口文件，脚本会直接失败，避免复用旧产物掩盖问题
+- 构建脚本使用 Wails3 默认入口，输出 `build\bin\trace-browser.exe`
+- 如果本机没有全局 `wails3`，可通过 `WAILS3_BIN` 或 `WAILS_BIN` 指向具体可执行文件
 
 ### `publish.bat`
 
@@ -109,7 +117,7 @@ bat\publish.bat B -Version 1.1.0
 说明：
 
 - `-Version 1.1.0` 会覆盖本次发布使用的版本号。
-- Windows / Linux 包名、NSIS 安装包版本号，以及本次构建期间读取到的 `wails.json productVersion` 会统一使用该值。
+- Windows / Linux 包名、NSIS 安装包版本号，以及本次构建期间读取到的 `build\config.yml info.version` 会统一使用该值。
 
 Windows 打包依赖 NSIS，默认查找顺序：
 
@@ -176,6 +184,7 @@ Windows 产物：
 
 ```text
 publish\output\TraceBrowser-Setup-<version>.exe
+publish\output\TraceBrowser-SelfUpdate-<version>-windows-amd64.zip
 ```
 
 ### `recover-profiles.ps1`
@@ -210,5 +219,6 @@ pwsh -File bat/recover-profiles.ps1 -AppRoot 'E:\software\Trace Browser' -Apply 
 ## 备注
 
 - `generate-bindings.bat` 是辅助脚本，通常由 `build.bat` 调用。
+- `generate-bindings.bat` 会把 Wails3 bindings 输出到 `frontend\src\wails3`；`--wails3` 仅作为兼容参数保留。
 - `generate-bindings.bat`、`build.bat`、`dev.bat` 都假定当前分支是完整源码仓库。
-- 如果这些脚本报告缺少 `go.mod`、`main.go`、`wails.json`，应先恢复源码入口，而不是继续复用旧二进制。
+- 如果这些脚本报告缺少 `go.mod`、`main.go`、`build\config.yml`，应先恢复源码入口，而不是继续复用旧二进制。

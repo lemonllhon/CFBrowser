@@ -17,7 +17,7 @@ Usage:
 
 Options:
   --arch <arm64|amd64>   Target architecture (required)
-  --version <ver>        Package version (default: read from wails.json)
+  --version <ver>        Package version (default: read from build/config.yml)
   --skip-build           Skip frontend and Wails build steps
   --skip-runtime-verify  Skip runtime hash verification
   --keep-staging         Keep assembled .app bundle in publish/staging/mac
@@ -100,19 +100,20 @@ require_cmd() {
 
 require_cmd python3
 require_cmd ditto
-require_cmd wails
+require_cmd wails3
 
 if [[ -z "$VERSION" ]]; then
-  VERSION="$(python3 - "$ROOT_DIR/wails.json" <<'PY'
-import json
+  VERSION="$(python3 - "$ROOT_DIR/build/config.yml" <<'PY'
+import re
 import sys
 
 path = sys.argv[1]
 with open(path, "r", encoding="utf-8") as f:
-    data = json.load(f)
-version = (((data or {}).get("info") or {}).get("productVersion") or "").strip()
+    text = f.read()
+match = re.search(r'(?m)^\s{2}version:\s*["\']?([^"\'\r\n]+)', text)
+version = (match.group(1).strip() if match else "")
 if not version:
-    raise SystemExit("productVersion missing in wails.json")
+    raise SystemExit("info.version missing in build/config.yml")
 print(version)
 PY
 )"
@@ -204,10 +205,10 @@ if [[ "$SKIP_BUILD" -ne 1 ]]; then
   echo "[2/4] Building frontend assets..."
   (cd "$ROOT_DIR/frontend" && npm run build)
 
-  echo "[3/4] Building macOS app bundle with Wails..."
+  echo "[3/4] Building macOS app bundle with Wails3..."
   (
     cd "$ROOT_DIR"
-    wails build -s -platform "darwin/$ARCH" -o trace-browser
+    wails3 build -s -platform "darwin/$ARCH" -o trace-browser
   )
 else
   echo "[WARN] skipping build step"

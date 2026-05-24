@@ -1,54 +1,31 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Eye, GripHorizontal, Keyboard, Link, List, Pause, Play, Power, RefreshCw, Settings, SquareStack, X } from 'lucide-react'
 import { Button, ToastContainer, toast } from '../../../shared/components'
 import { ThemeProvider } from '../../../shared/theme'
 import type { WindowSyncActionResult, WindowSyncBatchInputDifferentItem, WindowSyncBatchInputResult, WindowSyncSettings, WindowSyncState } from '../types'
-import { WindowSetAlwaysOnTop, WindowSetPosition, WindowSetSize } from '../../../wailsjs/runtime/runtime'
+import {
+  applyWindowSyncLayout,
+  defaultWindowSyncLayoutSettings,
+  getWindowSyncState,
+  onWindowSyncStateChanged,
+  pauseWindowSync,
+  resizeWindowSyncToolbar,
+  resumeWindowSync,
+  saveWindowSyncSettings,
+  showAllWindowSyncWindows,
+  stopWindowSync,
+  windowSyncBatchInputDifferent,
+  windowSyncBatchInputSame,
+  windowSyncCloseBlankTabs,
+  windowSyncCloseCurrentTab,
+  windowSyncCloseOtherTabs,
+  windowSyncOpenUrls,
+} from '../api'
 
-type ToolbarConfig = {
-  port: number
-  token: string
-  width: number
-  height: number
-  x: number
-  y: number
-}
-
-const fallbackConfig: ToolbarConfig = {
-  port: 0,
-  token: '',
-  width: 360,
-  height: 76,
-  x: 360,
-  y: 18,
-}
-
+const collapsedToolbarWidth = 360
+const collapsedToolbarHeight = 76
 const expandedToolbarWidth = 780
-
-function readToolbarConfig(): ToolbarConfig {
-  const params = new URLSearchParams(window.location.search)
-  const encoded = params.get('config')
-  if (encoded) {
-    try {
-      return { ...fallbackConfig, ...JSON.parse(decodeURIComponent(encoded)) }
-    } catch {
-      // Ignore malformed startup config and fall back to environment injection.
-    }
-  }
-  const raw = (window as any).__TRACE_WINDOW_SYNC_TOOLBAR_CONFIG__
-  if (raw && typeof raw === 'object') {
-    return { ...fallbackConfig, ...raw }
-  }
-  return fallbackConfig
-}
-
-async function readResponseText(response: Response) {
-  try {
-    return await response.text()
-  } catch {
-    return ''
-  }
-}
+const panelToolbarHeight = 430
 
 function profileCount(state: WindowSyncState | null) {
   return state?.windows?.length || state?.profileIds?.length || 0
@@ -87,8 +64,22 @@ function normalizeColor(value: string) {
   return trimmed.startsWith('#') ? trimmed : `#${trimmed}`
 }
 
+function layoutForMode(state: WindowSyncState | null, mode: 'grid' | 'stack') {
+  const fallback = defaultWindowSyncLayoutSettings()
+  const layout = state?.layout
+  return {
+    ...fallback,
+    ...(layout || {}),
+    mode,
+    width: layout?.width || fallback.width,
+    height: layout?.height || fallback.height,
+    gapX: layout?.gapX || fallback.gapX,
+    gapY: layout?.gapY || fallback.gapY,
+    perRow: layout?.perRow || fallback.perRow,
+  }
+}
+
 export function WindowSyncFloatingToolbar() {
-  const [config] = useState<ToolbarConfig>(() => readToolbarConfig())
   const [state, setState] = useState<WindowSyncState | null>(null)
   const [loadingCommand, setLoadingCommand] = useState<string>('')
   const [expanded, setExpanded] = useState(false)
@@ -103,28 +94,10 @@ export function WindowSyncFloatingToolbar() {
   const [listPanelOpen, setListPanelOpen] = useState(false)
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(false)
   const [settingsDraft, setSettingsDraft] = useState<WindowSyncSettings>(() => stateToSettings(null))
-  const endpoint = useMemo(() => `http://127.0.0.1:${config.port}`, [config.port])
-
-  const request = async <T,>(path: string, init?: RequestInit): Promise<T | null> => {
-    if (!config.port || !config.token) return null
-    const response = await fetch(`${endpoint}${path}`, {
-      ...init,
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Trace-Toolbar-Token': config.token,
-        ...(init?.headers || {}),
-      },
-    })
-    if (!response.ok) {
-      const message = await readResponseText(response)
-      throw new Error(message || `HTTP ${response.status}`)
-    }
-    return (await response.json()) as T
-  }
 
   const loadState = async () => {
     try {
-      const next = await request<WindowSyncState>('/state')
+      const next = await getWindowSyncState()
       setState(next?.active ? next : null)
     } catch {
       setState(null)
@@ -134,14 +107,17 @@ export function WindowSyncFloatingToolbar() {
   const runCommand = async (command: string) => {
     setLoadingCommand(command)
     try {
-      const next = await request<WindowSyncState>('/command', {
-        method: 'POST',
-        body: JSON.stringify({ command }),
-      })
-      setState(next?.active ? next : null)
-      if (command === 'stop') {
-        window.setTimeout(() => window.close(), 120)
+      let next: WindowSyncState | null = null
+      if (command === 'show-all') {
+        next = await showAllWindowSyncWindows()
+      } else if (command === 'pause') {
+        next = await pauseWindowSync()
+      } else if (command === 'resume') {
+        next = await resumeWindowSync()
+      } else if (command === 'stop') {
+        next = await stopWindowSync()
       }
+      setState(next?.active ? next : null)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '工具栏操作失败')
     } finally {
@@ -157,20 +133,15 @@ export function WindowSyncFloatingToolbar() {
     }
     setLoadingCommand(`batch-input:${batchMode}`)
     try {
-      const payload =
+      const result =
         batchMode === 'same'
-          ? { command: 'batch-input-same', text: sameText }
-          : {
-              command: 'batch-input-different',
-              items: windows.map<WindowSyncBatchInputDifferentItem>(window => ({
+          ? await windowSyncBatchInputSame(sameText)
+          : await windowSyncBatchInputDifferent(
+              windows.map<WindowSyncBatchInputDifferentItem>(window => ({
                 profileId: window.profileId,
                 text: differentTexts[window.profileId] || '',
               })),
-            }
-      const result = await request<WindowSyncBatchInputResult>('/command', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      })
+            )
       setBatchResult(result)
       if ((result?.failed || 0) > 0) {
         toast.warning(resultMessage(result))
@@ -188,10 +159,7 @@ export function WindowSyncFloatingToolbar() {
   const applyLayout = async (mode: 'grid' | 'stack') => {
     setLoadingCommand(`layout:${mode}`)
     try {
-      const next = await request<WindowSyncState>('/command', {
-        method: 'POST',
-        body: JSON.stringify({ command: 'layout', mode }),
-      })
+      const next = await applyWindowSyncLayout(layoutForMode(state, mode))
       setState(next?.active ? next : null)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '布局切换失败')
@@ -203,10 +171,16 @@ export function WindowSyncFloatingToolbar() {
   const runTabCommand = async (command: string, label: string, urls?: string[]) => {
     setLoadingCommand(command)
     try {
-      const result = await request<WindowSyncActionResult>('/command', {
-        method: 'POST',
-        body: JSON.stringify({ command, urls }),
-      })
+      let result: WindowSyncActionResult
+      if (command === 'close-other-tabs') {
+        result = await windowSyncCloseOtherTabs()
+      } else if (command === 'close-current-tab') {
+        result = await windowSyncCloseCurrentTab()
+      } else if (command === 'close-blank-tabs') {
+        result = await windowSyncCloseBlankTabs()
+      } else {
+        result = await windowSyncOpenUrls(urls || [])
+      }
       setTabResult(result)
       if ((result?.failed || 0) > 0) {
         toast.warning(actionResultMessage(label, result))
@@ -257,15 +231,9 @@ export function WindowSyncFloatingToolbar() {
   const saveSettings = async () => {
     setLoadingCommand('save-settings')
     try {
-      const next = await request<WindowSyncState>('/command', {
-        method: 'POST',
-        body: JSON.stringify({
-          command: 'save-settings',
-          settings: {
-            ...settingsDraft,
-            masterColor: normalizeColor(settingsDraft.masterColor),
-          },
-        }),
+      const next = await saveWindowSyncSettings({
+        ...settingsDraft,
+        masterColor: normalizeColor(settingsDraft.masterColor),
       })
       setState(next?.active ? next : null)
       setSettingsDraft(stateToSettings(next))
@@ -277,49 +245,29 @@ export function WindowSyncFloatingToolbar() {
     }
   }
 
+  const panelOpen = batchOpen || tabPanelOpen || listPanelOpen || settingsPanelOpen
+
   useEffect(() => {
     document.body.classList.add('window-sync-toolbar-body')
-    const keepTopmost = () => {
-      try {
-        WindowSetAlwaysOnTop(false)
-        WindowSetAlwaysOnTop(true)
-      } catch {
-        // The toolbar can still work if the OS ignores a transient topmost refresh.
-      }
-    }
-    try {
-      WindowSetAlwaysOnTop(true)
-      WindowSetPosition(Math.max(0, config.x || 0), Math.max(0, config.y || 0))
-    } catch {
-      // Positioning is best-effort because the backend already starts the window near the target location.
-    }
     void loadState()
-    const timer = window.setInterval(() => {
-      void loadState()
-      keepTopmost()
-    }, 900)
-    const topmostTimer = window.setInterval(keepTopmost, 1800)
-    window.addEventListener('focus', keepTopmost)
-    window.addEventListener('pointerdown', keepTopmost)
+    const offStateChanged = onWindowSyncStateChanged(next => {
+      setState(next?.active ? next : null)
+    })
+    const timer = window.setInterval(() => void loadState(), 2500)
     return () => {
       document.body.classList.remove('window-sync-toolbar-body')
+      offStateChanged()
       window.clearInterval(timer)
-      window.clearInterval(topmostTimer)
-      window.removeEventListener('focus', keepTopmost)
-      window.removeEventListener('pointerdown', keepTopmost)
     }
   }, [])
 
   useEffect(() => {
-    try {
-      WindowSetSize(
-        panelOpen || expanded ? expandedToolbarWidth : config.width || fallbackConfig.width,
-        batchOpen || tabPanelOpen || listPanelOpen || settingsPanelOpen ? 430 : config.height || fallbackConfig.height,
-      )
-    } catch {
-      // Older runtimes may ignore dynamic toolbar resizing; commands still work.
-    }
-  }, [batchOpen, config.height, config.width, expanded, listPanelOpen, settingsPanelOpen, tabPanelOpen])
+    const width = panelOpen || expanded ? expandedToolbarWidth : collapsedToolbarWidth
+    const height = panelOpen ? panelToolbarHeight : collapsedToolbarHeight
+    void resizeWindowSyncToolbar(width, height).catch(() => {
+      // The toolbar remains usable even if the host window is already shutting down.
+    })
+  }, [expanded, panelOpen])
 
   useEffect(() => {
     const windows = orderedWindows(state)
@@ -342,7 +290,6 @@ export function WindowSyncFloatingToolbar() {
   const count = profileCount(state)
   const windows = orderedWindows(state)
   const batchLoading = loadingCommand === 'batch-input:same' || loadingCommand === 'batch-input:different'
-  const panelOpen = batchOpen || tabPanelOpen || listPanelOpen || settingsPanelOpen
   const masterColor = normalizeColor(state?.masterColor || settingsDraft.masterColor || '#2563eb')
 
   return (

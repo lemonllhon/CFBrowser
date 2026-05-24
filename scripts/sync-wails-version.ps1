@@ -62,9 +62,9 @@ else {
     $RepoRoot = (Resolve-Path $RepoRoot).Path
 }
 
-$wailsConfigPath = Join-Path $RepoRoot "wails.json"
+$wailsConfigPath = Join-Path $RepoRoot "build/config.yml"
 if (-not (Test-Path -LiteralPath $wailsConfigPath -PathType Leaf)) {
-    throw "wails.json not found: $wailsConfigPath"
+    throw "build/config.yml not found: $wailsConfigPath"
 }
 
 $tagName = Get-TrimmedText (Resolve-BuildTag)
@@ -72,26 +72,25 @@ if ($tagName -eq "") {
     throw "git tag is empty"
 }
 
-Write-Host "Syncing wails.json productVersion from local git tag..."
+Write-Host "Syncing build/config.yml info.version from local git tag..."
 Write-Host "  Tag: $tagName"
 
 $releaseVersion = Assert-VersionValue -Value ($tagName -replace '^[vV]', '') -Source "local git tag"
 $configText = Get-Content -LiteralPath $wailsConfigPath -Raw
-$config = $configText | ConvertFrom-Json
-$currentVersion = Get-TrimmedText ([string]$config.info.productVersion)
+$versionPattern = '(?m)^(\s{2}version:\s*["'']?)([^"''\r\n]+)(["'']?)\s*$'
+$match = [regex]::Match($configText, $versionPattern)
+if (-not $match.Success) {
+    throw "Cannot find info.version in build/config.yml"
+}
+$currentVersion = Get-TrimmedText ([string]$match.Groups[2].Value)
 
 if ($currentVersion -eq $releaseVersion) {
-    Write-Host "OK wails.json productVersion already matches: $releaseVersion"
+    Write-Host "OK build/config.yml info.version already matches: $releaseVersion"
     exit 0
 }
 
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-$updatedText = [regex]::Replace(
-    $configText,
-    '("productVersion"\s*:\s*")[^"]*(")',
-    "`${1}$releaseVersion`${2}",
-    1
-)
+$updatedText = [regex]::Replace($configText, $versionPattern, "`${1}$releaseVersion`${3}", 1)
 [System.IO.File]::WriteAllText($wailsConfigPath, $updatedText, $utf8NoBom)
 
-Write-Host "OK wails.json productVersion synced: $currentVersion -> $releaseVersion"
+Write-Host "OK build/config.yml info.version synced: $currentVersion -> $releaseVersion"

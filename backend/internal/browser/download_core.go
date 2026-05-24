@@ -15,7 +15,6 @@ import (
 
 	"ant-chrome/backend/internal/logger"
 	"github.com/google/uuid"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // DownloadProgress 进度信息载体
@@ -30,6 +29,8 @@ type coreDownloadWriter struct {
 	ctx       context.Context
 }
 
+type EventEmitter func(eventName string, optionalData ...any)
+
 func (cw *coreDownloadWriter) Write(p []byte) (int, error) {
 	select {
 	case <-cw.ctx.Done():
@@ -40,12 +41,15 @@ func (cw *coreDownloadWriter) Write(p []byte) (int, error) {
 }
 
 // DownloadAndExtractCore 执行异步下载解压并在过程中发送事件
-func (m *Manager) DownloadAndExtractCore(ctx context.Context, coreName string, targetUrl string, proxyConfig string) {
+func (m *Manager) DownloadAndExtractCore(ctx context.Context, coreName string, targetUrl string, proxyConfig string, emitEvent EventEmitter) {
 	log := logger.New("Browser")
 	t := time.Now()
 
 	sendEvent := func(phase string, progress int, msg string) {
-		runtime.EventsEmit(ctx, "download:progress", DownloadProgress{
+		if emitEvent == nil {
+			return
+		}
+		emitEvent("download:progress", DownloadProgress{
 			Phase:    phase,
 			Progress: progress,
 			Message:  msg,

@@ -15,36 +15,23 @@ import {
   saveSettings,
   exportSystemConfig,
   importSystemConfig,
+  onAppUpdateDownloadProgress,
+  onBackupExportProgress,
+  onBackupImportProgress,
   type AppConfigInfo,
   type AppUpdateInfo,
+  type AppUpdateDownloadProgress,
+  type BackupProgress,
 } from './api'
 import type { AppSettings } from './types'
 import { defaultSettings } from './types'
-import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime'
 import { useBackupStore } from '../../store/backupStore'
-
-interface BackupExportProgress {
-  phase: string
-  progress: number
-  message: string
-  componentId?: string
-  componentName?: string
-  entryIndex?: number
-  entryTotal?: number
-  timestamp?: string
-}
 
 interface BackupExportLogItem {
   id: number
   phase: string
   time: string
   text: string
-}
-
-interface UpdateDownloadProgress {
-  phase: string
-  progress: number
-  message: string
 }
 
 export function SettingsPage() {
@@ -54,13 +41,13 @@ export function SettingsPage() {
   const [hasChanges, setHasChanges] = useState(false)
   const [importModalOpen, setImportModalOpen] = useState(false)
   const [actionLoading, setActionLoading] = useState<'none' | 'init' | 'export' | 'import-reset' | 'import-merge'>('none')
-  const [exportProgress, setExportProgress] = useState<BackupExportProgress | null>(null)
-  const [importProgress, setImportProgress] = useState<BackupExportProgress | null>(null)
+  const [exportProgress, setExportProgress] = useState<BackupProgress | null>(null)
+  const [importProgress, setImportProgress] = useState<BackupProgress | null>(null)
   const [exportLogs, setExportLogs] = useState<BackupExportLogItem[]>([])
   const [appConfig, setAppConfig] = useState<AppConfigInfo>({ name: defaultSettings.appName, version: 'unknown', projectGithubUrl: 'https://github.com/lemon-casino/trace-browser-release/releases' })
   const [checkingUpdate, setCheckingUpdate] = useState(false)
   const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null)
-  const [updateProgress, setUpdateProgress] = useState<UpdateDownloadProgress | null>(null)
+  const [updateProgress, setUpdateProgress] = useState<AppUpdateDownloadProgress | null>(null)
   const [portablePath, setPortablePath] = useState('')
   const [updateModalOpen, setUpdateModalOpen] = useState(false)
   const [updateAction, setUpdateAction] = useState<'none' | 'download-now' | 'download-next' | 'download-portable'>('none')
@@ -73,7 +60,7 @@ export function SettingsPage() {
   }, [])
 
   useEffect(() => {
-    const onExportProgress = (payload: BackupExportProgress) => {
+    const onExportProgress = (payload: BackupProgress) => {
       if (!payload || typeof payload !== 'object') {
         return
       }
@@ -116,14 +103,11 @@ export function SettingsPage() {
       })
     }
 
-    EventsOn('backup:export:progress', onExportProgress)
-    return () => {
-      EventsOff('backup:export:progress')
-    }
+    return onBackupExportProgress(onExportProgress)
   }, [])
 
   useEffect(() => {
-    const onImportProgress = (payload: BackupExportProgress) => {
+    const onImportProgress = (payload: BackupProgress) => {
       if (!payload || typeof payload !== 'object') {
         return
       }
@@ -154,14 +138,11 @@ export function SettingsPage() {
       })
     }
 
-    EventsOn('backup:import:progress', onImportProgress)
-    return () => {
-      EventsOff('backup:import:progress')
-    }
+    return onBackupImportProgress(onImportProgress)
   }, [])
 
   useEffect(() => {
-    const onUpdateProgress = (payload: UpdateDownloadProgress) => {
+    const onUpdateProgress = (payload: AppUpdateDownloadProgress) => {
       if (!payload || typeof payload !== 'object') {
         return
       }
@@ -172,10 +153,7 @@ export function SettingsPage() {
       })
     }
 
-    const offUpdateProgress = EventsOn('app:update:download:progress', onUpdateProgress)
-    return () => {
-      offUpdateProgress?.()
-    }
+    return onAppUpdateDownloadProgress(onUpdateProgress)
   }, [])
 
   useEffect(() => {
@@ -264,11 +242,12 @@ export function SettingsPage() {
 
   const handleDownloadUpdate = async (installOnRestart: boolean) => {
     if (!updateInfo) return
-    setUpdateProgress({ phase: 'starting', progress: 0, message: '准备下载更新安装包...' })
+    const selfUpdate = updateInfo.recommendedPackageKind === 'selfupdate'
+    setUpdateProgress({ phase: 'starting', progress: 0, message: selfUpdate ? '准备通过 Wails3 官方 updater 下载更新...' : '准备下载更新安装包...' })
     setUpdateAction(installOnRestart ? 'download-next' : 'download-now')
     try {
       const res = await downloadAppUpdate(updateInfo, installOnRestart)
-      toast.success(res.message || '更新安装包已下载')
+      toast.success(res.message || (selfUpdate ? '官方更新包已下载' : '更新安装包已下载'))
       if (installOnRestart) {
         setUpdateModalOpen(false)
         setUpdateProgress(null)
@@ -788,7 +767,7 @@ export function SettingsPage() {
               variant={updateInfo?.recommendedPackageKind === 'portable' ? 'danger' : 'secondary'}
               onClick={handleDownloadPortableUpdate}
               loading={updateAction === 'download-portable'}
-              disabled={!updateInfo?.portableAsset || (updateAction !== 'none' && updateAction !== 'download-portable')}
+              disabled={updateInfo?.recommendedPackageKind === 'selfupdate' || !updateInfo?.portableAsset || (updateAction !== 'none' && updateAction !== 'download-portable')}
             >
               {updateInfo?.canSelfUpdatePortable ? '下载 ZIP 并重启更新' : '下载 ZIP 并解压'}
             </Button>
@@ -796,12 +775,12 @@ export function SettingsPage() {
               variant={updateInfo?.recommendedPackageKind === 'portable' ? 'secondary' : 'primary'}
               onClick={() => handleDownloadUpdate(true)}
               loading={updateAction === 'download-next'}
-              disabled={!updateInfo?.installerAsset || (updateAction !== 'none' && updateAction !== 'download-next')}
+              disabled={updateInfo?.recommendedPackageKind === 'selfupdate' || !updateInfo?.installerAsset || (updateAction !== 'none' && updateAction !== 'download-next')}
             >
               下载后下次启动安装
             </Button>
             <Button variant="danger" onClick={() => handleDownloadUpdate(false)} loading={updateAction === 'download-now'} disabled={!updateInfo?.installerAsset || (updateAction !== 'none' && updateAction !== 'download-now')}>
-              下载安装包并安装
+              {updateInfo?.recommendedPackageKind === 'selfupdate' ? '下载并应用官方更新' : '下载安装包并安装'}
             </Button>
           </>
         }
@@ -815,7 +794,7 @@ export function SettingsPage() {
             <div className="space-y-1 text-xs text-[var(--color-text-muted)] mt-2">
               {updateInfo?.installerAsset && (
                 <p>
-                  安装包：{updateInfo.installerAsset.name}
+                  {updateInfo.recommendedPackageKind === 'selfupdate' ? '官方自更新包' : '安装包'}：{updateInfo.installerAsset.name}
                   {updateInfo.installerAsset.size > 0 ? `（${(updateInfo.installerAsset.size / 1024 / 1024).toFixed(1)} MB）` : ''}
                 </p>
               )}
@@ -829,7 +808,9 @@ export function SettingsPage() {
           </div>
           <p className="text-xs text-[var(--color-text-muted)]">
             {updateInfo?.canSelfUpdatePortable
-              ? '当前为 ZIP 便携版：ZIP 更新会保留 data、logs 和已有配置，退出后替换程序文件并自动重启。'
+              ? updateInfo.recommendedPackageKind === 'selfupdate'
+                ? '当前使用 Wails3 官方 updater：下载后会校验并替换当前程序，然后自动重启。'
+                : '当前为 ZIP 便携版：ZIP 更新会保留 data、logs 和已有配置，退出后替换程序文件并自动重启。'
               : '安装包会启动安装程序；ZIP 便携包会解压到更新目录，适合不覆盖当前安装直接使用。'}
           </p>
           {updateInfo?.body && (

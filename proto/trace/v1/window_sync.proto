@@ -1,0 +1,128 @@
+syntax = "proto3";
+
+package trace.v1;
+
+option go_package = "ant-chrome/proto/trace/v1;tracev1";
+
+message WindowSyncCandidate {
+  string profile_id = 1;
+  string profile_name = 2;
+  int32 debug_port = 3;
+  int32 pid = 4;
+  bool running = 5;
+  bool debug_ready = 6;
+  string role = 7;
+  bool master = 8;
+  bool can_sync = 9;
+  bool can_auto_start = 10;
+  string unavailable = 11;
+}
+
+message WindowSyncCandidateListResponse {
+  repeated WindowSyncCandidate candidates = 1;
+}
+
+message WindowSyncStartRequest {
+  repeated string profile_ids = 1;
+  string master_profile_id = 2;
+}
+
+message WindowSyncLayoutSettings {
+  string mode = 1;
+  int32 width = 2;
+  int32 height = 3;
+  int32 gap_x = 4;
+  int32 gap_y = 5;
+  int32 per_row = 6;
+  string updated_at = 7;
+}
+
+message WindowSyncSettings {
+  string master_color = 1;
+  bool sync_keyboard = 2;
+  bool sync_mouse = 3;
+}
+
+message WindowSyncState {
+  string session_id = 1;
+  bool active = 2;
+  bool paused = 3;
+  string master_profile_id = 4;
+  repeated string profile_ids = 5;
+  repeated WindowSyncCandidate windows = 6;
+  string master_color = 7;
+  bool sync_keyboard = 8;
+  bool sync_mouse = 9;
+  WindowSyncLayoutSettings layout = 10;
+  string started_at = 11;
+  string updated_at = 12;
+}
+
+message WindowSyncStateResponse {
+  bool has_state = 1;
+  WindowSyncState state = 2;
+}
+
+message WindowSyncLayoutSettingsResponse {
+  WindowSyncLayoutSettings layout = 1;
+}
+
+message WindowSyncSettingsResponse {
+  WindowSyncSettings settings = 1;
+}
+
+message WindowSyncBatchInputSameRequest {
+  string text = 1;
+}
+
+message WindowSyncBatchInputDifferentItem {
+  string profile_id = 1;
+  string text = 2;
+}
+
+message WindowSyncBatchInputDifferentRequest {
+  repeated WindowSyncBatchInputDifferentItem items = 1;
+}
+
+message WindowSyncBatchInputResultItem {
+  string profile_id = 1;
+  string profile_name = 2;
+  bool master = 3;
+  bool success = 4;
+  string error = 5;
+}
+
+message WindowSyncBatchInputResult {
+  int32 total = 1;
+  int32 success = 2;
+  int32 failed = 3;
+  repeated WindowSyncBatchInputResultItem results = 4;
+}
+
+message WindowSyncOpenUrlsRequest {
+  repeated string urls = 1;
+}
+
+message WindowSyncActionResultItem {
+  string profile_id = 1;
+  string profile_name = 2;
+  bool master = 3;
+  bool success = 4;
+  string error = 5;
+}
+
+message WindowSyncActionResult {
+  int32 total = 1;
+  int32 success = 2;
+  int32 failed = 3;
+  repeated WindowSyncActionResultItem results = 4;
+}
+
+message WindowSyncToolbarResizeRequest {
+  int32 width = 1;
+  int32 height = 2;
+}
+
+message WindowSyncToolbarResizeResponse {
+  bool ok = 1;
+}

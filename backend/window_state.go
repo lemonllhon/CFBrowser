@@ -7,8 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"time"
-
-	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 const windowStatePath = "data/window-state.json"
@@ -58,9 +56,9 @@ func (a *App) saveCurrentWindowState(ctx context.Context) error {
 	if ctx == nil {
 		return nil
 	}
-	if !wailsruntime.WindowIsNormal(ctx) {
+	if !a.appRuntime().WindowIsNormal(ctx) {
 		return nil
 	}
-	width, height := wailsruntime.WindowGetSize(ctx)
+	width, height := a.appRuntime().WindowGetSize(ctx)
 	return a.SaveWindowState(width, height)
 }

@@ -6,8 +6,6 @@ import (
 
 	"ant-chrome/backend/internal/browser"
 	"ant-chrome/backend/internal/logger"
-
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // ============================================================================
@@ -169,12 +167,12 @@ func (a *App) syncProfilesMovedFromDeletedGroup(deletedGroupId, parentGroupId st
 
 func (a *App) emitGroupDataUpdated() {
 	if a != nil && a.ctx != nil {
-		runtime.EventsEmit(a.ctx, "browser:groups:updated", nil)
+		a.emitEvent("browser:groups:updated", nil)
 	}
 }
 
 func (a *App) emitProfileDataUpdated() {
 	if a != nil && a.ctx != nil {
-		runtime.EventsEmit(a.ctx, "browser:profiles:updated", nil)
+		a.emitEvent("browser:profiles:updated", nil)
 	}
 }

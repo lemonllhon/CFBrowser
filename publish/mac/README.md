@@ -182,7 +182,7 @@ Recommended responsibilities:
 2. verify target arch (`arm64` first)
 3. install frontend dependencies
 4. build frontend
-5. run `wails build -platform darwin/arm64`
+5. run `wails3 build -platform darwin/arm64`
 6. place runtime binaries into the app bundle
 7. optionally archive to `.zip`
 8. optionally sign and notarize when environment variables are provided

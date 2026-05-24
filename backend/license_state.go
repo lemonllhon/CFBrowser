@@ -94,7 +94,7 @@ func reconcileConfigWithLocalLicense(configPath string, cfg *Config) (bool, bool
 
 	stateChanged := state.MaxProfileLimit != desiredState.MaxProfileLimit || !sameStringSlice(state.UsedCDKeys, desiredState.UsedCDKeys)
 	shouldPersist := stateExists || originalMax != effectiveMax || len(originalKeys) > 0 || len(state.UsedCDKeys) > 0
-	if shouldPersist && stateChanged {
+	if shouldPersist && (!stateExists || stateChanged) {
 		if err := saveLocalLicenseState(configPath, desiredState); err != nil {
 			return configChanged, false, err
 		}

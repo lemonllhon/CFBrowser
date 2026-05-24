@@ -4,7 +4,7 @@ import { Badge, Button, Card, ConfirmModal, FormItem, Input, Modal, Select, Swit
 import type { TableColumn } from '../../../shared/components/Table'
 import type { BrowserExtension, BrowserExtensionBinding, BrowserExtensionImportResult, BrowserProfile } from '../types'
 import { assignBrowserExtensionProfiles, chooseBrowserExtensionArchive, chooseBrowserExtensionDirectory, deleteBrowserExtension, fetchBrowserExtension, fetchBrowserExtensionProfileBindings, fetchBrowserExtensions, fetchBrowserProfiles, importBrowserExtensionArchive, importBrowserExtensionDirectory, setBrowserExtensionAutoBind, unassignBrowserExtensionProfiles } from '../api'
-import { OnFileDrop, OnFileDropOff } from '../../../wailsjs/runtime/runtime'
+import { OnFileDrop, OnFileDropOff } from '../../../shared/backend/runtime'
 
 const sourceTypeText: Record<string, string> = {
   zip: '压缩包',
@@ -540,6 +540,7 @@ export function ExtensionManagementPage() {
   return (
     <div
       className="relative space-y-5 animate-fade-in"
+      data-file-drop-target="extension-import"
       style={{ '--wails-drop-target': 'drop' } as CSSProperties}
       onDragEnter={() => setDragActive(true)}
       onDragOver={(event) => {

@@ -1,6 +1,7 @@
 package backend
 
 import (
+	selfupdate "ant-chrome/backend/internal/wails3selfupdate"
 	"archive/zip"
 	"context"
 	"crypto/sha256"
@@ -9,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,17 +19,20 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 const PROJECT_GITHUB_URL = "https://github.com/lemon-casino/trace-browser-release/releases"
 
 const githubLatestReleaseAPI = "https://api.github.com/repos/lemon-casino/trace-browser-release/releases/latest"
+const defaultWailsUpdateManifestURL = "https://github.com/lemon-casino/trace-browser-release/releases/latest/download/update.json"
+const defaultWailsSelfUpdateAssetPattern = "TraceBrowser-SelfUpdate-{version}-{platform}"
 
 type AppUpdateAsset struct {
 	Name        string `json:"name"`
 	Size        int64  `json:"size"`
 	DownloadURL string `json:"downloadUrl"`
+	Checksum    string `json:"checksum,omitempty"`
 }
 
 type AppUpdateInfo struct {
@@ -90,8 +95,53 @@ type githubReleaseAsset struct {
 	BrowserDownloadURL string `json:"browser_download_url"`
 }
 
+type wailsUpdateManifest struct {
+	Version           string                         `json:"version"`
+	ReleaseDate       string                         `json:"release_date"`
+	ReleaseDateCamel  string                         `json:"releaseDate"`
+	ReleaseNotes      string                         `json:"release_notes"`
+	ReleaseNotesCamel string                         `json:"releaseNotes"`
+	MinimumVersion    string                         `json:"minimum_version"`
+	Mandatory         bool                           `json:"mandatory"`
+	Platforms         map[string]wailsUpdatePlatform `json:"platforms"`
+}
+
+type wailsUpdatePlatform struct {
+	URL       string `json:"url"`
+	Name      string `json:"name"`
+	Size      int64  `json:"size"`
+	Checksum  string `json:"checksum"`
+	SHA256    string `json:"sha256"`
+	Signature string `json:"signature"`
+}
+
+type wailsUpdateRuntime struct {
+	service *selfupdate.Service
+	owner   string
+	repo    string
+	pattern string
+}
+
 func (a *App) CheckAppUpdate() (*AppUpdateInfo, error) {
 	currentVersion := a.appVersion()
+	info, err := a.checkAppUpdateFromOfficialWailsRuntime(context.Background(), currentVersion)
+	if err != nil {
+		return nil, err
+	}
+	return info, nil
+}
+
+func (a *App) checkAppUpdateFromLegacyRelease(currentVersion string) (*AppUpdateInfo, error) {
+	if manifestURL, explicit := resolveWailsUpdateManifestURL(); manifestURL != "" {
+		info, err := a.checkAppUpdateFromWailsManifest(context.Background(), manifestURL, currentVersion)
+		if err == nil {
+			return info, nil
+		}
+		if explicit {
+			return nil, err
+		}
+	}
+
 	release, err := fetchLatestGithubRelease(context.Background())
 	if err != nil {
 		return nil, err
@@ -143,19 +193,143 @@ func (a *App) CheckAppUpdate() (*AppUpdateInfo, error) {
 	return info, nil
 }
 
+func (a *App) checkAppUpdateFromOfficialWailsRuntime(ctx context.Context, currentVersion string) (*AppUpdateInfo, error) {
+	runtime, err := a.officialWailsUpdateRuntime(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result, err := runtime.service.Check(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("Wails3 官方 updater 检查失败: %w", err)
+	}
+
+	latestVersion := normalizeVersion(result.Version)
+	if latestVersion == "" {
+		latestVersion = normalizeVersion(currentVersion)
+	}
+	asset := appUpdateAssetFromWailsUpdateResult(result)
+	info := &AppUpdateInfo{
+		CurrentVersion:         currentVersion,
+		LatestVersion:          latestVersion,
+		ReleaseName:            firstNonEmpty("v"+latestVersion, result.Version),
+		ReleaseURL:             firstNonEmpty(result.ReleaseURL, PROJECT_GITHUB_URL+"/latest"),
+		PublishedAt:            formatWailsUpdateTime(result.ReleaseDate),
+		Body:                   strings.TrimSpace(result.ReleaseNotes),
+		HasUpdate:              result.UpdateAvailable,
+		Asset:                  asset,
+		InstallerAsset:         asset,
+		DistributionKind:       a.currentUpdateDistributionKind(),
+		RecommendedPackageKind: "selfupdate",
+		CanSelfUpdatePortable:  runtime.service.CanUpdate(),
+	}
+	if !info.HasUpdate {
+		info.Message = "当前已是最新版本"
+	} else if asset == nil {
+		info.Message = "检测到新版本，但没有找到官方 Wails3 自更新资产"
+	} else if !runtime.service.CanUpdate() {
+		info.Message = "检测到新版本，但当前安装目录不可写，请打开下载页手动更新"
+	} else {
+		info.Message = "检测到新版本，可使用 Wails3 官方 updater 直接更新"
+	}
+	return info, nil
+}
+
+func appUpdateAssetFromWailsUpdateResult(result *selfupdate.UpdateResult) *AppUpdateAsset {
+	if result == nil || strings.TrimSpace(result.DownloadURL) == "" {
+		return nil
+	}
+	return &AppUpdateAsset{
+		Name:        firstNonEmpty(result.AssetName, fileNameFromURL(result.DownloadURL), "trace-browser-selfupdate"),
+		Size:        result.Size,
+		DownloadURL: result.DownloadURL,
+		Checksum:    result.Checksum,
+	}
+}
+
+func formatWailsUpdateTime(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339)
+}
+
+func (a *App) officialWailsUpdateRuntime(ctx context.Context) (*wailsUpdateRuntime, error) {
+	if a == nil {
+		return nil, fmt.Errorf("app is nil")
+	}
+	owner, repo, err := resolveOfficialUpdateRepository()
+	if err != nil {
+		return nil, err
+	}
+	pattern := strings.TrimSpace(os.Getenv("TRACE_BROWSER_SELFUPDATE_ASSET_PATTERN"))
+	if pattern == "" {
+		pattern = defaultWailsSelfUpdateAssetPattern
+	}
+
+	a.updateRuntimeMu.Lock()
+	defer a.updateRuntimeMu.Unlock()
+	if a.updateRuntime != nil && a.updateRuntime.service != nil &&
+		a.updateRuntime.owner == owner && a.updateRuntime.repo == repo && a.updateRuntime.pattern == pattern {
+		return a.updateRuntime, nil
+	}
+
+	service := selfupdate.New(&selfupdate.Config{
+		CurrentVersion: normalizeVersion(a.appVersion()),
+		Provider:       "github",
+		Channel:        "stable",
+		AssetPattern:   pattern,
+		GitHub: &selfupdate.GitHubConfig{
+			Owner: owner,
+			Repo:  repo,
+			Token: strings.TrimSpace(os.Getenv("TRACE_BROWSER_UPDATE_TOKEN")),
+		},
+		PrepareFunc: a.prepareOfficialWailsUpdate,
+		OnProgress:  a.emitOfficialWailsUpdateProgress,
+	})
+	if err := service.ServiceStartup(ctx, application.ServiceOptions{}); err != nil {
+		return nil, fmt.Errorf("初始化 Wails3 官方 updater 失败: %w", err)
+	}
+	a.updateRuntime = &wailsUpdateRuntime{
+		service: service,
+		owner:   owner,
+		repo:    repo,
+		pattern: pattern,
+	}
+	return a.updateRuntime, nil
+}
+
+func resolveOfficialUpdateRepository() (string, string, error) {
+	value := firstNonEmpty(
+		os.Getenv("TRACE_BROWSER_UPDATE_REPOSITORY"),
+		os.Getenv("PUBLIC_RELEASE_REPOSITORY"),
+		"lemon-casino/trace-browser-release",
+	)
+	value = strings.TrimSpace(strings.TrimSuffix(value, ".git"))
+	value = strings.TrimPrefix(value, "https://github.com/")
+	value = strings.TrimPrefix(value, "http://github.com/")
+	parts := strings.Split(value, "/")
+	if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
+		return "", "", fmt.Errorf("官方 updater 仓库格式无效: %s", value)
+	}
+	return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]), nil
+}
+
 func (a *App) OpenAppReleasePage(url string) error {
 	target := strings.TrimSpace(url)
 	if target == "" {
 		target = PROJECT_GITHUB_URL + "/latest"
 	}
 	if a.ctx != nil {
-		runtime.BrowserOpenURL(a.ctx, target)
+		a.appRuntime().BrowserOpenURL(a.ctx, target)
 		return nil
 	}
 	return openURLWithSystem(target)
 }
 
 func (a *App) DownloadAppUpdate(info AppUpdateInfo, installOnRestart bool) (*AppUpdateDownloadResult, error) {
+	if strings.EqualFold(info.RecommendedPackageKind, "selfupdate") {
+		return a.downloadOfficialWailsUpdate(info, installOnRestart)
+	}
 	asset := firstAsset(info.InstallerAsset, info.Asset)
 	if asset == nil || strings.TrimSpace(asset.DownloadURL) == "" {
 		return nil, fmt.Errorf("没有可下载的安装包")
@@ -191,6 +365,37 @@ func (a *App) DownloadAppUpdate(info AppUpdateInfo, installOnRestart bool) (*App
 		PackagePath:      targetPath,
 		InstallOnRestart: installOnRestart,
 		PackageKind:      "installer",
+	}, nil
+}
+
+func (a *App) downloadOfficialWailsUpdate(info AppUpdateInfo, installOnRestart bool) (*AppUpdateDownloadResult, error) {
+	if installOnRestart {
+		return nil, fmt.Errorf("Wails3 官方 updater 不支持跨进程保留下次启动安装，请选择立即下载并应用更新")
+	}
+	runtime, err := a.officialWailsUpdateRuntime(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	last := runtime.service.GetLastCheck()
+	if last == nil || normalizeVersion(last.Version) != normalizeVersion(info.LatestVersion) {
+		if _, err := runtime.service.Check(context.Background()); err != nil {
+			return nil, fmt.Errorf("Wails3 官方 updater 刷新版本信息失败: %w", err)
+		}
+	}
+	a.emitAppUpdateDownloadProgress("starting", 0, "准备通过 Wails3 官方 updater 下载更新...")
+	ok, err := runtime.service.Download(context.Background())
+	if err != nil {
+		a.emitAppUpdateDownloadProgress("error", 0, err.Error())
+		return nil, fmt.Errorf("Wails3 官方 updater 下载失败: %w", err)
+	}
+	if !ok {
+		return nil, fmt.Errorf("Wails3 官方 updater 未下载任何更新")
+	}
+	a.emitAppUpdateDownloadProgress("done", 100, "官方更新包已下载，准备应用更新")
+	return &AppUpdateDownloadResult{
+		Message:     "官方更新包已下载，正在准备应用更新",
+		Version:     resolveUpdateVersion(info),
+		PackageKind: "selfupdate",
 	}, nil
 }
 
@@ -291,6 +496,14 @@ func (a *App) downloadUpdateAsset(asset *AppUpdateAsset, version string) (string
 		a.emitAppUpdateDownloadProgress("error", 0, err.Error())
 		return "", err
 	}
+	if checksum := strings.TrimSpace(asset.Checksum); checksum != "" {
+		a.emitAppUpdateDownloadProgress("verifying", 100, "正在校验更新包...")
+		if err := verifyFileSHA256(targetPath, checksum); err != nil {
+			a.emitAppUpdateDownloadProgress("error", 100, "更新包校验失败")
+			_ = os.Remove(targetPath)
+			return "", err
+		}
+	}
 	a.emitAppUpdateDownloadProgress("done", 100, "更新包下载完成")
 	return targetPath, nil
 }
@@ -298,6 +511,9 @@ func (a *App) downloadUpdateAsset(asset *AppUpdateAsset, version string) (string
 func (a *App) InstallDownloadedAppUpdate(installerPath string) error {
 	target := strings.TrimSpace(installerPath)
 	if target == "" {
+		if a.hasOfficialWailsUpdateRuntime() {
+			return a.installOfficialWailsUpdate()
+		}
 		pending, err := a.loadPendingAppUpdate()
 		if err != nil {
 			return err
@@ -328,6 +544,42 @@ func (a *App) InstallDownloadedAppUpdate(installerPath string) error {
 	return nil
 }
 
+func (a *App) hasOfficialWailsUpdateRuntime() bool {
+	if a == nil {
+		return false
+	}
+	a.updateRuntimeMu.Lock()
+	defer a.updateRuntimeMu.Unlock()
+	return a.updateRuntime != nil && a.updateRuntime.service != nil
+}
+
+func (a *App) installOfficialWailsUpdate() error {
+	a.updateRuntimeMu.Lock()
+	runtime := a.updateRuntime
+	a.updateRuntimeMu.Unlock()
+	if runtime == nil || runtime.service == nil {
+		return fmt.Errorf("Wails3 官方 updater 尚未下载更新")
+	}
+	a.emitAppUpdateDownloadProgress("installing", 100, "正在通过 Wails3 官方 updater 应用更新...")
+	if err := runtime.service.Install(context.Background()); err != nil {
+		a.emitAppUpdateDownloadProgress("error", 100, "Wails3 官方 updater 应用更新失败")
+		return fmt.Errorf("Wails3 官方 updater 应用更新失败: %w", err)
+	}
+	a.clearPendingAppUpdate()
+	a.emitAppUpdateDownloadProgress("done", 100, "更新已应用，应用即将重启")
+	go func(service *selfupdate.Service) {
+		time.Sleep(600 * time.Millisecond)
+		if err := service.Restart(); err != nil {
+			a.emitAppUpdatePendingEvent("app:update:pending:install-failed", map[string]interface{}{
+				"version": "",
+				"error":   err.Error(),
+			})
+			a.ForceQuit()
+		}
+	}(runtime.service)
+	return nil
+}
+
 func (a *App) emitAppUpdateDownloadProgress(phase string, progress int, message string) {
 	if a.ctx == nil {
 		return
@@ -338,11 +590,87 @@ func (a *App) emitAppUpdateDownloadProgress(phase string, progress int, message 
 	if progress > 100 {
 		progress = 100
 	}
-	runtime.EventsEmit(a.ctx, "app:update:download:progress", AppUpdateDownloadProgress{
+	a.emitAppUpdateDownloadProgressEvent("app:update:download:progress", AppUpdateDownloadProgress{
 		Phase:    phase,
 		Progress: progress,
 		Message:  strings.TrimSpace(message),
 	})
+}
+
+func (a *App) emitOfficialWailsUpdateProgress(info *selfupdate.ProgressInfo) {
+	if info == nil {
+		return
+	}
+	progress := int(info.Percentage)
+	if progress < 0 {
+		progress = 0
+	}
+	if progress > 100 {
+		progress = 100
+	}
+	message := strings.TrimSpace(info.State)
+	switch info.State {
+	case "started":
+		message = "Wails3 官方 updater 已开始下载"
+	case "downloading":
+		message = formatDownloadProgress(info.DownloadedBytes, info.TotalBytes)
+	case "finished":
+		message = "Wails3 官方 updater 下载完成"
+	case "error":
+		message = firstNonEmpty(info.Error, "Wails3 官方 updater 下载失败")
+	}
+	a.emitAppUpdateDownloadProgress(info.State, progress, message)
+}
+
+func (a *App) prepareOfficialWailsUpdate(ctx context.Context, downloadPath string, _ *selfupdate.ProviderConfig) (string, error) {
+	select {
+	case <-ctx.Done():
+		return "", ctx.Err()
+	default:
+	}
+	extractDir := filepath.Join(a.appUpdateWorkDir(), "official-"+shortHash(downloadPath+time.Now().Format(time.RFC3339Nano)))
+	_ = os.RemoveAll(extractDir)
+	if err := os.MkdirAll(extractDir, 0755); err != nil {
+		return "", err
+	}
+	if err := unzipFileTo(downloadPath, extractDir); err != nil {
+		_ = os.RemoveAll(extractDir)
+		return downloadPath, nil
+	}
+	executablePath, err := findOfficialWailsUpdateExecutable(extractDir)
+	if err != nil {
+		_ = os.RemoveAll(extractDir)
+		return "", err
+	}
+	return executablePath, nil
+}
+
+func findOfficialWailsUpdateExecutable(root string) (string, error) {
+	expected := "trace-browser"
+	if goruntime.GOOS == "windows" {
+		expected += ".exe"
+	}
+	var found string
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry == nil || entry.IsDir() {
+			return nil
+		}
+		if strings.EqualFold(entry.Name(), expected) {
+			found = path
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	if found == "" {
+		return "", fmt.Errorf("官方更新包中未找到 %s", expected)
+	}
+	return found, nil
 }
 
 func (a *App) emitPendingAppUpdateIfNeeded() {
@@ -360,20 +688,20 @@ func (a *App) emitPendingAppUpdateIfNeeded() {
 	go func() {
 		time.Sleep(1200 * time.Millisecond)
 		if pending.InstallOnNextStart {
-			runtime.EventsEmit(a.ctx, "app:update:pending:notification", map[string]interface{}{
+			a.emitAppUpdatePendingEvent("app:update:pending:notification", map[string]interface{}{
 				"version": pending.Version,
 				"message": "更新安装包已下载，正在启动安装程序",
 			})
 			if err := a.InstallDownloadedAppUpdate(pending.InstallerPath); err != nil {
-				runtime.EventsEmit(a.ctx, "app:update:pending:install-failed", map[string]interface{}{
+				a.emitAppUpdatePendingEvent("app:update:pending:install-failed", map[string]interface{}{
 					"version": pending.Version,
 					"error":   err.Error(),
 				})
-				runtime.EventsEmit(a.ctx, "app:update:pending", pending)
+				a.emitAppUpdatePendingEvent("app:update:pending", pending)
 			}
 			return
 		}
-		runtime.EventsEmit(a.ctx, "app:update:pending", pending)
+		a.emitAppUpdatePendingEvent("app:update:pending", pending)
 	}()
 }
 
@@ -434,6 +762,146 @@ func pickReleaseAssets(assets []githubReleaseAsset) (*AppUpdateAsset, *AppUpdate
 		}
 	}
 	return installer, portable
+}
+
+func (a *App) checkAppUpdateFromWailsManifest(ctx context.Context, manifestURL string, currentVersion string) (*AppUpdateInfo, error) {
+	manifest, err := fetchWailsUpdateManifest(ctx, manifestURL)
+	if err != nil {
+		return nil, err
+	}
+	version := normalizeVersion(manifest.Version)
+	if version == "" {
+		return nil, fmt.Errorf("官方更新 manifest 缺少 version")
+	}
+	platform, key, ok := selectWailsUpdatePlatform(manifest.Platforms)
+	if !ok {
+		return nil, fmt.Errorf("官方更新 manifest 缺少当前平台资产: %s", wailsUpdatePlatformKey())
+	}
+	downloadURL := strings.TrimSpace(platform.URL)
+	if downloadURL == "" {
+		return nil, fmt.Errorf("官方更新 manifest 平台 %s 缺少下载 URL", key)
+	}
+	assetName := firstNonEmpty(platform.Name, fileNameFromURL(downloadURL), "trace-browser-"+version)
+	asset := &AppUpdateAsset{
+		Name:        assetName,
+		Size:        platform.Size,
+		DownloadURL: downloadURL,
+		Checksum:    firstNonEmpty(platform.Checksum, platform.SHA256),
+	}
+
+	var installerAsset *AppUpdateAsset
+	var portableAsset *AppUpdateAsset
+	if isPortableAssetName(assetName) {
+		portableAsset = asset
+	} else {
+		installerAsset = asset
+	}
+	recommendedPackageKind := "installer"
+	displayAsset := firstAsset(installerAsset, portableAsset)
+	if portableAsset != nil {
+		recommendedPackageKind = "portable"
+		displayAsset = portableAsset
+	}
+	info := &AppUpdateInfo{
+		CurrentVersion:         currentVersion,
+		LatestVersion:          version,
+		ReleaseName:            "v" + version,
+		ReleaseURL:             manifestURL,
+		PublishedAt:            firstNonEmpty(manifest.ReleaseDate, manifest.ReleaseDateCamel),
+		Body:                   firstNonEmpty(manifest.ReleaseNotes, manifest.ReleaseNotesCamel),
+		HasUpdate:              appReleaseVersionsDiffer(version, currentVersion),
+		Asset:                  displayAsset,
+		InstallerAsset:         installerAsset,
+		PortableAsset:          portableAsset,
+		DistributionKind:       a.currentUpdateDistributionKind(),
+		RecommendedPackageKind: recommendedPackageKind,
+		CanSelfUpdatePortable:  a.canSelfUpdatePortable(),
+	}
+	if !info.HasUpdate {
+		info.Message = "当前已是最新版本"
+	} else if portableAsset != nil && info.CanSelfUpdatePortable {
+		info.Message = "检测到新版本，可使用官方 manifest ZIP 便携包自动更新"
+	} else {
+		info.Message = "检测到新版本，更新信息来自官方 manifest"
+	}
+	return info, nil
+}
+
+func fetchWailsUpdateManifest(ctx context.Context, manifestURL string) (*wailsUpdateManifest, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, manifestURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "Trace-Browser-Updater")
+	client := &http.Client{Timeout: 20 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("获取官方更新 manifest 失败: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("获取官方更新 manifest 失败：HTTP %d", resp.StatusCode)
+	}
+	var manifest wailsUpdateManifest
+	if err := json.NewDecoder(resp.Body).Decode(&manifest); err != nil {
+		return nil, fmt.Errorf("解析官方更新 manifest 失败: %w", err)
+	}
+	return &manifest, nil
+}
+
+func resolveWailsUpdateManifestURL() (string, bool) {
+	if value := strings.TrimSpace(os.Getenv("TRACE_BROWSER_UPDATE_MANIFEST_URL")); value != "" {
+		return value, true
+	}
+	if value := strings.TrimSpace(os.Getenv("TRACE_BROWSER_UPDATE_URL")); value != "" {
+		return updateManifestURLFromBase(value), true
+	}
+	return defaultWailsUpdateManifestURL, false
+}
+
+func updateManifestURLFromBase(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if strings.HasSuffix(strings.ToLower(value), ".json") {
+		return value
+	}
+	return strings.TrimRight(value, "/") + "/update.json"
+}
+
+func selectWailsUpdatePlatform(platforms map[string]wailsUpdatePlatform) (wailsUpdatePlatform, string, bool) {
+	for _, key := range wailsUpdatePlatformKeys() {
+		if platform, ok := platforms[key]; ok {
+			return platform, key, true
+		}
+	}
+	return wailsUpdatePlatform{}, "", false
+}
+
+func wailsUpdatePlatformKeys() []string {
+	primary := wailsUpdatePlatformKey()
+	keys := []string{primary}
+	switch primary {
+	case "windows-amd64":
+		keys = append(keys, "windows-x64", "win-amd64", "win-x64")
+	case "windows-arm64":
+		keys = append(keys, "win-arm64")
+	case "macos-amd64":
+		keys = append(keys, "darwin-amd64", "macos-x64", "darwin-x64")
+	case "macos-arm64":
+		keys = append(keys, "darwin-arm64")
+	}
+	return keys
+}
+
+func wailsUpdatePlatformKey() string {
+	goos := goruntime.GOOS
+	if goos == "darwin" {
+		goos = "macos"
+	}
+	return goos + "-" + goruntime.GOARCH
 }
 
 func assetScore(name string) int {
@@ -964,6 +1432,43 @@ func downloadFileWithRetry(
 	return lastErr
 }
 
+func verifyFileSHA256(path string, expected string) error {
+	expected = normalizeChecksum(expected)
+	if expected == "" {
+		return nil
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("打开更新包失败: %w", err)
+	}
+	defer file.Close()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return fmt.Errorf("读取更新包失败: %w", err)
+	}
+	actual := hex.EncodeToString(hash.Sum(nil))
+	if !strings.EqualFold(actual, expected) {
+		return fmt.Errorf("更新包 SHA256 校验失败: expected %s, got %s", expected, actual)
+	}
+	return nil
+}
+
+func normalizeChecksum(value string) string {
+	value = strings.TrimSpace(strings.ToLower(value))
+	value = strings.TrimPrefix(value, "sha256:")
+	value = strings.TrimPrefix(value, "sha256=")
+	value = strings.TrimSpace(value)
+	if len(value) >= 64 {
+		value = value[:64]
+	}
+	for _, r := range value {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return ""
+		}
+	}
+	return value
+}
+
 func (a *App) currentUpdateDistributionKind() string {
 	if a.isSourceCheckoutRoot() {
 		return "dev"
@@ -986,7 +1491,7 @@ func (a *App) isSourceCheckoutRoot() bool {
 	if root == "" {
 		return false
 	}
-	requiredFiles := []string{"go.mod", "wails.json"}
+	requiredFiles := []string{"go.mod", filepath.Join("build", "config.yml")}
 	for _, name := range requiredFiles {
 		if _, err := os.Stat(filepath.Join(root, name)); err != nil {
 			return false
@@ -1203,6 +1708,17 @@ func firstNonEmpty(values ...string) string {
 		if strings.TrimSpace(value) != "" {
 			return strings.TrimSpace(value)
 		}
+	}
+	return ""
+}
+
+func fileNameFromURL(rawURL string) string {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err == nil && strings.TrimSpace(parsed.Path) != "" {
+		return filepath.Base(parsed.Path)
+	}
+	if rawURL = strings.TrimSpace(rawURL); rawURL != "" {
+		return filepath.Base(rawURL)
 	}
 	return ""
 }

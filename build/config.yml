@@ -1,0 +1,57 @@
+version: '3'
+
+info:
+  companyName: "Trace Browser"
+  productName: "Trace Browser"
+  productIdentifier: "com.tracebrowser.app"
+  description: "Desktop browser profile manager for isolated accounts and proxy-bound local environments"
+  copyright: "Copyright (c) 2026"
+  comments: "Trace Browser desktop application"
+  version: "0.0.27"
+
+dev_mode:
+  root_path: .
+  log_level: warn
+  debounce: 1000
+  ignore:
+    dir:
+      - .git
+      - .tmp
+      - node_modules
+      - frontend/node_modules
+      - frontend/dist
+      - build/bin
+      - build/dist
+      - publish/output
+      - publish/staging
+    file:
+      - .DS_Store
+      - .gitignore
+      - tmp-npm-dev.log
+      - tmp-npm-dev.err.log
+    watched_extension:
+      - "*.go"
+      - "*.ts"
+      - "*.tsx"
+      - "*.css"
+      - "*.html"
+    git_ignore: true
+  executes:
+    - cmd: npm install
+      type: once
+      cwd: frontend
+    - cmd: npm run build
+      type: blocking
+      cwd: frontend
+    - cmd: go mod download
+      type: blocking
+    - cmd: go build -o build/bin/trace-browser-dev.exe .
+      type: blocking
+    - cmd: build/bin/trace-browser-dev.exe
+      type: primary
+
+fileAssociations:
+
+protocols:
+
+other:

@@ -3,8 +3,8 @@ import { Download, Edit2, FolderOpen, RefreshCw, Settings } from 'lucide-react'
 import { Badge, Button, Card, ConfirmModal, FormItem, Input, Modal, Table, Textarea, toast } from '../../../shared/components'
 import type { TableColumn } from '../../../shared/components/Table'
 import type { BrowserCore, BrowserCoreInput, BrowserCoreValidateResult, BrowserSettings, BrowserCoreExtended, BrowserProxy } from '../types'
-import { fetchBrowserCores, saveBrowserCore, deleteBrowserCore, setDefaultBrowserCore, validateBrowserCorePath, openCorePath, fetchBrowserSettings, saveBrowserSettings, fetchCoreExtendedInfo, scanBrowserCores, BrowserCoreDownload, fetchBrowserProxies } from '../api'
-import { EventsOn, EventsOff, BrowserOpenURL } from '../../../wailsjs/runtime/runtime'
+import { fetchBrowserCores, saveBrowserCore, deleteBrowserCore, setDefaultBrowserCore, validateBrowserCorePath, openCorePath, fetchBrowserSettings, saveBrowserSettings, fetchCoreExtendedInfo, scanBrowserCores, BrowserCoreDownload, fetchBrowserProxies, onBrowserCoreDownloadProgress } from '../api'
+import { BrowserOpenURL } from '../../../shared/backend/runtime'
 
 interface CoreDisplayInfo {
   coreId: string
@@ -111,11 +111,7 @@ export function CoreManagementPage() {
         setDownloadProgress(null) // 清理进度使其可以重新开始
       }
     }
-    EventsOn('download:progress', onDownloadProgress)
-
-    return () => {
-      EventsOff('download:progress')
-    }
+    return onBrowserCoreDownloadProgress(onDownloadProgress)
   }, [])
 
   const loadData = async () => {

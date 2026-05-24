@@ -21,7 +21,7 @@ import (
 	"strings"
 	"time"
 
-	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
+	"ant-chrome/backend/internal/platform"
 )
 
 // BackupInitializeSystem 初始化系统到最开始状态。
@@ -43,10 +43,10 @@ func (a *App) BackupExportPackage() (map[string]interface{}, error) {
 	a.backupEmitExportProgress("starting", 0, "等待选择导出路径...")
 
 	defaultName := fmt.Sprintf("ant-chrome-backup-%s.zip", time.Now().Format("20060102-150405"))
-	savePath, err := wailsruntime.SaveFileDialog(a.ctx, wailsruntime.SaveDialogOptions{
+	savePath, err := a.appRuntime().SaveFileDialog(a.ctx, platform.SaveDialogOptions{
 		Title:           "导出配置",
 		DefaultFilename: defaultName,
-		Filters: []wailsruntime.FileFilter{
+		Filters: []platform.FileFilter{
 			{DisplayName: "ZIP 文件 (*.zip)", Pattern: "*.zip"},
 		},
 	})
@@ -99,9 +99,9 @@ func (a *App) BackupImportPackage(resetFirst bool) (map[string]interface{}, erro
 	}
 	a.backupEmitImportProgress("starting", 0, "等待选择 ZIP 配置文件...")
 
-	zipPath, err := wailsruntime.OpenFileDialog(a.ctx, wailsruntime.OpenDialogOptions{
+	zipPath, err := a.appRuntime().OpenFileDialog(a.ctx, platform.OpenDialogOptions{
 		Title: "加载配置",
-		Filters: []wailsruntime.FileFilter{
+		Filters: []platform.FileFilter{
 			{DisplayName: "ZIP 文件 (*.zip)", Pattern: "*.zip"},
 		},
 	})
@@ -194,16 +194,7 @@ func (a *App) backupEmitProgress(eventName, phase string, progress int, message 
 		evt.EntryIndex = meta.EntryIndex
 		evt.EntryTotal = meta.EntryTotal
 	}
-	wailsruntime.EventsEmit(a.ctx, eventName, backupProgressEvent{
-		Phase:         evt.Phase,
-		Progress:      evt.Progress,
-		Message:       evt.Message,
-		ComponentID:   evt.ComponentID,
-		ComponentName: evt.ComponentName,
-		EntryIndex:    evt.EntryIndex,
-		EntryTotal:    evt.EntryTotal,
-		Timestamp:     evt.Timestamp,
-	})
+	a.emitBackupProgressEvent(eventName, evt)
 }
 
 func (a *App) backupInitializeLocked(applyReload bool) (map[string]interface{}, error) {

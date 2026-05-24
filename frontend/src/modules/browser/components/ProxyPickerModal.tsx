@@ -2,8 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, Loader2, Search, Wifi, X } from 'lucide-react'
 import type { BrowserProxy } from '../types'
-import { browserProxyBatchTestSpeed, browserProxyTestSpeed, fetchBrowserProxies, fetchBrowserProxyGroups } from '../api'
-import { EventsOn } from '../../../wailsjs/runtime/runtime'
+import { browserProxyBatchTestSpeed, browserProxyTestSpeed, fetchBrowserProxies, fetchBrowserProxyGroups, onBrowserProxySpeedResult } from '../api'
 
 interface ProxyPickerModalProps {
   open: boolean
@@ -125,7 +124,7 @@ export function ProxyPickerModal({ open, currentProxyId, onSelect, onClose }: Pr
     abortRef.current = false
     setTestingIds(new Set(ids))
     const idSet = new Set(ids)
-    const off = EventsOn('proxy:speed:result', (data: { proxyId: string; ok: boolean; latencyMs: number; error: string }) => {
+    const off = onBrowserProxySpeedResult((data: { proxyId: string; ok: boolean; latencyMs: number; error: string }) => {
       if (abortRef.current || !idSet.has(data.proxyId)) return
       setSpeedMap(prev => ({ ...prev, [data.proxyId]: { ok: data.ok, latencyMs: data.latencyMs, error: data.error } }))
       setTestingIds(prev => {

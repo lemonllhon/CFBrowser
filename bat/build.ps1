@@ -1,4 +1,10 @@
-﻿Set-StrictMode -Version Latest
+param(
+    [ValidateSet("3")]
+    [string]$WailsVersion = $(if ($env:WAILS_VERSION) { $env:WAILS_VERSION } else { "3" }),
+    [string]$WailsBin = $env:WAILS_BIN
+)
+
+Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
@@ -39,13 +45,41 @@ function Assert-RequiredSourceFiles {
     }
 }
 
+function Resolve-WailsBinary {
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("3")]
+        [string]$Version,
+        [string]$ExplicitPath
+    )
+
+    $candidate = $ExplicitPath
+    if ([string]::IsNullOrWhiteSpace($candidate)) {
+        if (-not [string]::IsNullOrWhiteSpace($env:WAILS3_BIN)) {
+            $candidate = $env:WAILS3_BIN
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace($candidate)) {
+        $candidate = "wails3"
+    }
+
+    & $candidate version | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Cannot run Wails v$Version command '$candidate'. Set WAILS_BIN or WAILS3_BIN."
+    }
+    return $candidate
+}
+
 try {
     Write-Host "========================================"
     Write-Host "  Trace Browser - Build Script"
     Write-Host "========================================"
     Write-Host ""
     Write-Host "Current workdir: $repoRoot"
+    Write-Host "Wails target: v$WailsVersion"
     Write-Host ""
+
+    $wailsCommand = Resolve-WailsBinary -Version $WailsVersion -ExplicitPath $WailsBin
 
     $proxyHost = "127.0.0.1"
     $proxyPort = "7890"
@@ -67,12 +101,14 @@ try {
         Write-Host ""
     }
 
-    Assert-RequiredSourceFiles -Action "Building from source" -Paths @(
+    $requiredSourceFiles = @(
         "go.mod",
         "go.sum",
         "main.go",
-        "wails.json"
+        "Taskfile.yml",
+        "build/config.yml"
     )
+    Assert-RequiredSourceFiles -Action "Building from source" -Paths $requiredSourceFiles
 
     Write-Host "[1/8] Syncing build version..."
     Invoke-NativeCommand -FilePath "powershell" -Arguments @(
@@ -116,7 +152,7 @@ try {
 
     Write-Host ""
     Write-Host "[5/8] Generating Wails bindings..."
-    Invoke-NativeCommand -FilePath "cmd" -Arguments @("/c", "call bat\generate-bindings.bat --no-pause")
+    Invoke-NativeCommand -FilePath "cmd" -Arguments @("/c", "call bat\generate-bindings.bat --no-pause --wails3")
 
     $binaryPath = Join-Path $repoRoot "build/bin/trace-browser.exe"
 
@@ -135,7 +171,7 @@ try {
 
     Write-Host ""
     Write-Host "[7/8] Building app..."
-    Invoke-NativeCommand -FilePath "wails" -Arguments @("build")
+    Invoke-NativeCommand -FilePath $wailsCommand -Arguments @("build")
 
     if ($tempDistCreated -and (Test-Path -LiteralPath $frontendDist)) {
         Remove-Item -LiteralPath $frontendDist -Recurse -Force -ErrorAction SilentlyContinue
@@ -157,7 +193,7 @@ try {
     Write-Host "  OK build completed"
     Write-Host "========================================"
     Write-Host ""
-    Write-Host "Executable: build\bin\trace-browser.exe"
+    Write-Host "Executable: $($binaryPath.Substring($repoRoot.Length + 1))"
     exit 0
 }
 catch {

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { BookOpen, Download, Globe, Keyboard, Layers, Monitor, Rocket } from 'lucide-react'
 import { Button, Card } from '../../../shared/components'
-import { BrowserOpenURL } from '../../../wailsjs/runtime/runtime'
+import { BrowserOpenURL } from '../../../shared/backend/runtime'
 import type { ReactNode } from 'react'
 import { fetchLaunchServerInfo, type LaunchServerInfo } from '../api'
 

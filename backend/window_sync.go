@@ -2,6 +2,7 @@ package backend
 
 import (
 	"ant-chrome/backend/internal/logger"
+	"ant-chrome/backend/internal/transport/protoipc"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,7 +15,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 const defaultWindowSyncMasterColor = "#2563eb"
@@ -31,12 +31,12 @@ type windowSyncTarget struct {
 }
 
 type WindowSyncLayoutSettings struct {
-	Mode     string `json:"mode"`
-	Width    int    `json:"width"`
-	Height   int    `json:"height"`
-	GapX     int    `json:"gapX"`
-	GapY     int    `json:"gapY"`
-	PerRow   int    `json:"perRow"`
+	Mode      string `json:"mode"`
+	Width     int    `json:"width"`
+	Height    int    `json:"height"`
+	GapX      int    `json:"gapX"`
+	GapY      int    `json:"gapY"`
+	PerRow    int    `json:"perRow"`
 	UpdatedAt string `json:"updatedAt"`
 }
 
@@ -51,7 +51,7 @@ type WindowSyncCandidate struct {
 	Master       bool   `json:"master"`
 	CanSync      bool   `json:"canSync"`
 	CanAutoStart bool   `json:"canAutoStart"`
-	Unavailable string `json:"unavailable"`
+	Unavailable  string `json:"unavailable"`
 }
 
 type WindowSyncStartInput struct {
@@ -60,18 +60,18 @@ type WindowSyncStartInput struct {
 }
 
 type WindowSyncState struct {
-	SessionId       string                `json:"sessionId"`
-	Active          bool                  `json:"active"`
-	Paused          bool                  `json:"paused"`
-	MasterProfileId string                `json:"masterProfileId"`
-	ProfileIds      []string              `json:"profileIds"`
-	Windows         []WindowSyncCandidate `json:"windows"`
-	MasterColor     string                `json:"masterColor"`
-	SyncKeyboard    bool                  `json:"syncKeyboard"`
-	SyncMouse       bool                  `json:"syncMouse"`
+	SessionId       string                   `json:"sessionId"`
+	Active          bool                     `json:"active"`
+	Paused          bool                     `json:"paused"`
+	MasterProfileId string                   `json:"masterProfileId"`
+	ProfileIds      []string                 `json:"profileIds"`
+	Windows         []WindowSyncCandidate    `json:"windows"`
+	MasterColor     string                   `json:"masterColor"`
+	SyncKeyboard    bool                     `json:"syncKeyboard"`
+	SyncMouse       bool                     `json:"syncMouse"`
 	Layout          WindowSyncLayoutSettings `json:"layout"`
-	StartedAt       string                `json:"startedAt"`
-	UpdatedAt       string                `json:"updatedAt"`
+	StartedAt       string                   `json:"startedAt"`
+	UpdatedAt       string                   `json:"updatedAt"`
 }
 
 type WindowSyncSettings struct {
@@ -147,13 +147,13 @@ func (a *App) WindowSyncListCandidates() []WindowSyncCandidate {
 			continue
 		}
 		item := WindowSyncCandidate{
-			ProfileId:   profile.ProfileId,
-			ProfileName: profile.ProfileName,
-			DebugPort:   profile.DebugPort,
-			Pid:         profile.Pid,
-			Running:     profile.Running,
-			DebugReady:  profile.DebugReady,
-			CanSync:     profile.Running && profile.DebugReady && profile.DebugPort > 0,
+			ProfileId:    profile.ProfileId,
+			ProfileName:  profile.ProfileName,
+			DebugPort:    profile.DebugPort,
+			Pid:          profile.Pid,
+			Running:      profile.Running,
+			DebugReady:   profile.DebugReady,
+			CanSync:      profile.Running && profile.DebugReady && profile.DebugPort > 0,
 			CanAutoStart: !profile.Running,
 		}
 		if !profile.Running {
@@ -953,11 +953,11 @@ func dispatchWindowSyncEventToTarget(wsURL string, event windowSyncEvent) error 
 			cdpType = "mouseReleased"
 		}
 		params := map[string]any{
-			"type":       cdpType,
-			"x":          event.X,
-			"y":          event.Y,
-			"button":     button,
-			"modifiers":  event.Modifiers,
+			"type":      cdpType,
+			"x":         event.X,
+			"y":         event.Y,
+			"button":    button,
+			"modifiers": event.Modifiers,
 		}
 		if event.Buttons > 0 {
 			params["buttons"] = event.Buttons
@@ -971,12 +971,12 @@ func dispatchWindowSyncEventToTarget(wsURL string, event windowSyncEvent) error 
 		return nil
 	case "wheel":
 		_, err := cdpCallWebSocket(wsURL, "Input.dispatchMouseEvent", map[string]any{
-			"type":       "mouseWheel",
-			"x":          event.X,
-			"y":          event.Y,
-			"deltaX":     event.DeltaX,
-			"deltaY":     event.DeltaY,
-			"modifiers":  event.Modifiers,
+			"type":      "mouseWheel",
+			"x":         event.X,
+			"y":         event.Y,
+			"deltaX":    event.DeltaX,
+			"deltaY":    event.DeltaY,
+			"modifiers": event.Modifiers,
 		})
 		return err
 	case "keyDown", "keyUp":
@@ -1776,8 +1776,8 @@ func (a *App) windowSyncAppWindowCenterPoint() (int, int, bool) {
 	defer func() {
 		_ = recover()
 	}()
-	x, y := runtime.WindowGetPosition(a.ctx)
-	width, height := runtime.WindowGetSize(a.ctx)
+	x, y := a.appRuntime().WindowGetPosition(a.ctx)
+	width, height := a.appRuntime().WindowGetSize(a.ctx)
 	if width <= 0 || height <= 0 {
 		return 0, 0, false
 	}
@@ -2293,31 +2293,74 @@ func normalizeWindowSyncMasterColor(color string) string {
 }
 
 func (a *App) emitWindowSyncStateChanged(state *WindowSyncState) {
-	if a == nil || a.ctx == nil {
+	if a == nil {
 		return
 	}
-	runtime.EventsEmit(a.ctx, "window-sync:state-changed", state)
+	a.emitProtoEvent(protoipc.EventWindowSyncStateChanged, encodeProtoWindowSyncStateResponse(state))
+	a.emitEvent("window-sync:state-changed", state)
 }
 
 func (a *App) showWindowSyncToolbar(state *WindowSyncState) {
 	if a == nil || state == nil || !state.Active {
 		return
 	}
-	_ = a.windowSyncToolbar.Show(a, state)
+	if toolbar := a.currentWindowSyncToolbarAdapter(); toolbar != nil {
+		_ = toolbar.Show(a, state)
+	}
 }
 
 func (a *App) updateWindowSyncToolbar(state *WindowSyncState) {
 	if a == nil || state == nil || !state.Active {
 		return
 	}
-	_ = a.windowSyncToolbar.Update(state)
+	if toolbar := a.currentWindowSyncToolbarAdapter(); toolbar != nil {
+		_ = toolbar.Update(state)
+	}
 }
 
 func (a *App) hideWindowSyncToolbar() {
 	if a == nil {
 		return
 	}
-	_ = a.windowSyncToolbar.Hide()
+	if toolbar := a.currentWindowSyncToolbarAdapter(); toolbar != nil {
+		_ = toolbar.Hide()
+	}
+}
+
+func (a *App) SetWindowSyncToolbarAdapter(adapter WindowSyncToolbarAdapter) {
+	if a == nil {
+		return
+	}
+	a.windowSyncToolbarMu.Lock()
+	a.windowSyncToolbarAdapter = adapter
+	a.windowSyncToolbarMu.Unlock()
+}
+
+func (a *App) WindowSyncToolbarSetSize(width int, height int) error {
+	if a == nil {
+		return fmt.Errorf("窗口同步工具栏尚未初始化")
+	}
+	if width <= 0 || height <= 0 {
+		return fmt.Errorf("窗口同步工具栏尺寸无效")
+	}
+	toolbar := a.currentWindowSyncToolbarAdapter()
+	if toolbar == nil {
+		return nil
+	}
+	return toolbar.SetSize(width, height)
+}
+
+func (a *App) currentWindowSyncToolbarAdapter() WindowSyncToolbarAdapter {
+	if a == nil {
+		return nil
+	}
+	a.windowSyncToolbarMu.RLock()
+	adapter := a.windowSyncToolbarAdapter
+	a.windowSyncToolbarMu.RUnlock()
+	if adapter != nil {
+		return adapter
+	}
+	return &a.windowSyncToolbar
 }
 
 func cloneWindowSyncState(state *WindowSyncState) *WindowSyncState {

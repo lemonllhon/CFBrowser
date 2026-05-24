@@ -2,9 +2,19 @@ name: Publish Linux Packages
 
 on:
   workflow_dispatch:
+    inputs:
+      environment:
+        description: "GitHub Environment for approvals and scoped secrets/vars."
+        required: true
+        type: choice
+        default: "staging"
+        options:
+          - staging
+          - production
 
 jobs:
   build:
+    environment: ${{ inputs.environment }}
     strategy:
       fail-fast: false
       matrix:
@@ -43,7 +53,7 @@ jobs:
             fakeroot
 
       - name: Install Wails CLI
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.11.0
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha.95
 
       - name: Add Go bin to PATH
         run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"

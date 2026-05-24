@@ -18,8 +18,8 @@ Usage:
 
 Options:
   --arch <amd64|arm64>   Target architecture (required)
-  --version <ver>        Package version (default: read from wails.json)
-  --skip-build           Skip wails build step
+  --version <ver>        Package version (default: read from build/config.yml)
+  --skip-build           Skip wails3 build step
   --skip-runtime-verify  Skip runtime hash verification (not recommended)
   --keep-staging         Keep staging directory after packaging
   --allow-cross          Allow building target arch different from host arch
@@ -107,19 +107,20 @@ require_cmd() {
 require_cmd python3
 require_cmd tar
 require_cmd dpkg-deb
-require_cmd wails
+require_cmd wails3
 
 if [[ -z "$VERSION" ]]; then
-  VERSION="$(python3 - "$ROOT_DIR/wails.json" <<'PY'
-import json
+  VERSION="$(python3 - "$ROOT_DIR/build/config.yml" <<'PY'
+import re
 import sys
 
 path = sys.argv[1]
 with open(path, "r", encoding="utf-8") as f:
-    data = json.load(f)
-version = (((data or {}).get("info") or {}).get("productVersion") or "").strip()
+    text = f.read()
+match = re.search(r'(?m)^\s{2}version:\s*["\']?([^"\'\r\n]+)', text)
+version = (match.group(1).strip() if match else "")
 if not version:
-    raise SystemExit("productVersion missing in wails.json")
+    raise SystemExit("info.version missing in build/config.yml")
 print(version)
 PY
 )"
@@ -131,7 +132,7 @@ XRAY_SRC="$RUNTIME_DIR/xray"
 SINGBOX_SRC="$RUNTIME_DIR/sing-box"
 APP_ICON_SRC="$ROOT_DIR/build/appicon.png"
 APP_BIN="$ROOT_DIR/build/bin/trace-browser"
-WAILS_CONFIG="$ROOT_DIR/wails.json"
+BUILD_CONFIG="$ROOT_DIR/build/config.yml"
 CHROME_README_SRC="$ROOT_DIR/chrome/README.md"
 APP_PACKAGE_NAME="trace-browser"
 APP_BINARY_NAME="trace-browser"
@@ -171,26 +172,30 @@ if [[ ! -f "$APP_ICON_SRC" ]]; then
   exit 1
 fi
 
-if [[ ! -f "$WAILS_CONFIG" ]]; then
-  echo "[ERROR] wails.json missing: $WAILS_CONFIG" >&2
-  echo "        This development branch must keep a complete Wails source tree." >&2
+if [[ ! -f "$BUILD_CONFIG" ]]; then
+  echo "[ERROR] build/config.yml missing: $BUILD_CONFIG" >&2
+  echo "        This development branch must keep a complete Wails3 source tree." >&2
   exit 1
 fi
 
 if [[ "$SKIP_BUILD" -ne 1 ]]; then
-  echo "[1/6] Syncing Wails product version..."
-  python3 - "$WAILS_CONFIG" "$VERSION" <<'PY'
-import json
+  echo "[1/6] Syncing Wails3 product version..."
+  python3 - "$BUILD_CONFIG" "$VERSION" <<'PY'
+import re
 import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
 version = sys.argv[2].strip()
-data = json.loads(path.read_text(encoding="utf-8"))
-old_version = (((data or {}).get("info") or {}).get("productVersion") or "").strip()
-data.setdefault("info", {})["productVersion"] = version
-path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-print(f"wails.json productVersion: {old_version} -> {version}")
+text = path.read_text(encoding="utf-8")
+pattern = re.compile(r'(?m)^(\s{2}version:\s*["\']?)([^"\'\r\n]+)(["\']?)\s*$')
+match = pattern.search(text)
+if not match:
+    raise SystemExit("info.version missing in build/config.yml")
+old_version = match.group(2).strip()
+text = pattern.sub(lambda m: f"{m.group(1)}{version}{m.group(3)}", text, count=1)
+path.write_text(text, encoding="utf-8")
+print(f"build/config.yml info.version: {old_version} -> {version}")
 PY
 
   echo "[2/6] Installing frontend dependencies..."
@@ -199,11 +204,11 @@ PY
   echo "[3/6] Building frontend assets..."
   (cd "$ROOT_DIR/frontend" && BROWSERSLIST_IGNORE_OLD_DATA=1 npm run build)
 
-  echo "[4/6] Building app binary with Wails..."
+  echo "[4/6] Building app binary with Wails3..."
   rm -f "$APP_BIN"
   (
     cd "$ROOT_DIR"
-    wails build -s -platform "linux/$ARCH" -o trace-browser
+    wails3 build -s -platform "linux/$ARCH" -o trace-browser
   )
 else
   echo "[WARN] skipping build step"

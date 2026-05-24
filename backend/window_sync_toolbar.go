@@ -37,13 +37,20 @@ type windowSyncToolbarController struct {
 	process *exec.Cmd
 }
 
+type WindowSyncToolbarAdapter interface {
+	Show(app *App, state *WindowSyncState) error
+	Update(state *WindowSyncState) error
+	Hide() error
+	SetSize(width int, height int) error
+}
+
 type windowSyncToolbarCommandInput struct {
-	Command string                              `json:"command"`
-	Mode    string                              `json:"mode"`
-	Text    string                              `json:"text"`
-	Items   []WindowSyncBatchInputDifferentItem `json:"items"`
-	Urls    []string                            `json:"urls"`
-	Settings WindowSyncSettings                 `json:"settings"`
+	Command  string                              `json:"command"`
+	Mode     string                              `json:"mode"`
+	Text     string                              `json:"text"`
+	Items    []WindowSyncBatchInputDifferentItem `json:"items"`
+	Urls     []string                            `json:"urls"`
+	Settings WindowSyncSettings                  `json:"settings"`
 }
 
 type WindowSyncToolbarConfig struct {
@@ -91,6 +98,10 @@ func (c *windowSyncToolbarController) Hide() error {
 		_ = server.Shutdown(ctx)
 		cancel()
 	}
+	return nil
+}
+
+func (c *windowSyncToolbarController) SetSize(width int, height int) error {
 	return nil
 }
 
@@ -308,6 +319,16 @@ func randomWindowSyncToolbarToken() (string, error) {
 }
 
 func windowSyncToolbarInitialConfig(port int, token string) string {
+	cfg := newWindowSyncToolbarConfig(port, token)
+	data, _ := json.Marshal(cfg)
+	return string(data)
+}
+
+func DefaultWindowSyncToolbarConfig() WindowSyncToolbarConfig {
+	return newWindowSyncToolbarConfig(0, "")
+}
+
+func newWindowSyncToolbarConfig(port int, token string) WindowSyncToolbarConfig {
 	area := primaryWorkArea()
 	xOffset := (area.Width - windowSyncToolbarWidth) / 2
 	if xOffset < 0 {
@@ -323,8 +344,7 @@ func windowSyncToolbarInitialConfig(port int, token string) string {
 		X:      x,
 		Y:      y,
 	}
-	data, _ := json.Marshal(cfg)
-	return string(data)
+	return cfg
 }
 
 func ParseWindowSyncToolbarArgs(args []string) WindowSyncToolbarConfig {

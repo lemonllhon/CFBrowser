@@ -14,9 +14,9 @@ import (
 	"time"
 
 	"ant-chrome/backend/internal/browser"
+	"ant-chrome/backend/internal/platform"
 
 	"github.com/google/uuid"
-	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 const extensionImportMaxArchiveBytes int64 = 300 * 1024 * 1024
@@ -131,9 +131,9 @@ func (a *App) BrowserExtensionChooseArchive() (map[string]interface{}, error) {
 	if a.ctx == nil {
 		return nil, fmt.Errorf("应用上下文未初始化")
 	}
-	path, err := wailsruntime.OpenFileDialog(a.ctx, wailsruntime.OpenDialogOptions{
+	path, err := a.appRuntime().OpenFileDialog(a.ctx, platform.OpenDialogOptions{
 		Title: "选择扩展插件压缩包",
-		Filters: []wailsruntime.FileFilter{
+		Filters: []platform.FileFilter{
 			{DisplayName: "扩展插件包 (*.zip;*.crx)", Pattern: "*.zip;*.crx"},
 			{DisplayName: "ZIP 文件 (*.zip)", Pattern: "*.zip"},
 			{DisplayName: "CRX 文件 (*.crx)", Pattern: "*.crx"},
@@ -153,7 +153,7 @@ func (a *App) BrowserExtensionChooseDirectory() (map[string]interface{}, error) 
 	if a.ctx == nil {
 		return nil, fmt.Errorf("应用上下文未初始化")
 	}
-	path, err := wailsruntime.OpenDirectoryDialog(a.ctx, wailsruntime.OpenDialogOptions{
+	path, err := a.appRuntime().OpenDirectoryDialog(a.ctx, platform.OpenDialogOptions{
 		Title: "选择扩展插件目录",
 	})
 	if err != nil {

@@ -7,17 +7,23 @@ import { ToastContainer, Modal, Button, Loading, Progress } from './shared/compo
 import { AlertCircle } from 'lucide-react'
 import { useNotificationStore } from './store/notificationStore'
 import { useBackupStore } from './store/backupStore'
-import { ForceQuit as ForceQuitApp, QuitAppOnly as QuitAppOnlyApp, SaveWindowState } from './wailsjs/go/main/App'
+import { forceQuitApp, quitAppOnly, saveWindowState } from './shared/backend/client'
 import {
   checkAppUpdate,
   downloadAppUpdate,
   downloadAndExtractPortableUpdate,
   installDownloadedAppUpdate,
+  onAppUpdateDownloadProgress,
+  onAppUpdatePending,
+  onAppUpdatePendingInstallFailed,
+  onAppUpdatePendingNotification,
   openPath,
   openAppReleasePage,
+  type AppUpdateDownloadProgress,
   type AppUpdateInfo,
+  type AppUpdatePendingUpdate,
 } from './modules/settings/api'
-import { Environment, Quit, WindowGetSize, WindowHide, WindowIsMaximised, WindowIsMinimised, WindowIsNormal, WindowMinimise } from './wailsjs/runtime/runtime'
+import { Environment, EventsOn, Quit, WindowGetSize, WindowHide, WindowIsMaximised, WindowIsMinimised, WindowIsNormal, WindowMinimise } from './shared/backend/runtime'
 
 function lazyNamed<TModule extends Record<string, ComponentType<any>>>(
   loader: () => Promise<TModule>,
@@ -63,7 +69,7 @@ async function saveNormalWindowSize() {
     const width = Math.round(Number(size?.w || 0))
     const height = Math.round(Number(size?.h || 0))
     if (width <= 0 || height <= 0) return
-    await SaveWindowState(width, height)
+    await saveWindowState(width, height)
   } catch {
     // 窗口状态保存失败不影响主流程。
   }
@@ -73,10 +79,7 @@ function useWailsNotifications() {
   const addNotification = useNotificationStore((s) => s.addNotification)
 
   useEffect(() => {
-    const runtime = (window as any).runtime
-    if (!runtime?.EventsOn) return
-
-    const offCrashed = runtime.EventsOn(
+    const offCrashed = EventsOn(
       'browser:instance:crashed',
       (data: { profileId: string; profileName: string; error: string }) => {
         addNotification({
@@ -87,7 +90,7 @@ function useWailsNotifications() {
       }
     )
 
-    const offBridgeFailed = runtime.EventsOn(
+    const offBridgeFailed = EventsOn(
       'proxy:bridge:failed',
       (data: { profileId: string; profileName: string; error: string }) => {
         addNotification({
@@ -98,7 +101,7 @@ function useWailsNotifications() {
       }
     )
 
-    const offBridgeDied = runtime.EventsOn(
+    const offBridgeDied = EventsOn(
       'proxy:bridge:died',
       (data: { key: string; error: string }) => {
         addNotification({
@@ -109,9 +112,8 @@ function useWailsNotifications() {
       }
     )
 
-    const offPendingUpdate = runtime.EventsOn(
-      'app:update:pending:notification',
-      (data: { version?: string; message?: string }) => {
+    const offPendingUpdate = onAppUpdatePendingNotification(
+      (data) => {
         addNotification({
           type: 'info',
           title: '更新已准备好',
@@ -120,9 +122,8 @@ function useWailsNotifications() {
       }
     )
 
-    const offPendingInstallFailed = runtime.EventsOn(
-      'app:update:pending:install-failed',
-      (data: { version?: string; error?: string }) => {
+    const offPendingInstallFailed = onAppUpdatePendingInstallFailed(
+      (data) => {
         addNotification({
           type: 'error',
           title: '自动安装更新失败',
@@ -141,19 +142,8 @@ function useWailsNotifications() {
   }, [addNotification])
 }
 
-type PendingUpdateInfo = {
-  version?: string
-  installerPath?: string
-  releaseUrl?: string
-  extractedPath?: string
-  installOnNextStart?: boolean
-}
-
-type UpdateProgressInfo = {
-  phase: string
-  progress: number
-  message: string
-}
+type PendingUpdateInfo = AppUpdatePendingUpdate
+type UpdateProgressInfo = AppUpdateDownloadProgress
 
 function useAutoUpdateCheck() {
   const addNotification = useNotificationStore((s) => s.addNotification)
@@ -191,9 +181,7 @@ function useAutoUpdateCheck() {
   }, [addNotification])
 
   useEffect(() => {
-    const runtime = (window as any).runtime
-    if (!runtime?.EventsOn) return
-    const off = runtime.EventsOn('app:update:pending', (data: PendingUpdateInfo) => {
+    const off = onAppUpdatePending((data: PendingUpdateInfo) => {
       setPendingUpdate(data || {})
       setOpen(true)
       addNotification({
@@ -208,9 +196,7 @@ function useAutoUpdateCheck() {
   }, [addNotification])
 
   useEffect(() => {
-    const runtime = (window as any).runtime
-    if (!runtime?.EventsOn) return
-    const off = runtime.EventsOn('app:update:download:progress', (data: UpdateProgressInfo) => {
+    const off = onAppUpdateDownloadProgress((data: UpdateProgressInfo) => {
       if (!data || typeof data !== 'object') return
       setUpdateProgress({
         phase: String(data.phase || 'downloading'),
@@ -406,10 +392,7 @@ function CloseConfirmModal() {
   const quitting = quittingAction !== null
 
   useEffect(() => {
-    const runtime = (window as any).runtime
-    if (!runtime?.EventsOn) return
-
-    const off = runtime.EventsOn('app:request-close', () => {
+    const off = EventsOn('app:request-close', () => {
       setQuittingAction(null)
       setOpen(true)
     })
@@ -453,7 +436,7 @@ function CloseConfirmModal() {
     setQuittingAction('app-only')
     try {
       await saveNormalWindowSize()
-      await QuitAppOnlyApp()
+      await quitAppOnly()
     } catch (error) {
       console.error('QuitAppOnly failed', error)
       setQuittingAction(null)
@@ -465,7 +448,7 @@ function CloseConfirmModal() {
     try {
       await saveNormalWindowSize()
       await Promise.race([
-        ForceQuitApp(),
+        forceQuitApp(),
         new Promise((resolve) => setTimeout(resolve, 1200)),
       ])
     } catch (error) {

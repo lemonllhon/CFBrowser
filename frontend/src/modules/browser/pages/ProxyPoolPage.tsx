@@ -3,8 +3,7 @@ import { Sliders } from 'lucide-react'
 import { Button, Card, ConfirmModal, FormItem, Input, Modal, Select, Switch, Table, Textarea, toast } from '../../../shared/components'
 import type { SortOrder, TableColumn } from '../../../shared/components/Table'
 import type { BrowserProxy, ProxyIPHealthResult } from '../types'
-import { fetchBrowserProxies, fetchBrowserProxyGroups, saveBrowserProxies, browserProxyTestSpeed, browserProxyBatchTestSpeed, browserProxyPreviewBatchTestSpeed, browserProxyCheckIPHealth, browserProxyBatchCheckIPHealth, browserProxyPreviewBatchCheckIPHealth, fetchClashImportFromURL } from '../api'
-import { EventsOn } from '../../../wailsjs/runtime/runtime'
+import { fetchBrowserProxies, fetchBrowserProxyGroups, saveBrowserProxies, browserProxyTestSpeed, browserProxyBatchTestSpeed, browserProxyPreviewBatchTestSpeed, browserProxyCheckIPHealth, browserProxyBatchCheckIPHealth, browserProxyPreviewBatchCheckIPHealth, fetchClashImportFromURL, onBrowserProxyIPHealthResult, onBrowserProxyPreviewIPHealthResult, onBrowserProxyPreviewSpeedResult, onBrowserProxySpeedResult } from '../api'
 import yaml from 'js-yaml'
 
 // 内置代理 ID，不可删除、不可编辑
@@ -1961,7 +1960,7 @@ export function ProxyPoolPage() {
     setLatencyMap(prev => ({ ...prev, ...init }))
 
     // 监听后端实时推送的单个测速结果
-    const off = EventsOn('proxy:speed:result', (data: { proxyId: string; ok: boolean; latencyMs: number; error: string }) => {
+    const off = onBrowserProxySpeedResult((data: { proxyId: string; ok: boolean; latencyMs: number; error: string }) => {
       const val = toLatencyValue(data.ok, data.latencyMs, data.error)
       setLatencyMap(prev => ({ ...prev, [data.proxyId]: val }))
     })
@@ -2014,7 +2013,7 @@ export function ProxyPoolPage() {
     const idSet = new Set(ids)
     setCheckingIPHealthIds(prev => new Set([...Array.from(prev), ...ids]))
 
-    const off = EventsOn('proxy:iphealth:result', (data: ProxyIPHealthResult) => {
+    const off = onBrowserProxyIPHealthResult((data: ProxyIPHealthResult) => {
       if (!data?.proxyId || !idSet.has(data.proxyId)) return
       setIPHealthMap(prev => ({ ...prev, [data.proxyId]: data }))
       setCheckingIPHealthIds(prev => {
@@ -2162,7 +2161,7 @@ export function ProxyPoolPage() {
     setPreviewLatencyMap(prev => ({ ...prev, ...init }))
 
     const idSet = new Set(testable.map(p => p.proxyId))
-    const off = EventsOn('proxy:preview:speed:result', (data: { proxyId: string; ok: boolean; latencyMs: number; error: string }) => {
+    const off = onBrowserProxyPreviewSpeedResult((data: { proxyId: string; ok: boolean; latencyMs: number; error: string }) => {
       if (!data?.proxyId || !idSet.has(data.proxyId)) return
       setPreviewLatencyMap(prev => ({ ...prev, [data.proxyId]: toLatencyValue(data.ok, data.latencyMs, data.error) }))
     })
@@ -2204,7 +2203,7 @@ export function ProxyPoolPage() {
     const idSet = new Set(ids)
     setPreviewCheckingIPHealthIds(prev => new Set([...Array.from(prev), ...ids]))
 
-    const off = EventsOn('proxy:preview:iphealth:result', (data: ProxyIPHealthResult) => {
+    const off = onBrowserProxyPreviewIPHealthResult((data: ProxyIPHealthResult) => {
       if (!data?.proxyId || !idSet.has(data.proxyId)) return
       setPreviewIPHealthMap(prev => ({ ...prev, [data.proxyId]: data }))
       setPreviewCheckingIPHealthIds(prev => {

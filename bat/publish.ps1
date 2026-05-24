@@ -96,52 +96,62 @@ function Resolve-Version {
     }
 
     Write-Host "[1/3] 读取版本号..."
-    $wailsConfigPath = Join-Path $repoRoot "wails.json"
-    if (-not (Test-Path -LiteralPath $wailsConfigPath -PathType Leaf)) {
-        throw "无法读取版本号：缺少 wails.json"
+    $buildConfigPath = Join-Path $repoRoot "build/config.yml"
+    if (-not (Test-Path -LiteralPath $buildConfigPath -PathType Leaf)) {
+        throw "无法读取版本号：缺少 build/config.yml"
     }
 
-    $wailsConfig = Get-Content -LiteralPath $wailsConfigPath -Raw | ConvertFrom-Json
-    $resolvedVersion = Get-TrimmedText ([string]$wailsConfig.info.productVersion)
+    $configText = Get-Content -LiteralPath $buildConfigPath -Raw
+    $versionPattern = '(?m)^(\s{2}version:\s*["'']?)([^"''\r\n]+)(["'']?)\s*$'
+    $match = [regex]::Match($configText, $versionPattern)
+    if (-not $match.Success) {
+        throw "无法从 build/config.yml 读取 info.version"
+    }
+    $resolvedVersion = Get-TrimmedText ([string]$match.Groups[2].Value)
     if ($resolvedVersion -eq "") {
-        throw "无法从 wails.json 读取版本号"
+        throw "无法从 build/config.yml 读取版本号"
     }
 
-    $script:Version = Assert-VersionValue -Value $resolvedVersion -Source "wails.json productVersion"
+    $script:Version = Assert-VersionValue -Value $resolvedVersion -Source "build/config.yml info.version"
     Write-Host "✓ 版本号: $script:Version"
     Write-Host ""
 }
 
-function Invoke-WithTemporaryWailsVersion {
+function Invoke-WithTemporaryBuildVersion {
     param(
         [Parameter(Mandatory = $true)]
         [scriptblock]$ScriptBlock
     )
 
-    $wailsConfigPath = Join-Path $repoRoot "wails.json"
-    if (-not (Test-Path -LiteralPath $wailsConfigPath -PathType Leaf)) {
+    $buildConfigPath = Join-Path $repoRoot "build/config.yml"
+    if (-not (Test-Path -LiteralPath $buildConfigPath -PathType Leaf)) {
         & $ScriptBlock
         return
     }
 
-    $currentConfig = Get-Content -LiteralPath $wailsConfigPath -Raw | ConvertFrom-Json
-    $currentVersion = Get-TrimmedText ([string]$currentConfig.info.productVersion)
+    $configText = Get-Content -LiteralPath $buildConfigPath -Raw
+    $versionPattern = '(?m)^(\s{2}version:\s*["'']?)([^"''\r\n]+)(["'']?)\s*$'
+    $match = [regex]::Match($configText, $versionPattern)
+    if (-not $match.Success) {
+        & $ScriptBlock
+        return
+    }
+    $currentVersion = Get-TrimmedText ([string]$match.Groups[2].Value)
     if ($currentVersion -eq $script:Version) {
         & $ScriptBlock
         return
     }
 
-    Write-Host "  临时覆盖 wails.json productVersion: $currentVersion -> $script:Version"
-    $originalBytes = [System.IO.File]::ReadAllBytes($wailsConfigPath)
+    Write-Host "  临时覆盖 build/config.yml info.version: $currentVersion -> $script:Version"
+    $originalBytes = [System.IO.File]::ReadAllBytes($buildConfigPath)
     try {
-        $currentConfig.info.productVersion = $script:Version
         $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-        $jsonText = ($currentConfig | ConvertTo-Json -Depth 100)
-        [System.IO.File]::WriteAllText($wailsConfigPath, $jsonText + "`n", $utf8NoBom)
+        $updatedText = [regex]::Replace($configText, $versionPattern, "`${1}$script:Version`${3}", 1)
+        [System.IO.File]::WriteAllText($buildConfigPath, $updatedText, $utf8NoBom)
         & $ScriptBlock
     }
     finally {
-        [System.IO.File]::WriteAllBytes($wailsConfigPath, $originalBytes)
+        [System.IO.File]::WriteAllBytes($buildConfigPath, $originalBytes)
     }
 }
 
@@ -239,7 +249,7 @@ function Build-WindowsBinary {
         "go.mod",
         "go.sum",
         "main.go",
-        "wails.json"
+        "build/config.yml"
     )
 
     $previousGoProxy = $env:GOPROXY
@@ -256,7 +266,16 @@ function Build-WindowsBinary {
         finally {
             Pop-Location
         }
-        Invoke-NativeCommand -FilePath "wails" -Arguments @("build")
+        $wailsCommand = if (-not [string]::IsNullOrWhiteSpace($env:WAILS_BIN)) {
+            $env:WAILS_BIN
+        }
+        elseif (-not [string]::IsNullOrWhiteSpace($env:WAILS3_BIN)) {
+            $env:WAILS3_BIN
+        }
+        else {
+            "wails3"
+        }
+        Invoke-NativeCommand -FilePath $wailsCommand -Arguments @("build")
     }
     finally {
         $env:GOPROXY = $previousGoProxy
@@ -521,6 +540,31 @@ function Invoke-WindowsPackaging {
     Write-Host ""
 }
 
+function New-WindowsSelfUpdatePackage {
+    Write-Host "[Windows] 生成 Wails3 self-update ZIP..."
+    $outputDir = Join-Path $repoRoot "publish/output"
+    if (-not (Test-Path -LiteralPath $outputDir)) {
+        New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
+    }
+
+    $selfUpdateRoot = Join-Path $env:TEMP ("trace-browser-selfupdate-" + [guid]::NewGuid().ToString("N"))
+    $selfUpdatePath = Join-Path $outputDir "TraceBrowser-SelfUpdate-$script:Version-windows-amd64.zip"
+    try {
+        New-Item -ItemType Directory -Path $selfUpdateRoot -Force | Out-Null
+        Copy-Item -LiteralPath (Join-Path $repoRoot "build/bin/trace-browser.exe") -Destination (Join-Path $selfUpdateRoot "trace-browser.exe") -Force
+        Remove-Item -LiteralPath $selfUpdatePath -Force -ErrorAction SilentlyContinue
+        Compress-Archive -Path (Join-Path $selfUpdateRoot "*") -DestinationPath $selfUpdatePath -CompressionLevel Optimal
+        if (-not (Test-Path -LiteralPath $selfUpdatePath -PathType Leaf)) {
+            throw "Wails3 self-update ZIP 未生成: $selfUpdatePath"
+        }
+        Write-Host "✓ Wails3 self-update ZIP: publish\output\TraceBrowser-SelfUpdate-$script:Version-windows-amd64.zip"
+        Write-Host ""
+    }
+    finally {
+        Remove-Item -LiteralPath $selfUpdateRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Remove-WindowsStaging {
     param([string]$StagingDir)
 
@@ -544,6 +588,7 @@ function Publish-Windows {
     try {
         $stagingDir = New-WindowsStaging
         Invoke-WindowsPackaging -MakensisPath $makensisPath -StagingDir $stagingDir
+        New-WindowsSelfUpdatePackage
     }
     finally {
         Remove-WindowsStaging -StagingDir $stagingDir
@@ -592,7 +637,7 @@ try {
     Resolve-Version -ExplicitVersion $Version
     $publishTarget = Resolve-PublishTarget -InputTarget $Target
 
-    Invoke-WithTemporaryWailsVersion {
+    Invoke-WithTemporaryBuildVersion {
         switch ($publishTarget) {
             "WINDOWS" {
                 Publish-Windows
