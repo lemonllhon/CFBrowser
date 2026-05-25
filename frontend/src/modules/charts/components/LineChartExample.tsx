@@ -1,4 +1,4 @@
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { maxValue, pathFor, pointsFor, SvgChart } from './SvgChart';
 
 const data = [
   { name: '周一', 访问量: 4000, 用户数: 2400 },
@@ -11,43 +11,23 @@ const data = [
 ];
 
 export function LineChartExample() {
+  const series = [
+    { key: '访问量', color: 'var(--color-accent)' },
+    { key: '用户数', color: '#82ca9d' },
+  ];
+  const max = maxValue(data, series.map((item) => item.key));
+
   return (
-    <ResponsiveContainer width="100%" height="100%">
-      <LineChart
-        data={data}
-        margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-      >
-        <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border-muted)" />
-        <XAxis 
-          dataKey="name" 
-          tick={{ fill: 'var(--color-text-secondary)' }}
-        />
-        <YAxis 
-          tick={{ fill: 'var(--color-text-secondary)' }}
-        />
-        <Tooltip
-          contentStyle={{
-            backgroundColor: 'var(--color-bg-default)',
-            borderColor: 'var(--color-border-default)',
-            color: 'var(--color-text-primary)'
-          }}
-        />
-        <Legend wrapperStyle={{ color: 'var(--color-text-primary)' }} />
-        <Line 
-          type="monotone" 
-          dataKey="访问量" 
-          stroke="var(--color-accent)" 
-          strokeWidth={2}
-          activeDot={{ r: 6 }}
-        />
-        <Line 
-          type="monotone" 
-          dataKey="用户数" 
-          stroke="#82ca9d" 
-          strokeWidth={2}
-          activeDot={{ r: 6 }}
-        />
-      </LineChart>
-    </ResponsiveContainer>
+    <SvgChart data={data} max={max} legend={series.map(({ key, color }) => ({ label: key, color }))}>
+      {series.map(({ key, color }) => {
+        const points = pointsFor(data, key, max);
+        return (
+          <g key={key}>
+            <path d={pathFor(points)} fill="none" stroke={color} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+            {points.map((point, index) => <circle key={index} cx={point.x} cy={point.y} r="4" fill="var(--color-bg-surface)" stroke={color} strokeWidth="2" />)}
+          </g>
+        );
+      })}
+    </SvgChart>
   );
 }

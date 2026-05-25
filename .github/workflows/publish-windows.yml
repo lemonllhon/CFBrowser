@@ -150,7 +150,11 @@ jobs:
           GOPROXY: https://proxy.golang.org,direct
           TRACE_BROWSER_VERSION: ${{ steps.version.outputs.version }}
           VERSION: ${{ steps.version.outputs.version }}
-        run: wails3 build
+        run: |
+          Push-Location frontend
+          npm run build
+          Pop-Location
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-wails3-windows.ps1 -Output build/bin/trace-browser.exe
 
       - name: Verify runtime binaries
         run: |

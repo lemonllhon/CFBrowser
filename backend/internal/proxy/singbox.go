@@ -285,7 +285,9 @@ func (m *SingBoxManager) stopBridgeProcess(bridge *SingBoxBridge) {
 	if bridge == nil || bridge.Cmd == nil || bridge.Cmd.Process == nil {
 		return
 	}
-	_ = bridge.Cmd.Process.Kill()
+	if err := stopProcessTree(bridge.Cmd); err != nil {
+		logger.New("SingBox").Warn("sing-box 桥接进程停止失败", logger.F("pid", bridge.Pid), logger.F("error", err.Error()))
+	}
 }
 
 func (m *SingBoxManager) resolveBinary() (string, error) {

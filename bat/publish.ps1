@@ -264,22 +264,22 @@ function Build-WindowsBinary {
             Write-Host "[Windows] 预检前端依赖..."
             Invoke-NativeCommand -FilePath "npm" -Arguments @("ci", "--prefer-offline", "--no-audit", "--no-fund")
             Invoke-NativeCommand -FilePath "npm" -Arguments @("run", "ensure:native")
+            Invoke-NativeCommand -FilePath "npm" -Arguments @("run", "build")
             Write-Host "✓ 前端依赖已就绪"
             Write-Host ""
         }
         finally {
             Pop-Location
         }
-        $wailsCommand = if (-not [string]::IsNullOrWhiteSpace($env:WAILS_BIN)) {
-            $env:WAILS_BIN
-        }
-        elseif (-not [string]::IsNullOrWhiteSpace($env:WAILS3_BIN)) {
-            $env:WAILS3_BIN
-        }
-        else {
-            "wails3"
-        }
-        Invoke-NativeCommand -FilePath $wailsCommand -Arguments @("build")
+        Invoke-NativeCommand -FilePath "powershell" -Arguments @(
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            "scripts\build-wails3-windows.ps1",
+            "-Output",
+            $binaryPath
+        )
     }
     finally {
         $env:GOPROXY = $previousGoProxy

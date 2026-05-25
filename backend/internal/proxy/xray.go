@@ -42,11 +42,11 @@ type XrayManager struct {
 // NewXrayManager 创建 Xray 管理器
 func NewXrayManager(cfg *config.Config, appRoot string) *XrayManager {
 	manager := &XrayManager{
-		Config:  cfg,
-		AppRoot: appRoot,
-		Bridges: make(map[string]*XrayBridge),
+		Config:      cfg,
+		AppRoot:     appRoot,
+		Bridges:     make(map[string]*XrayBridge),
 		launchLocks: make(map[string]*sync.Mutex),
-		stopCh:  make(chan struct{}),
+		stopCh:      make(chan struct{}),
 	}
 	go manager.cleanupLoop()
 	return manager
@@ -478,7 +478,9 @@ func (m *XrayManager) stopBridgeProcess(bridge *XrayBridge) {
 	if bridge == nil || bridge.Cmd == nil || bridge.Cmd.Process == nil {
 		return
 	}
-	_ = bridge.Cmd.Process.Kill()
+	if err := stopProcessTree(bridge.Cmd); err != nil {
+		logger.New("Xray").Warn("xray 桥接进程停止失败", logger.F("pid", bridge.Pid), logger.F("error", err.Error()))
+	}
 }
 
 func (m *XrayManager) resolveBinary() (string, error) {

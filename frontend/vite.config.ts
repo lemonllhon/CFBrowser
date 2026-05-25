@@ -58,6 +58,26 @@ const devPort = resolveDevPort()
 const disableHmr = resolveBoolean(process.env.FRONTEND_DISABLE_HMR, false)
 const buildVersion = resolveBuildVersion()
 
+function resolveManualChunk(id: string) {
+  if (!id.includes('node_modules')) {
+    return undefined
+  }
+
+  if (/[\\/]node_modules[\\/](react|react-dom|react-router-dom)[\\/]/.test(id)) {
+    return 'react-vendor'
+  }
+
+  if (/[\\/]node_modules[\\/](react-markdown|remark-|rehype-|mdast-|hast-|micromark|unified|unist-|vfile|bail|comma-separated-tokens|decode-named-character-reference|devlop|html-url-attributes|is-plain-obj|markdown-table|property-information|space-separated-tokens|trim-lines|trough|zwitch)[\\/]/.test(id)) {
+    return 'markdown-vendor'
+  }
+
+  if (/[\\/]node_modules[\\/](js-yaml|argparse)[\\/]/.test(id)) {
+    return 'yaml-vendor'
+  }
+
+  return undefined
+}
+
 export default defineConfig({
   plugins: [react()],
   define: {
@@ -81,9 +101,7 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       output: {
-        manualChunks: {
-          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
-        },
+        manualChunks: resolveManualChunk,
       },
     },
   },

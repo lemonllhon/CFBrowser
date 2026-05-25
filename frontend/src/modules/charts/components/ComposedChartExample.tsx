@@ -1,4 +1,4 @@
-import { ComposedChart, Line, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { areaPathFor, maxValue, pathFor, plot, pointsFor, SvgChart, valueOf, xAt, yAt } from './SvgChart';
 
 const data = [
   { name: 'Q1', 收入: 800, 支出: 300, 利润: 500, 增长率: 20 },
@@ -10,67 +10,45 @@ const data = [
 ];
 
 export function ComposedChartExample() {
+  const amountMax = maxValue(data, ['收入', '支出', '利润']);
+  const growthMax = maxValue(data, ['增长率']);
+  const barWidth = Math.min(24, plot.innerWidth / data.length / 4);
+  const profitPoints = pointsFor(data, '利润', amountMax);
+  const growthPoints = data.map((point, index) => ({
+    x: xAt(index, data.length),
+    y: yAt(valueOf(point, '增长率'), growthMax),
+  }));
+
   return (
-    <ResponsiveContainer width="100%" height="100%">
-      <ComposedChart
-        data={data}
-        margin={{ top: 20, right: 20, bottom: 20, left: 20 }}
-      >
-        <CartesianGrid stroke="var(--color-border-muted)" strokeDasharray="3 3" />
-        <XAxis 
-          dataKey="name" 
-          tick={{ fill: 'var(--color-text-secondary)' }}
-          label={{ value: '季度', position: 'insideBottomRight', offset: 0, fill: 'var(--color-text-secondary)' }}
-        />
-        <YAxis 
-          yAxisId="left"
-          tick={{ fill: 'var(--color-text-secondary)' }}
-          label={{ value: '金额 (万元)', angle: -90, position: 'insideLeft', fill: 'var(--color-text-secondary)' }}
-        />
-        <YAxis
-          yAxisId="right"
-          orientation="right"
-          tick={{ fill: 'var(--color-text-secondary)' }}
-          label={{ value: '增长率 (%)', angle: 90, position: 'insideRight', fill: 'var(--color-text-secondary)' }}
-        />
-        <Tooltip
-          contentStyle={{
-            backgroundColor: 'var(--color-bg-default)',
-            borderColor: 'var(--color-border-default)',
-            color: 'var(--color-text-primary)'
-          }}
-        />
-        <Legend wrapperStyle={{ color: 'var(--color-text-primary)' }} />
-        <Area 
-          yAxisId="left" 
-          dataKey="利润" 
-          fill="#8884d8" 
-          stroke="#8884d8"
-          fillOpacity={0.3} 
-        />
-        <Bar 
-          yAxisId="left" 
-          dataKey="收入" 
-          barSize={20} 
-          fill="var(--color-accent)"
-          radius={[4, 4, 0, 0]}
-        />
-        <Bar 
-          yAxisId="left" 
-          dataKey="支出" 
-          barSize={20} 
-          fill="#82ca9d" 
-          radius={[4, 4, 0, 0]}
-        />
-        <Line 
-          yAxisId="right" 
-          dataKey="增长率" 
-          type="monotone" 
-          stroke="#ff7300"
-          strokeWidth={2}
-          activeDot={{ r: 6 }} 
-        />
-      </ComposedChart>
-    </ResponsiveContainer>
+    <SvgChart
+      data={data}
+      max={amountMax}
+      legend={[
+        { label: '收入', color: 'var(--color-accent)' },
+        { label: '支出', color: '#82ca9d' },
+        { label: '利润', color: '#8884d8' },
+        { label: '增长率', color: '#ff7300' },
+      ]}
+    >
+      <path d={areaPathFor(profitPoints)} fill="#8884d8" opacity="0.18" />
+      <path d={pathFor(profitPoints)} fill="none" stroke="#8884d8" strokeWidth="2.5" />
+      {data.map((point, index) => {
+        const center = xAt(index, data.length);
+        return (
+          <g key={point.name}>
+            {(['收入', '支出'] as const).map((key, keyIndex) => {
+              const height = (valueOf(point, key) / amountMax) * plot.innerHeight;
+              const x = center + (keyIndex === 0 ? -barWidth - 3 : 3);
+              return <rect key={key} x={x} y={plot.bottom - height} width={barWidth} height={height} rx="5" fill={keyIndex === 0 ? 'var(--color-accent)' : '#82ca9d'} />;
+            })}
+          </g>
+        );
+      })}
+      <path d={pathFor(growthPoints)} fill="none" stroke="#ff7300" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+      {growthPoints.map((point, index) => <circle key={index} cx={point.x} cy={point.y} r="4" fill="var(--color-bg-surface)" stroke="#ff7300" strokeWidth="2" />)}
+      <text x={plot.right} y={plot.top - 8} textAnchor="end" className="fill-[var(--color-text-muted)] text-[11px]">
+        右轴：增长率最高 {growthMax}%
+      </text>
+    </SvgChart>
   );
 }

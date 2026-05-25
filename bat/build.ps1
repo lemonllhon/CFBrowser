@@ -45,32 +45,12 @@ function Assert-RequiredSourceFiles {
     }
 }
 
-function Resolve-WailsBinary {
-    param(
-        [Parameter(Mandatory = $true)]
-        [ValidateSet("3")]
-        [string]$Version,
-        [string]$ExplicitPath
-    )
-
-    $candidate = $ExplicitPath
-    if ([string]::IsNullOrWhiteSpace($candidate)) {
-        if (-not [string]::IsNullOrWhiteSpace($env:WAILS3_BIN)) {
-            $candidate = $env:WAILS3_BIN
-        }
-    }
-    if ([string]::IsNullOrWhiteSpace($candidate)) {
-        $candidate = "wails3"
-    }
-
-    & $candidate version | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        throw "Cannot run Wails v$Version command '$candidate'. Set WAILS_BIN or WAILS3_BIN."
-    }
-    return $candidate
-}
-
 try {
+    $previousWailsBin = $env:WAILS_BIN
+    if (-not [string]::IsNullOrWhiteSpace($WailsBin)) {
+        $env:WAILS_BIN = $WailsBin
+    }
+
     Write-Host "========================================"
     Write-Host "  Trace Browser - Build Script"
     Write-Host "========================================"
@@ -79,11 +59,10 @@ try {
     Write-Host "Wails target: v$WailsVersion"
     Write-Host ""
 
-    $wailsCommand = Resolve-WailsBinary -Version $WailsVersion -ExplicitPath $WailsBin
-
-    $proxyHost = "127.0.0.1"
-    $proxyPort = "7890"
-    $useProxy = $true
+    $proxyHost = if ($env:TRACE_BUILD_PROXY_HOST) { $env:TRACE_BUILD_PROXY_HOST } else { "127.0.0.1" }
+    $proxyPort = if ($env:TRACE_BUILD_PROXY_PORT) { $env:TRACE_BUILD_PROXY_PORT } else { "7890" }
+    $useProxy = $env:TRACE_BUILD_USE_PROXY -in @("1", "true", "TRUE", "yes", "YES", "on", "ON")
+    $scriptConfiguredNpmProxy = $false
 
     if ($useProxy) {
         Write-Host "[0/7] Configuring proxy..."
@@ -96,6 +75,7 @@ try {
 
         & npm config set proxy $proxyValue | Out-Null
         & npm config set https-proxy $proxyValue | Out-Null
+        $scriptConfiguredNpmProxy = $true
 
         Write-Host "OK proxy configured: ${proxyHost}:${proxyPort}"
         Write-Host ""
@@ -125,7 +105,12 @@ try {
     Write-Host "[2/8] Installing frontend dependencies..."
     Push-Location (Join-Path $repoRoot "frontend")
     try {
-        Invoke-NativeCommand -FilePath "npm" -Arguments @("install")
+        if (Test-Path -LiteralPath "package-lock.json" -PathType Leaf) {
+            Invoke-NativeCommand -FilePath "npm" -Arguments @("ci", "--prefer-offline", "--no-audit", "--no-fund")
+        }
+        else {
+            Invoke-NativeCommand -FilePath "npm" -Arguments @("install")
+        }
         Invoke-NativeCommand -FilePath "npm" -Arguments @("run", "ensure:native")
     }
     finally {
@@ -135,7 +120,6 @@ try {
     Write-Host ""
     Write-Host "[3/8] Installing Go dependencies..."
     Invoke-NativeCommand -FilePath "go" -Arguments @("mod", "download")
-    Invoke-NativeCommand -FilePath "go" -Arguments @("mod", "tidy")
 
     Write-Host ""
     Write-Host "[4/8] Ensuring frontend\dist exists..."
@@ -171,7 +155,15 @@ try {
 
     Write-Host ""
     Write-Host "[7/8] Building app..."
-    Invoke-NativeCommand -FilePath $wailsCommand -Arguments @("build")
+    Invoke-NativeCommand -FilePath "powershell" -Arguments @(
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "scripts\build-wails3-windows.ps1",
+        "-Output",
+        $binaryPath
+    )
 
     if ($tempDistCreated -and (Test-Path -LiteralPath $frontendDist)) {
         Remove-Item -LiteralPath $frontendDist -Recurse -Force -ErrorAction SilentlyContinue
@@ -202,6 +194,9 @@ catch {
     exit 1
 }
 finally {
-    & npm config delete proxy 2>$null | Out-Null
-    & npm config delete https-proxy 2>$null | Out-Null
+    $env:WAILS_BIN = $previousWailsBin
+    if ($scriptConfiguredNpmProxy) {
+        & npm config delete proxy 2>$null | Out-Null
+        & npm config delete https-proxy 2>$null | Out-Null
+    }
 }

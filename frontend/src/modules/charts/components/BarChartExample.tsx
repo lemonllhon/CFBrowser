@@ -1,4 +1,4 @@
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { maxValue, plot, SvgChart, valueOf, xAt } from './SvgChart';
 
 const data = [
   { name: '1月', 产品A: 4000, 产品B: 2400 },
@@ -11,33 +11,23 @@ const data = [
 ];
 
 export function BarChartExample() {
+  const keys = ['产品A', '产品B'];
+  const colors = ['var(--color-accent)', '#82ca9d'];
+  const max = maxValue(data, keys);
+  const groupWidth = Math.min(58, plot.innerWidth / data.length - 18);
+  const barWidth = groupWidth / keys.length - 4;
+
   return (
-    <ResponsiveContainer width="100%" height="100%">
-      <BarChart
-        data={data}
-        margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-      >
-        <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border-muted)" />
-        <XAxis 
-          dataKey="name" 
-          tick={{ fill: 'var(--color-text-secondary)' }}
-        />
-        <YAxis 
-          tick={{ fill: 'var(--color-text-secondary)' }}
-        />
-        <Tooltip
-          contentStyle={{
-            backgroundColor: 'var(--color-bg-default)',
-            borderColor: 'var(--color-border-default)',
-            color: 'var(--color-text-primary)'
-          }}
-        />
-        <Legend 
-          wrapperStyle={{ color: 'var(--color-text-primary)' }}
-        />
-        <Bar dataKey="产品A" fill="var(--color-accent)" radius={[4, 4, 0, 0]} />
-        <Bar dataKey="产品B" fill="#82ca9d" radius={[4, 4, 0, 0]} />
-      </BarChart>
-    </ResponsiveContainer>
+    <SvgChart data={data} max={max} legend={keys.map((label, index) => ({ label, color: colors[index] }))}>
+      {data.map((point, index) => {
+        const center = xAt(index, data.length);
+        return keys.map((key, keyIndex) => {
+          const height = (valueOf(point, key) / max) * plot.innerHeight;
+          const x = center - groupWidth / 2 + keyIndex * (barWidth + 8);
+          const y = plot.bottom - height;
+          return <rect key={`${point.name}-${key}`} x={x} y={y} width={barWidth} height={height} rx="5" fill={colors[keyIndex]} />;
+        });
+      })}
+    </SvgChart>
   );
 }

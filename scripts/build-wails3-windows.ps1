@@ -87,15 +87,29 @@ if ([string]::IsNullOrWhiteSpace($goarch)) {
     $goarch = "amd64"
 }
 
-$wails3Command = Get-Command wails3 -ErrorAction SilentlyContinue
-$wails3Path = if ($null -ne $wails3Command) { $wails3Command.Source } else { "" }
+if (-not [string]::IsNullOrWhiteSpace($env:WAILS_BIN)) {
+    $wails3Path = $env:WAILS_BIN
+}
+elseif (-not [string]::IsNullOrWhiteSpace($env:WAILS3_BIN)) {
+    $wails3Path = $env:WAILS3_BIN
+}
+else {
+    $wails3Command = Get-Command wails3 -ErrorAction SilentlyContinue
+    $wails3Path = if ($null -ne $wails3Command) { $wails3Command.Source } else { "" }
+}
 if ([string]::IsNullOrWhiteSpace($wails3Path)) {
     $localWails3 = Join-Path (Get-Location) ".tmp/go/bin/wails3.exe"
     if (Test-Path -LiteralPath $localWails3 -PathType Leaf) {
         $wails3Path = $localWails3
     }
 }
-if ([string]::IsNullOrWhiteSpace($wails3Path)) {
+if (-not [string]::IsNullOrWhiteSpace($wails3Path) -and -not (Test-Path -LiteralPath $wails3Path -PathType Leaf)) {
+    $resolvedWails3Command = Get-Command $wails3Path -ErrorAction SilentlyContinue
+    if ($null -ne $resolvedWails3Command) {
+        $wails3Path = $resolvedWails3Command.Source
+    }
+}
+if ([string]::IsNullOrWhiteSpace($wails3Path) -or -not (Test-Path -LiteralPath $wails3Path -PathType Leaf)) {
     throw "wails3 command not found; cannot generate Windows executable resources"
 }
 
@@ -138,8 +152,10 @@ if ($versionMatch.Success) {
 }
 $manifestTemplate = Get-Content -LiteralPath $manifestPath -Raw
 $tempManifestPath = Join-Path $tempDir "windows-manifest-$goarch.xml"
-$resolvedManifest = [regex]::Replace($manifestTemplate, '(<assemblyIdentity\b[^>]*\bname=")[^"]+(")', "`${1}$productIdentifier`${2}", 1)
-$resolvedManifest = [regex]::Replace($resolvedManifest, '(<assemblyIdentity\b[^>]*\bversion=")[^"]+(")', "`${1}$manifestVersion`${2}", 1)
+$assemblyNamePattern = [regex]::new('(<assemblyIdentity\b[^>]*\bname=")[^"]+(")')
+$assemblyVersionPattern = [regex]::new('(<assemblyIdentity\b[^>]*\bversion=")[^"]+(")')
+$resolvedManifest = $assemblyNamePattern.Replace($manifestTemplate, "`${1}$productIdentifier`${2}", 1)
+$resolvedManifest = $assemblyVersionPattern.Replace($resolvedManifest, "`${1}$manifestVersion`${2}", 1)
 [System.IO.File]::WriteAllText($tempManifestPath, $resolvedManifest, $utf8NoBom)
 
 try {

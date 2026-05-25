@@ -1,4 +1,4 @@
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { areaPathFor, maxValue, pathFor, pointsFor, SvgChart } from './SvgChart';
 
 const data = [
   { name: '周一', 系统A: 4000, 系统B: 2400, 系统C: 1800 },
@@ -11,55 +11,24 @@ const data = [
 ];
 
 export function AreaChartExample() {
+  const series = [
+    { key: '系统A', color: '#8884d8' },
+    { key: '系统B', color: '#82ca9d' },
+    { key: '系统C', color: '#ffc658' },
+  ];
+  const max = maxValue(data, series.map((item) => item.key));
+
   return (
-    <ResponsiveContainer width="100%" height="100%">
-      <AreaChart
-        data={data}
-        margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
-      >
-        <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border-muted)" />
-        <XAxis 
-          dataKey="name" 
-          tick={{ fill: 'var(--color-text-secondary)' }}
-        />
-        <YAxis 
-          tick={{ fill: 'var(--color-text-secondary)' }}
-        />
-        <Tooltip
-          contentStyle={{
-            backgroundColor: 'var(--color-bg-default)',
-            borderColor: 'var(--color-border-default)',
-            color: 'var(--color-text-primary)'
-          }}
-        />
-        <Legend 
-          wrapperStyle={{ color: 'var(--color-text-primary)' }}
-        />
-        <Area 
-          type="monotone" 
-          dataKey="系统A" 
-          stackId="1"
-          stroke="#8884d8" 
-          fill="#8884d8"
-          fillOpacity={0.6}
-        />
-        <Area 
-          type="monotone" 
-          dataKey="系统B" 
-          stackId="1"
-          stroke="#82ca9d" 
-          fill="#82ca9d"
-          fillOpacity={0.6}
-        />
-        <Area 
-          type="monotone" 
-          dataKey="系统C" 
-          stackId="1"
-          stroke="#ffc658" 
-          fill="#ffc658"
-          fillOpacity={0.6}
-        />
-      </AreaChart>
-    </ResponsiveContainer>
+    <SvgChart data={data} max={max} legend={series.map(({ key, color }) => ({ label: key, color }))}>
+      {series.map(({ key, color }) => {
+        const points = pointsFor(data, key, max);
+        return (
+          <g key={key}>
+            <path d={areaPathFor(points)} fill={color} opacity="0.2" />
+            <path d={pathFor(points)} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+          </g>
+        );
+      })}
+    </SvgChart>
   );
 }

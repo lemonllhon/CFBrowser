@@ -106,7 +106,7 @@ func (m *ClashManager) StopForProfile(profile ClashProfile) {
 	log := logger.New("Clash")
 	cmd := m.Processes[profile.GetProfileId()]
 	if cmd != nil && cmd.Process != nil {
-		if err := cmd.Process.Kill(); err != nil {
+		if err := stopProcessTree(cmd); err != nil {
 			log.Error("Clash 停止失败", logger.F("profile_id", profile.GetProfileId()), logger.F("error", err))
 		}
 	}
@@ -120,7 +120,9 @@ func (m *ClashManager) StopForProfile(profile ClashProfile) {
 func (m *ClashManager) StopAll() {
 	for profileID, cmd := range m.Processes {
 		if cmd != nil && cmd.Process != nil {
-			_ = cmd.Process.Kill()
+			if err := stopProcessTree(cmd); err != nil {
+				logger.New("Clash").Warn("Clash 进程停止失败", logger.F("profile_id", profileID), logger.F("pid", cmd.Process.Pid), logger.F("error", err.Error()))
+			}
 		}
 		delete(m.Processes, profileID)
 	}
