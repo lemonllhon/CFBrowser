@@ -18,7 +18,6 @@ import {
   decodeString,
   decodeVarintField,
   encodeBoolField,
-  encodeInt32Field,
   encodeStringField,
   readFields,
 } from './protobuf'

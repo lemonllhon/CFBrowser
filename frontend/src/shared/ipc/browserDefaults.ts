@@ -15,7 +15,6 @@ import {
   decodeVarintField,
   encodeBoolField,
   encodeBytesField,
-  encodeInt32Field,
   encodeStringField,
   readFields,
 } from './protobuf'

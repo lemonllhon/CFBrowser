@@ -11,7 +11,6 @@ import {
   decodeVarintField,
   encodeBoolField,
   encodeBytesField,
-  encodeInt32Field,
   encodeInt64Field,
   encodeStringField,
   readFields,
