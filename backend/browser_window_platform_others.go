@@ -15,6 +15,10 @@ func workAreaForPoint(x int, y int) workAreaRect {
 	return primaryWorkArea()
 }
 
+func allWorkAreasUnion() workAreaRect {
+	return primaryWorkArea()
+}
+
 func setBrowserWindowsTopmostByPID(pid int, left int, top int, width int, height int) error {
 	return nil
 }

@@ -211,6 +211,7 @@ export async function saveWindowSyncSettings(settings: WindowSyncSettings): Prom
 export function defaultWindowSyncLayoutSettings(): WindowSyncLayoutSettings {
   return {
     mode: 'grid',
+    scope: 'app-screen',
     width: 1500,
     height: 500,
     gapX: 10,

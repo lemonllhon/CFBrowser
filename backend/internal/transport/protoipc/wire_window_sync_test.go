@@ -92,6 +92,7 @@ func TestWindowSyncRequestsRoundTrip(t *testing.T) {
 
 	layout, err := DecodeWindowSyncLayoutSettings(EncodeWindowSyncLayoutSettings(WindowSyncLayoutSettings{
 		Mode:   "grid",
+		Scope:  "toolbar-screen",
 		Width:  1500,
 		Height: 500,
 		GapX:   10,
@@ -101,7 +102,7 @@ func TestWindowSyncRequestsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DecodeWindowSyncLayoutSettings failed: %v", err)
 	}
-	if layout.Mode != "grid" || layout.Width != 1500 || layout.PerRow != 2 {
+	if layout.Mode != "grid" || layout.Scope != "toolbar-screen" || layout.Width != 1500 || layout.PerRow != 2 {
 		t.Fatalf("layout request was not preserved: %#v", layout)
 	}
 

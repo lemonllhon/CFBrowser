@@ -56,6 +56,7 @@ export type ProtoWindowSyncStartInput = {
 
 export type ProtoWindowSyncLayoutSettings = {
   mode: 'grid' | 'stack' | 'custom' | string
+  scope?: 'app-screen' | 'toolbar-screen' | 'all-screens' | string
   width: number
   height: number
   gapX: number
@@ -242,6 +243,7 @@ export function encodeWindowSyncLayoutSettings(message: ProtoWindowSyncLayoutSet
     encodeInt32Field(5, message.gapY),
     encodeInt32Field(6, message.perRow),
     encodeStringField(7, message.updatedAt ?? ''),
+    encodeStringField(8, message.scope ?? ''),
   ])
 }
 
@@ -449,6 +451,7 @@ function decodeWindowSyncLayoutSettings(payload: Uint8Array): ProtoWindowSyncLay
     gapY: 0,
     perRow: 0,
     updatedAt: '',
+    scope: '',
   }
   for (const field of readFields(payload)) {
     if (field.wireType === WireType.LengthDelimited) {
@@ -459,6 +462,9 @@ function decodeWindowSyncLayoutSettings(payload: Uint8Array): ProtoWindowSyncLay
           break
         case 7:
           layout.updatedAt = text
+          break
+        case 8:
+          layout.scope = text
           break
       }
       continue
@@ -515,7 +521,7 @@ function decodeWindowSyncSettings(payload: Uint8Array): ProtoWindowSyncSettings 
 
 function decodeWindowSyncState(payload: Uint8Array): ProtoWindowSyncState {
   const state = defaultWindowSyncState()
-  state.layout = { mode: '', width: 0, height: 0, gapX: 0, gapY: 0, perRow: 0, updatedAt: '' }
+  state.layout = { mode: '', scope: '', width: 0, height: 0, gapX: 0, gapY: 0, perRow: 0, updatedAt: '' }
   state.syncKeyboard = false
   state.syncMouse = false
 
@@ -645,6 +651,7 @@ function defaultWindowSyncState(): ProtoWindowSyncState {
 function defaultWindowSyncLayoutSettings(): ProtoWindowSyncLayoutSettings {
   return {
     mode: 'grid',
+    scope: 'app-screen',
     width: 1500,
     height: 500,
     gapX: 10,

@@ -308,12 +308,12 @@ input, select, textarea {
 }
 
 .window-sync-toolbar-expanded.is-expanded {
-  width: 522px;
+  width: 642px;
   opacity: 1;
 }
 
 .window-sync-floating-toolbar.is-panel-open .window-sync-toolbar-expanded.is-expanded {
-  width: 522px;
+  width: 642px;
 }
 
 .window-sync-toolbar-expanded button {

@@ -284,6 +284,7 @@ export type WindowSyncLayoutMode = 'grid' | 'stack' | 'custom'
 
 export interface WindowSyncLayoutSettings {
   mode: WindowSyncLayoutMode | string
+  scope?: 'app-screen' | 'toolbar-screen' | 'all-screens' | string
   width: number
   height: number
   gapX: number

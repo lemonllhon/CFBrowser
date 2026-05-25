@@ -35,6 +35,7 @@ message WindowSyncLayoutSettings {
   int32 gap_y = 5;
   int32 per_row = 6;
   string updated_at = 7;
+  string scope = 8;
 }
 
 message WindowSyncSettings {

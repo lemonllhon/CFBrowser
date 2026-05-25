@@ -55,6 +55,7 @@ type WindowSyncStartRequest struct {
 
 type WindowSyncLayoutSettings struct {
 	Mode      string
+	Scope     string
 	Width     int32
 	Height    int32
 	GapX      int32
@@ -632,6 +633,7 @@ func EncodeWindowSyncLayoutSettings(message WindowSyncLayoutSettings) []byte {
 	out = appendInt32Field(out, 5, message.GapY)
 	out = appendInt32Field(out, 6, message.PerRow)
 	out = appendStringField(out, 7, message.UpdatedAt)
+	out = appendStringField(out, 8, message.Scope)
 	return out
 }
 
@@ -666,6 +668,10 @@ func DecodeWindowSyncLayoutSettings(payload []byte) (WindowSyncLayoutSettings, e
 		case 7:
 			text, err := consumeStringValue(wireType, value)
 			result.UpdatedAt = text
+			return err
+		case 8:
+			text, err := consumeStringValue(wireType, value)
+			result.Scope = text
 			return err
 		default:
 			return nil

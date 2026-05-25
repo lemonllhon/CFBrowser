@@ -190,7 +190,7 @@ func registerProtoConfigInjection(window application.Window, protoIPC *backend.W
 
 const (
 	wails3WindowSyncToolbarName           = "window-sync-toolbar"
-	wails3WindowSyncToolbarExpandedWidth  = 780
+	wails3WindowSyncToolbarExpandedWidth  = 900
 	wails3WindowSyncToolbarExpandedHeight = 430
 )
 
@@ -261,6 +261,24 @@ func (a *wails3WindowSyncToolbarAdapter) SetSize(width int, height int) error {
 		window.SetAlwaysOnTop(true)
 	}
 	return nil
+}
+
+func (a *wails3WindowSyncToolbarAdapter) CenterPoint() (int, int, bool) {
+	if a == nil {
+		return 0, 0, false
+	}
+	a.mu.Lock()
+	window := a.window
+	a.mu.Unlock()
+	if window == nil {
+		return 0, 0, false
+	}
+	x, y := window.Position()
+	width, height := window.Size()
+	if width <= 0 || height <= 0 {
+		return 0, 0, false
+	}
+	return x + width/2, y + height/2, true
 }
 
 func (a *wails3WindowSyncToolbarAdapter) resetSize(width int, height int) {

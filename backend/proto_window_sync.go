@@ -337,6 +337,7 @@ func windowSyncCandidateFromProto(item protoipc.WindowSyncCandidate) WindowSyncC
 func windowSyncLayoutSettingsToProto(input WindowSyncLayoutSettings) protoipc.WindowSyncLayoutSettings {
 	return protoipc.WindowSyncLayoutSettings{
 		Mode:      input.Mode,
+		Scope:     input.Scope,
 		Width:     int32(input.Width),
 		Height:    int32(input.Height),
 		GapX:      int32(input.GapX),
@@ -356,6 +357,7 @@ func windowSyncLayoutSettingsToProtoValue(input *WindowSyncLayoutSettings) proto
 func windowSyncLayoutSettingsFromProto(input protoipc.WindowSyncLayoutSettings) WindowSyncLayoutSettings {
 	return WindowSyncLayoutSettings{
 		Mode:      input.Mode,
+		Scope:     input.Scope,
 		Width:     int(input.Width),
 		Height:    int(input.Height),
 		GapX:      int(input.GapX),

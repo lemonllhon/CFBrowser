@@ -21,6 +21,12 @@ const defaultWindowSyncMasterColor = "#2563eb"
 
 const windowSyncBindingName = "__traceWindowSyncEvent"
 
+const (
+	windowSyncLayoutScopeAppScreen     = "app-screen"
+	windowSyncLayoutScopeToolbarScreen = "toolbar-screen"
+	windowSyncLayoutScopeAllScreens    = "all-screens"
+)
+
 type windowSyncTarget struct {
 	Id           string
 	Title        string
@@ -32,6 +38,7 @@ type windowSyncTarget struct {
 
 type WindowSyncLayoutSettings struct {
 	Mode      string `json:"mode"`
+	Scope     string `json:"scope"`
 	Width     int    `json:"width"`
 	Height    int    `json:"height"`
 	GapX      int    `json:"gapX"`
@@ -1557,7 +1564,7 @@ func (a *App) plannedWindowSyncStartupRects(profileIds []string, masterProfileId
 		MasterProfileId: masterProfileId,
 		Windows:         windows,
 	}
-	return calculateWindowSyncLayoutRects(layout, orderedWindowSyncWindows(state), a.windowSyncLayoutWorkArea())
+	return calculateWindowSyncLayoutRects(layout, orderedWindowSyncWindows(state), a.windowSyncLayoutWorkArea(layout))
 }
 
 func windowSyncStartupLaunchArgs(rect workAreaRect) []string {
@@ -1734,7 +1741,7 @@ func (a *App) applyWindowSyncLayoutToState(settings WindowSyncLayoutSettings, st
 	if state == nil || len(state.Windows) == 0 {
 		return fmt.Errorf("窗口同步未启动")
 	}
-	rects := calculateWindowSyncLayoutRects(settings, orderedWindowSyncWindows(state), a.windowSyncLayoutWorkArea())
+	rects := calculateWindowSyncLayoutRects(settings, orderedWindowSyncWindows(state), a.windowSyncLayoutWorkArea(settings))
 	failures := make([]string, 0)
 	for _, item := range orderedWindowSyncWindows(state) {
 		rect, ok := rects[item.ProfileId]
@@ -1759,7 +1766,15 @@ func (a *App) applyWindowSyncLayoutToState(settings WindowSyncLayoutSettings, st
 	return nil
 }
 
-func (a *App) windowSyncLayoutWorkArea() workAreaRect {
+func (a *App) windowSyncLayoutWorkArea(settings WindowSyncLayoutSettings) workAreaRect {
+	switch normalizeWindowSyncLayoutScope(settings.Scope) {
+	case windowSyncLayoutScopeAllScreens:
+		return allWorkAreasUnion()
+	case windowSyncLayoutScopeToolbarScreen:
+		if x, y, ok := a.windowSyncToolbarCenterPoint(); ok {
+			return workAreaForPoint(x, y)
+		}
+	}
 	if x, y, ok := a.windowSyncAppWindowCenterPoint(); ok {
 		return workAreaForPoint(x, y)
 	}
@@ -1767,6 +1782,19 @@ func (a *App) windowSyncLayoutWorkArea() workAreaRect {
 		return workAreaForPoint(x, y)
 	}
 	return primaryWorkArea()
+}
+
+func (a *App) windowSyncToolbarCenterPoint() (int, int, bool) {
+	toolbar := a.currentWindowSyncToolbarAdapter()
+	if toolbar == nil {
+		return 0, 0, false
+	}
+	if positioned, ok := toolbar.(interface {
+		CenterPoint() (int, int, bool)
+	}); ok {
+		return positioned.CenterPoint()
+	}
+	return 0, 0, false
 }
 
 func (a *App) windowSyncAppWindowCenterPoint() (int, int, bool) {
@@ -1919,6 +1947,22 @@ func calculateWindowSyncLayoutRects(settings WindowSyncLayoutSettings, windows [
 			}
 		}
 	default:
+		if count == 5 {
+			gapX, gapY := 8, 8
+			width := maxInt(160, (area.Width-gapX)/2)
+			height := maxInt(120, (area.Height-gapY)/2)
+			positions := []workAreaRect{
+				{Left: area.Left, Top: area.Top, Width: width, Height: height},
+				{Left: area.Left + area.Width - width, Top: area.Top, Width: width, Height: height},
+				{Left: area.Left, Top: area.Top + area.Height - height, Width: width, Height: height},
+				{Left: area.Left + area.Width - width, Top: area.Top + area.Height - height, Width: width, Height: height},
+				{Left: area.Left + (area.Width-width)/2, Top: area.Top + (area.Height-height)/2, Width: width, Height: height},
+			}
+			for index, item := range windows {
+				rects[item.ProfileId] = positions[index]
+			}
+			return rects
+		}
 		cols, rows := bestWindowSyncGrid(count, area)
 		gapX, gapY := 8, 8
 		width := maxInt(160, (area.Width-gapX*(cols-1))/cols)
@@ -1995,6 +2039,7 @@ func normalizeWindowSyncLayoutSettings(settings WindowSyncLayoutSettings) Window
 	}
 	out := WindowSyncLayoutSettings{
 		Mode:      mode,
+		Scope:     normalizeWindowSyncLayoutScope(settings.Scope),
 		Width:     settings.Width,
 		Height:    settings.Height,
 		GapX:      maxInt(0, settings.GapX),
@@ -2014,9 +2059,22 @@ func normalizeWindowSyncLayoutSettings(settings WindowSyncLayoutSettings) Window
 	return out
 }
 
+func normalizeWindowSyncLayoutScope(scope string) string {
+	value := strings.ToLower(strings.TrimSpace(scope))
+	switch value {
+	case windowSyncLayoutScopeToolbarScreen, "current-screen", "toolbar", "current":
+		return windowSyncLayoutScopeToolbarScreen
+	case windowSyncLayoutScopeAllScreens, "all", "all-screen":
+		return windowSyncLayoutScopeAllScreens
+	default:
+		return windowSyncLayoutScopeAppScreen
+	}
+}
+
 func defaultWindowSyncLayoutSettings() WindowSyncLayoutSettings {
 	return WindowSyncLayoutSettings{
 		Mode:   "grid",
+		Scope:  windowSyncLayoutScopeAppScreen,
 		Width:  1500,
 		Height: 500,
 		GapX:   10,

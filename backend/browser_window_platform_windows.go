@@ -9,23 +9,24 @@ import (
 )
 
 var (
-	user32                         = syscall.NewLazyDLL("user32.dll")
-	kernel32                       = syscall.NewLazyDLL("kernel32.dll")
-	procEnumWindows                = user32.NewProc("EnumWindows")
-	procGetCurrentProcessId        = kernel32.NewProc("GetCurrentProcessId")
-	procGetWindowThreadProcessId   = user32.NewProc("GetWindowThreadProcessId")
-	procIsWindowVisible            = user32.NewProc("IsWindowVisible")
-	procGetWindowRect              = user32.NewProc("GetWindowRect")
-	procMonitorFromPoint           = user32.NewProc("MonitorFromPoint")
-	procGetMonitorInfoW            = user32.NewProc("GetMonitorInfoW")
-	procSetWindowPos               = user32.NewProc("SetWindowPos")
-	procSystemParametersInfoW      = user32.NewProc("SystemParametersInfoW")
+	user32                       = syscall.NewLazyDLL("user32.dll")
+	kernel32                     = syscall.NewLazyDLL("kernel32.dll")
+	procEnumWindows              = user32.NewProc("EnumWindows")
+	procEnumDisplayMonitors      = user32.NewProc("EnumDisplayMonitors")
+	procGetCurrentProcessId      = kernel32.NewProc("GetCurrentProcessId")
+	procGetWindowThreadProcessId = user32.NewProc("GetWindowThreadProcessId")
+	procIsWindowVisible          = user32.NewProc("IsWindowVisible")
+	procGetWindowRect            = user32.NewProc("GetWindowRect")
+	procMonitorFromPoint         = user32.NewProc("MonitorFromPoint")
+	procGetMonitorInfoW          = user32.NewProc("GetMonitorInfoW")
+	procSetWindowPos             = user32.NewProc("SetWindowPos")
+	procSystemParametersInfoW    = user32.NewProc("SystemParametersInfoW")
 )
 
 const (
-	hwndTopmost       = ^uintptr(0)
-	swpShowWindow     = 0x0040
-	spiGetWorkArea    = 0x0030
+	hwndTopmost             = ^uintptr(0)
+	swpShowWindow           = 0x0040
+	spiGetWorkArea          = 0x0030
 	monitorDefaultToNearest = 0x00000002
 )
 
@@ -77,7 +78,7 @@ func appWindowCenterPoint() (int, int, bool) {
 	if !found {
 		return 0, 0, false
 	}
-	return int(rect.Left+(rect.Right-rect.Left)/2), int(rect.Top+(rect.Bottom-rect.Top)/2), true
+	return int(rect.Left + (rect.Right-rect.Left)/2), int(rect.Top + (rect.Bottom-rect.Top)/2), true
 }
 
 func primaryWorkArea() workAreaRect {
@@ -121,6 +122,47 @@ func workAreaForPoint(x int, y int) workAreaRect {
 		Top:    int(info.RcWork.Top),
 		Width:  int(info.RcWork.Right - info.RcWork.Left),
 		Height: int(info.RcWork.Bottom - info.RcWork.Top),
+	}
+}
+
+func allWorkAreasUnion() workAreaRect {
+	areas := make([]workAreaRect, 0, 2)
+	cb := syscall.NewCallback(func(monitor uintptr, hdc uintptr, rect uintptr, lparam uintptr) uintptr {
+		info := winMonitorInfo{CbSize: uint32(unsafe.Sizeof(winMonitorInfo{}))}
+		ret, _, _ := procGetMonitorInfoW.Call(
+			monitor,
+			uintptr(unsafe.Pointer(&info)),
+		)
+		if ret == 0 || info.RcWork.Right <= info.RcWork.Left || info.RcWork.Bottom <= info.RcWork.Top {
+			return 1
+		}
+		areas = append(areas, workAreaRect{
+			Left:   int(info.RcWork.Left),
+			Top:    int(info.RcWork.Top),
+			Width:  int(info.RcWork.Right - info.RcWork.Left),
+			Height: int(info.RcWork.Bottom - info.RcWork.Top),
+		})
+		return 1
+	})
+	procEnumDisplayMonitors.Call(0, 0, cb, 0)
+	if len(areas) == 0 {
+		return primaryWorkArea()
+	}
+	left := areas[0].Left
+	top := areas[0].Top
+	right := areas[0].Left + areas[0].Width
+	bottom := areas[0].Top + areas[0].Height
+	for _, area := range areas[1:] {
+		left = minInt(left, area.Left)
+		top = minInt(top, area.Top)
+		right = maxInt(right, area.Left+area.Width)
+		bottom = maxInt(bottom, area.Top+area.Height)
+	}
+	return workAreaRect{
+		Left:   left,
+		Top:    top,
+		Width:  maxInt(1, right-left),
+		Height: maxInt(1, bottom-top),
 	}
 }
 

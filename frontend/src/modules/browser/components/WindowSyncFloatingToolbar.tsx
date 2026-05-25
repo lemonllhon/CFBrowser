@@ -24,7 +24,7 @@ import {
 
 const collapsedToolbarWidth = 360
 const collapsedToolbarHeight = 76
-const expandedToolbarWidth = 780
+const expandedToolbarWidth = 900
 const panelToolbarHeight = 430
 
 function profileCount(state: WindowSyncState | null) {
@@ -64,7 +64,7 @@ function normalizeColor(value: string) {
   return trimmed.startsWith('#') ? trimmed : `#${trimmed}`
 }
 
-function layoutForMode(state: WindowSyncState | null, mode: 'grid' | 'stack') {
+function layoutForMode(state: WindowSyncState | null, mode: 'grid' | 'stack', scope?: 'app-screen' | 'toolbar-screen' | 'all-screens') {
   const fallback = defaultWindowSyncLayoutSettings()
   const layout = state?.layout
   return {
@@ -76,6 +76,7 @@ function layoutForMode(state: WindowSyncState | null, mode: 'grid' | 'stack') {
     gapX: layout?.gapX || fallback.gapX,
     gapY: layout?.gapY || fallback.gapY,
     perRow: layout?.perRow || fallback.perRow,
+    scope: scope || layout?.scope || fallback.scope,
   }
 }
 
@@ -156,10 +157,11 @@ export function WindowSyncFloatingToolbar() {
     }
   }
 
-  const applyLayout = async (mode: 'grid' | 'stack') => {
-    setLoadingCommand(`layout:${mode}`)
+  const applyLayout = async (mode: 'grid' | 'stack', scope?: 'app-screen' | 'toolbar-screen' | 'all-screens') => {
+    const command = `layout:${mode}:${scope || 'keep'}`
+    setLoadingCommand(command)
     try {
-      const next = await applyWindowSyncLayout(layoutForMode(state, mode))
+      const next = await applyWindowSyncLayout(layoutForMode(state, mode, scope))
       setState(next?.active ? next : null)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '布局切换失败')
@@ -399,7 +401,7 @@ export function WindowSyncFloatingToolbar() {
               variant="ghost"
               title="宫格布局"
               onClick={() => void applyLayout('grid')}
-              loading={loadingCommand === 'layout:grid'}
+              loading={loadingCommand === 'layout:grid:keep'}
               className="window-sync-toolbar-command"
             >
               <SquareStack className="h-4 w-4" />
@@ -410,11 +412,31 @@ export function WindowSyncFloatingToolbar() {
               variant="ghost"
               title="堆叠布局"
               onClick={() => void applyLayout('stack')}
-              loading={loadingCommand === 'layout:stack'}
+              loading={loadingCommand === 'layout:stack:keep'}
               className="window-sync-toolbar-command"
             >
               <SquareStack className="h-4 w-4" />
               堆叠
+            </Button>
+            <Button
+              size="sm"
+              variant={state?.layout?.scope === 'toolbar-screen' ? 'secondary' : 'ghost'}
+              title="按工具栏所在屏幕重新宫格排列"
+              onClick={() => void applyLayout('grid', 'toolbar-screen')}
+              loading={loadingCommand === 'layout:grid:toolbar-screen'}
+              className="window-sync-toolbar-command"
+            >
+              当前屏
+            </Button>
+            <Button
+              size="sm"
+              variant={state?.layout?.scope === 'all-screens' ? 'secondary' : 'ghost'}
+              title="按所有屏幕区域重新宫格排列"
+              onClick={() => void applyLayout('grid', 'all-screens')}
+              loading={loadingCommand === 'layout:grid:all-screens'}
+              className="window-sync-toolbar-command"
+            >
+              全部屏
             </Button>
             <Button size="sm" variant="ghost" title="刷新状态" onClick={() => void loadState()} className="h-9 w-9 px-0">
               <RefreshCw className="h-4 w-4" />

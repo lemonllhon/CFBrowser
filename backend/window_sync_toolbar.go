@@ -42,6 +42,7 @@ type WindowSyncToolbarAdapter interface {
 	Update(state *WindowSyncState) error
 	Hide() error
 	SetSize(width int, height int) error
+	CenterPoint() (int, int, bool)
 }
 
 type windowSyncToolbarCommandInput struct {
@@ -103,6 +104,10 @@ func (c *windowSyncToolbarController) Hide() error {
 
 func (c *windowSyncToolbarController) SetSize(width int, height int) error {
 	return nil
+}
+
+func (c *windowSyncToolbarController) CenterPoint() (int, int, bool) {
+	return 0, 0, false
 }
 
 func (c *windowSyncToolbarController) ensureServer(app *App) error {
