@@ -21,7 +21,6 @@ import {
   encodeBoolField,
   encodeBytesField,
   encodeInt32Field,
-  encodeInt64Field,
   encodeStringField,
   readFields,
 } from './protobuf'
@@ -237,10 +236,6 @@ export function encodeBrowserProxy(proxy: ProtoBrowserProxy): Uint8Array {
     encodeBoolField(11, item.sourceAutoRefresh === true),
     encodeInt32Field(12, item.sourceRefreshIntervalM ?? 0),
     encodeStringField(13, item.sourceLastRefreshAt ?? ''),
-    encodeInt64Field(14, item.lastLatencyMs ?? 0),
-    encodeBoolField(15, item.lastTestOk === true),
-    encodeStringField(16, item.lastTestedAt ?? ''),
-    encodeStringField(17, item.lastIPHealthJson ?? ''),
   ])
 }
 
@@ -269,10 +264,6 @@ function normalizeBrowserProxy(proxy: ProtoBrowserProxy): ProtoBrowserProxy {
     sourceAutoRefresh,
     sourceRefreshIntervalM: sourceAutoRefresh ? normalizeInt32(item.sourceRefreshIntervalM) : 0,
     sourceLastRefreshAt: sourceUrl ? normalizeOptionalString(item.sourceLastRefreshAt) : undefined,
-    lastLatencyMs: normalizeInt64(item.lastLatencyMs),
-    lastTestOk: item.lastTestOk === true,
-    lastTestedAt: normalizeOptionalString(item.lastTestedAt),
-    lastIPHealthJson: normalizeOptionalString(item.lastIPHealthJson),
   }
 }
 
@@ -291,14 +282,6 @@ function normalizeInt32(value: unknown): number {
     return 0
   }
   return Math.max(-2147483648, Math.min(2147483647, Math.trunc(number)))
-}
-
-function normalizeInt64(value: unknown): number {
-  const number = typeof value === 'number' ? value : Number(value)
-  if (!Number.isFinite(number)) {
-    return 0
-  }
-  return Math.trunc(number)
 }
 
 export function decodeBrowserProxyFetchClashByURLResponse(payload: Uint8Array): ProtoClashImportURLResult {
@@ -565,7 +548,7 @@ export function decodeBrowserProxy(payload: Uint8Array): ProtoBrowserProxy {
           proxy.sourceRefreshIntervalM = number
           break
         case 14:
-          proxy.lastLatencyMs = number
+          proxy.lastLatencyMs = decodeSignedInt64(field.value)
           break
         case 15:
           proxy.lastTestOk = number !== 0
@@ -575,6 +558,14 @@ export function decodeBrowserProxy(payload: Uint8Array): ProtoBrowserProxy {
   }
 
   return proxy
+}
+
+function decodeSignedInt64(value: Uint8Array): number {
+  const unsigned = decodeVarintField(value)
+  const signBit = 1n << 63n
+  const fullRange = 1n << 64n
+  const signed = unsigned >= signBit ? unsigned - fullRange : unsigned
+  return Number(signed)
 }
 
 function decodeJSONRecord(value: string): Record<string, unknown> {
