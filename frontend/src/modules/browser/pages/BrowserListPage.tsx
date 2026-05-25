@@ -893,6 +893,22 @@ export function BrowserListPage() {
     })
   }
 
+  const selectableWindowSyncCandidates = () => windowSyncCandidates.filter(candidate => candidate.canSync || !!candidate.canAutoStart)
+
+  const selectAllWindowSyncCandidates = () => {
+    if (windowSyncState?.active) return
+    const selectable = selectableWindowSyncCandidates()
+    const nextIds = new Set(selectable.map(candidate => candidate.profileId))
+    setWindowSyncSelectedIds(nextIds)
+    setWindowSyncMasterId(prev => (prev && nextIds.has(prev) ? prev : selectable[0]?.profileId || ''))
+  }
+
+  const clearWindowSyncCandidates = () => {
+    if (windowSyncState?.active) return
+    setWindowSyncSelectedIds(new Set())
+    setWindowSyncMasterId('')
+  }
+
   const handleStartWindowSync = async () => {
     const profileIds = Array.from(windowSyncSelectedIds)
     if (profileIds.length < 2) {
@@ -1761,9 +1777,17 @@ export function BrowserListPage() {
                 <p className="text-sm font-medium text-[var(--color-text-primary)]">选择需要同时操控的窗口</p>
               <p className="text-xs text-[var(--color-text-muted)] mt-1">已运行实例会立即加入同步；未运行实例可勾选，并在开始同步时自动启动。</p>
             </div>
-            <Button size="sm" variant="secondary" onClick={loadWindowSyncCandidates} loading={windowSyncLoading}>
-              <RefreshCw className="w-4 h-4" />刷新
-            </Button>
+            <div className="flex shrink-0 items-center gap-2">
+              <Button size="sm" variant="secondary" onClick={selectAllWindowSyncCandidates} disabled={!!windowSyncState?.active || windowSyncCandidates.length === 0}>
+                全选
+              </Button>
+              <Button size="sm" variant="ghost" onClick={clearWindowSyncCandidates} disabled={!!windowSyncState?.active || windowSyncSelectedIds.size === 0}>
+                清空
+              </Button>
+              <Button size="sm" variant="secondary" onClick={loadWindowSyncCandidates} loading={windowSyncLoading}>
+                <RefreshCw className="w-4 h-4" />刷新
+              </Button>
+            </div>
           </div>
 
           <div className="border border-[var(--color-border-default)] rounded-lg overflow-hidden">

@@ -20,14 +20,17 @@ var (
 	procMonitorFromPoint         = user32.NewProc("MonitorFromPoint")
 	procGetMonitorInfoW          = user32.NewProc("GetMonitorInfoW")
 	procSetWindowPos             = user32.NewProc("SetWindowPos")
+	procShowWindow               = user32.NewProc("ShowWindow")
 	procSystemParametersInfoW    = user32.NewProc("SystemParametersInfoW")
 )
 
 const (
 	hwndTopmost             = ^uintptr(0)
 	swpShowWindow           = 0x0040
+	swpNoZOrder             = 0x0004
 	spiGetWorkArea          = 0x0030
 	monitorDefaultToNearest = 0x00000002
+	swRestore               = 9
 )
 
 type winRect struct {
@@ -186,6 +189,35 @@ func setBrowserWindowsTopmostByPID(pid int, left int, top int, width int, height
 				uintptr(width),
 				uintptr(height),
 				uintptr(swpShowWindow),
+			)
+		}
+		return 1
+	})
+	procEnumWindows.Call(cb, 0)
+	return nil
+}
+
+func setBrowserWindowsBoundsByPID(pid int, left int, top int, width int, height int) error {
+	if pid <= 0 {
+		return nil
+	}
+	cb := syscall.NewCallback(func(hwnd uintptr, lparam uintptr) uintptr {
+		visible, _, _ := procIsWindowVisible.Call(hwnd)
+		if visible == 0 {
+			return 1
+		}
+		var windowPID uint32
+		procGetWindowThreadProcessId.Call(hwnd, uintptr(unsafe.Pointer(&windowPID)))
+		if int(windowPID) == pid {
+			procShowWindow.Call(hwnd, uintptr(swRestore))
+			procSetWindowPos.Call(
+				hwnd,
+				0,
+				uintptr(left),
+				uintptr(top),
+				uintptr(width),
+				uintptr(height),
+				uintptr(swpShowWindow|swpNoZOrder),
 			)
 		}
 		return 1

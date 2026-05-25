@@ -22,3 +22,7 @@ func allWorkAreasUnion() workAreaRect {
 func setBrowserWindowsTopmostByPID(pid int, left int, top int, width int, height int) error {
 	return nil
 }
+
+func setBrowserWindowsBoundsByPID(pid int, left int, top int, width int, height int) error {
+	return nil
+}

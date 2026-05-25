@@ -1829,6 +1829,7 @@ func (a *App) setWindowSyncProfileBounds(profileId string, rect workAreaRect) er
 		return fmt.Errorf("实例未运行或调试端口未就绪")
 	}
 	debugPort := profile.DebugPort
+	pid := profile.Pid
 	a.browserMgr.Mutex.Unlock()
 
 	targetID, err := firstPageTargetID(debugPort)
@@ -1857,7 +1858,13 @@ func (a *App) setWindowSyncProfileBounds(profileId string, rect workAreaRect) er
 	}
 	_, _ = cdpCall(debugPort, "Page.bringToFront", nil)
 	time.Sleep(120 * time.Millisecond)
+	if pid > 0 {
+		_ = setBrowserWindowsBoundsByPID(pid, rect.Left, rect.Top, rect.Width, rect.Height)
+	}
 	_ = a.ensureWindowSyncProfileBounds(debugPort, windowID, rect)
+	if pid > 0 {
+		_ = setBrowserWindowsBoundsByPID(pid, rect.Left, rect.Top, rect.Width, rect.Height)
+	}
 	return nil
 }
 
