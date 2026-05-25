@@ -35,6 +35,7 @@ import {
   concatBytes,
   decodeString,
   decodeVarintField,
+  encodeBoolField,
   encodeBytesField,
   encodeInt32Field,
   encodeStringField,
@@ -332,7 +333,7 @@ export function encodeBrowserProfileBatchSetTagsRequest(message: { profileIds: s
   return concatBytes([
     ...encodeRepeatedStringFields(1, message.profileIds),
     ...encodeRepeatedStringFields(2, message.tags),
-    encodeInt32Field(3, message.replace ? 1 : 0),
+    encodeBoolField(3, message.replace),
   ])
 }
 
@@ -388,7 +389,7 @@ export function encodeBrowserProfileInput(input: ProtoBrowserProfileInput): Uint
     ...encodeRepeatedStringFields(4, input.fingerprintArgs),
     encodeStringField(5, input.proxyId),
     encodeStringField(6, input.proxyConfig),
-    encodeInt32Field(7, input.autoProxySwitchEnabled ? 1 : 0),
+    encodeBoolField(7, input.autoProxySwitchEnabled === true),
     encodeStringField(8, input.autoProxySwitchGroupName ?? ''),
     encodeStringField(9, input.autoProxySwitchMode ?? ''),
     encodeInt32Field(10, input.autoProxySwitchIntervalM ?? 0),

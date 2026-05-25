@@ -14,6 +14,7 @@ import {
   concatBytes,
   decodeString,
   decodeVarintField,
+  encodeBoolField,
   encodeBytesField,
   encodeInt32Field,
   encodeStringField,
@@ -124,7 +125,7 @@ export function encodeBrowserCore(core: ProtoBrowserCore): Uint8Array {
     encodeStringField(1, core.coreId),
     encodeStringField(2, core.coreName),
     encodeStringField(3, core.corePath),
-    encodeInt32Field(4, core.isDefault ? 1 : 0),
+    encodeBoolField(4, core.isDefault),
   ])
 }
 

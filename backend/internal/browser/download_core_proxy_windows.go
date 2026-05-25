@@ -29,8 +29,27 @@ func readSystemProxy() (string, error) {
 	if err != nil || proxyServer == "" {
 		return "", fmt.Errorf("代理地址为空")
 	}
+	proxyServer = strings.TrimSpace(proxyServer)
 
 	// proxyServer 可能是 "127.0.0.1:7890" 或 "http=..;https=.." 多协议格式
+	if strings.Contains(proxyServer, "=") && strings.Contains(proxyServer, ";") {
+		for _, part := range strings.Split(proxyServer, ";") {
+			key, value, ok := strings.Cut(strings.TrimSpace(part), "=")
+			if !ok {
+				continue
+			}
+			key = strings.ToLower(strings.TrimSpace(key))
+			value = strings.TrimSpace(value)
+			if value == "" {
+				continue
+			}
+			if key == "https" || key == "http" || key == "socks" {
+				proxyServer = value
+				break
+			}
+		}
+	}
+
 	// 不含协议前缀时默认补 http://
 	if !strings.Contains(proxyServer, ":") {
 		return "", fmt.Errorf("无效的代理格式: %s", proxyServer)

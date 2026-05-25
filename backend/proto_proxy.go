@@ -3,7 +3,9 @@ package backend
 import (
 	"ant-chrome/backend/internal/transport/protoipc"
 	"context"
+	"encoding/hex"
 	"encoding/json"
+	"log"
 	"strings"
 )
 
@@ -67,6 +69,7 @@ func (a *App) handleProtoBrowserProxySave(ctx context.Context, request protoipc.
 	}
 	input, err := protoipc.DecodeBrowserProxySaveRequest(request.Payload)
 	if err != nil {
+		log.Printf("Proto BrowserProxySaveRequest decode failed: request_id=%s payload_len=%d payload_prefix=%s error=%v", request.RequestID, len(request.Payload), hexPrefix(request.Payload, 96), err)
 		return nil, &protoipc.RPCError{
 			Code:    protoipc.ErrorCodeInvalidPayload,
 			Message: "BrowserProxySaveRequest 解码失败",
@@ -78,6 +81,16 @@ func (a *App) handleProtoBrowserProxySave(ctx context.Context, request protoipc.
 		return nil, protoBrowserOperationError("保存浏览器代理失败", err)
 	}
 	return protoipc.EncodeBrowserActionResponse(protoipc.BrowserActionResponse{OK: true}), nil
+}
+
+func hexPrefix(payload []byte, max int) string {
+	if max <= 0 || len(payload) == 0 {
+		return ""
+	}
+	if len(payload) > max {
+		payload = payload[:max]
+	}
+	return hex.EncodeToString(payload)
 }
 
 func (a *App) handleProtoBrowserProxyFetchClashByURL(ctx context.Context, request protoipc.Envelope) ([]byte, *protoipc.RPCError) {

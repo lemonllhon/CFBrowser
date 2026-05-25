@@ -28,6 +28,7 @@ import {
   concatBytes,
   decodeString,
   decodeVarintField,
+  encodeBoolField,
   encodeStringField,
   encodeInt32Field,
   readFields,
@@ -305,7 +306,7 @@ export function encodeAppWindowStateSaveRequest(message: { width: number; height
 }
 
 export function encodeBackupImportRequest(message: { resetFirst: boolean }): Uint8Array {
-  return concatBytes([encodeInt32Field(1, message.resetFirst ? 1 : 0)])
+  return concatBytes([encodeBoolField(1, message.resetFirst)])
 }
 
 export function decodeAppConfigInfo(payload: Uint8Array): ProtoAppConfigInfo {

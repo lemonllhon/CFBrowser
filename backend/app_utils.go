@@ -59,6 +59,38 @@ func (a *App) ensureDefaultCores() {
 
 	// 扫描 chrome/ 目录，无论配置是否已有内核都执行一次，确保新增子目录被发现
 	detected := a.scanChromeDir("chrome")
+	if a.browserMgr != nil && a.browserMgr.CoreDAO != nil {
+		existing, err := a.browserMgr.CoreDAO.List()
+		if err != nil {
+			log.Error("读取内核表失败", logger.F("error", err.Error()))
+			return
+		}
+		existingByPath := make(map[string]struct{}, len(existing))
+		for _, core := range existing {
+			existingByPath[core.CorePath] = struct{}{}
+		}
+		changed := false
+		for i, core := range detected {
+			if _, ok := existingByPath[core.CorePath]; ok {
+				continue
+			}
+			if len(existing) > 0 || i > 0 {
+				core.IsDefault = false
+			}
+			if err := a.browserMgr.CoreDAO.Upsert(core); err != nil {
+				log.Error("自动注册内核失败", logger.F("path", core.CorePath), logger.F("error", err.Error()))
+				continue
+			}
+			existing = append(existing, core)
+			existingByPath[core.CorePath] = struct{}{}
+			changed = true
+			log.Info("发现新内核，已注册", logger.F("path", core.CorePath))
+		}
+		if changed {
+			a.config.Browser.Cores = a.browserMgr.ListCores()
+		}
+		return
+	}
 
 	if len(a.config.Browser.Cores) == 0 {
 		// 配置为空：直接用扫描结果，或兜底写一个占位

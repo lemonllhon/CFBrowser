@@ -13,6 +13,7 @@ import {
   concatBytes,
   decodeString,
   decodeVarintField,
+  encodeBoolField,
   encodeBytesField,
   encodeInt32Field,
   encodeStringField,
@@ -185,8 +186,8 @@ function encodeBrowserDefaultContentRule(rule: ProtoBrowserDefaultContentRule): 
   const includeGlobalDefaultsFields = rule.includeGlobalDefaults === undefined
     ? []
     : [
-        encodeInt32Field(9, rule.includeGlobalDefaults ? 1 : 0),
-        encodeInt32Field(10, 1),
+        encodeBoolField(9, rule.includeGlobalDefaults),
+        encodeBoolField(10, true),
       ]
 
   return concatBytes([
@@ -196,8 +197,8 @@ function encodeBrowserDefaultContentRule(rule: ProtoBrowserDefaultContentRule): 
     encodeStringField(4, rule.targetName),
     ...rule.startUrls.map(item => encodeBytesField(5, encodeBrowserStartURL(item))),
     ...rule.bookmarks.map(item => encodeBytesField(6, encodeBrowserBookmark(item))),
-    encodeInt32Field(7, rule.enabled ? 1 : 0),
-    encodeInt32Field(8, rule.applyToChilds ? 1 : 0),
+    encodeBoolField(7, rule.enabled),
+    encodeBoolField(8, rule.applyToChilds === true),
     ...includeGlobalDefaultsFields,
   ])
 }

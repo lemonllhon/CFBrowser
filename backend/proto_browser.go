@@ -583,11 +583,11 @@ func (a *App) ensureProtoBrowserReady(ctx context.Context) *protoipc.RPCError {
 			Details: err.Error(),
 		}
 	}
-	if a != nil && a.browserMgr == nil {
-		if err := a.waitStartupReady(ctx, 8*time.Second); err != nil {
+	if a != nil {
+		if err := a.waitLocalDataReady(ctx, 8*time.Second); err != nil {
 			return &protoipc.RPCError{
 				Code:    protoipc.ErrorCodeInternal,
-				Message: "应用启动仍在初始化，请稍后重试",
+				Message: "本地数据仍在初始化，请稍后重试",
 				Details: err.Error(),
 			}
 		}

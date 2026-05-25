@@ -24,6 +24,7 @@ import {
   concatBytes,
   decodeString,
   decodeVarintField,
+  encodeBoolField,
   encodeBytesField,
   encodeInt32Field,
   encodeStringField,
@@ -247,8 +248,8 @@ export function encodeWindowSyncLayoutSettings(message: ProtoWindowSyncLayoutSet
 export function encodeWindowSyncSettings(message: ProtoWindowSyncSettings): Uint8Array {
   return concatBytes([
     encodeStringField(1, message.masterColor),
-    encodeInt32Field(2, message.syncKeyboard ? 1 : 0),
-    encodeInt32Field(3, message.syncMouse ? 1 : 0),
+    encodeBoolField(2, message.syncKeyboard),
+    encodeBoolField(3, message.syncMouse),
   ])
 }
 

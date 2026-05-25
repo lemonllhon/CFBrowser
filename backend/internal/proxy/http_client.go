@@ -22,7 +22,7 @@ func buildProxyHTTPClient(
 	timeout time.Duration,
 ) (*http.Client, error) {
 	l := strings.ToLower(strings.TrimSpace(src))
-	if l == "" || l == "direct://" {
+	if l == "" || l == "direct://" || l == "__direct__" {
 		return &http.Client{Timeout: timeout}, nil
 	}
 

@@ -43,14 +43,29 @@ export function encodeInt32Field(fieldNumber: number, value: number): Uint8Array
   if (value === 0) {
     return new Uint8Array()
   }
-  return concatBytes([encodeTag(fieldNumber, WireType.Varint), encodeVarint(BigInt(value >>> 0))])
+  const integer = Math.trunc(value)
+  const encoded = integer < 0
+    ? BigInt.asUintN(64, BigInt(integer))
+    : BigInt(integer)
+  return concatBytes([encodeTag(fieldNumber, WireType.Varint), encodeVarint(encoded)])
+}
+
+export function encodeBoolField(fieldNumber: number, value: boolean): Uint8Array {
+  if (!value) {
+    return new Uint8Array()
+  }
+  return concatBytes([encodeTag(fieldNumber, WireType.Varint), encodeVarint(1n)])
 }
 
 export function encodeInt64Field(fieldNumber: number, value: number): Uint8Array {
   if (value === 0) {
     return new Uint8Array()
   }
-  return concatBytes([encodeTag(fieldNumber, WireType.Varint), encodeVarint(BigInt(Math.trunc(value)))])
+  const integer = Math.trunc(value)
+  const encoded = integer < 0
+    ? BigInt.asUintN(64, BigInt(integer))
+    : BigInt(integer)
+  return concatBytes([encodeTag(fieldNumber, WireType.Varint), encodeVarint(encoded)])
 }
 
 export function decodeString(value: Uint8Array): string {

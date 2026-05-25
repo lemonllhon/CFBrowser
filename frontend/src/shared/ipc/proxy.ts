@@ -18,6 +18,7 @@ import {
   concatBytes,
   decodeString,
   decodeVarintField,
+  encodeBoolField,
   encodeBytesField,
   encodeInt32Field,
   encodeInt64Field,
@@ -102,7 +103,7 @@ export async function listBrowserProxyGroups(): Promise<string[]> {
 }
 
 export async function saveBrowserProxies(proxies: ProtoBrowserProxy[]): Promise<boolean> {
-  const payload = await proxyProtoClient.request(METHOD_BROWSER_PROXY_SAVE, encodeBrowserProxySaveRequest({ proxies }))
+  const payload = await proxyProtoClient.request(METHOD_BROWSER_PROXY_SAVE, encodeBrowserProxySaveRequest({ proxies: normalizeBrowserProxies(proxies) }))
   return decodeBrowserActionResponse(payload).ok
 }
 
@@ -177,7 +178,8 @@ export function encodeBrowserProxyListRequest(message: { groupName?: string }): 
 }
 
 export function encodeBrowserProxySaveRequest(message: { proxies: ProtoBrowserProxy[] }): Uint8Array {
-  return concatBytes(message.proxies.map(item => encodeBytesField(1, encodeBrowserProxy(item))))
+  const proxies = Array.isArray(message.proxies) ? message.proxies : []
+  return concatBytes(proxies.map(item => encodeBytesField(1, encodeBrowserProxy(normalizeBrowserProxy(item)))))
 }
 
 export function encodeBrowserProxyFetchClashByURLRequest(message: { url: string }): Uint8Array {
@@ -220,25 +222,83 @@ export function encodeBrowserProxyPreviewTestInput(message: ProtoProxyPreviewTes
 }
 
 export function encodeBrowserProxy(proxy: ProtoBrowserProxy): Uint8Array {
+  const item = normalizeBrowserProxy(proxy)
   return concatBytes([
-    encodeStringField(1, proxy.proxyId),
-    encodeStringField(2, proxy.proxyName),
-    encodeStringField(3, proxy.proxyConfig),
-    encodeStringField(4, proxy.dnsServers ?? ''),
-    encodeStringField(5, proxy.groupName ?? ''),
-    encodeInt32Field(6, proxy.sortOrder ?? 0),
-    encodeStringField(7, proxy.sourceId ?? ''),
-    encodeStringField(8, proxy.sourceUrl ?? ''),
-    encodeStringField(9, proxy.sourceNamePrefix ?? ''),
-    encodeStringField(10, proxy.sourceFilterJson ?? ''),
-    encodeInt32Field(11, proxy.sourceAutoRefresh ? 1 : 0),
-    encodeInt32Field(12, proxy.sourceRefreshIntervalM ?? 0),
-    encodeStringField(13, proxy.sourceLastRefreshAt ?? ''),
-    encodeInt64Field(14, proxy.lastLatencyMs ?? 0),
-    encodeInt32Field(15, proxy.lastTestOk ? 1 : 0),
-    encodeStringField(16, proxy.lastTestedAt ?? ''),
-    encodeStringField(17, proxy.lastIPHealthJson ?? ''),
+    encodeStringField(1, item.proxyId),
+    encodeStringField(2, item.proxyName),
+    encodeStringField(3, item.proxyConfig),
+    encodeStringField(4, item.dnsServers ?? ''),
+    encodeStringField(5, item.groupName ?? ''),
+    encodeInt32Field(6, item.sortOrder ?? 0),
+    encodeStringField(7, item.sourceId ?? ''),
+    encodeStringField(8, item.sourceUrl ?? ''),
+    encodeStringField(9, item.sourceNamePrefix ?? ''),
+    encodeStringField(10, item.sourceFilterJson ?? ''),
+    encodeBoolField(11, item.sourceAutoRefresh === true),
+    encodeInt32Field(12, item.sourceRefreshIntervalM ?? 0),
+    encodeStringField(13, item.sourceLastRefreshAt ?? ''),
+    encodeInt64Field(14, item.lastLatencyMs ?? 0),
+    encodeBoolField(15, item.lastTestOk === true),
+    encodeStringField(16, item.lastTestedAt ?? ''),
+    encodeStringField(17, item.lastIPHealthJson ?? ''),
   ])
+}
+
+function normalizeBrowserProxies(proxies: ProtoBrowserProxy[]): ProtoBrowserProxy[] {
+  if (!Array.isArray(proxies)) {
+    return []
+  }
+  return proxies.map(normalizeBrowserProxy)
+}
+
+function normalizeBrowserProxy(proxy: ProtoBrowserProxy): ProtoBrowserProxy {
+  const item = proxy || ({} as ProtoBrowserProxy)
+  const sourceUrl = normalizeString(item.sourceUrl)
+  const sourceAutoRefresh = sourceUrl !== '' && item.sourceAutoRefresh === true
+  return {
+    proxyId: normalizeString(item.proxyId),
+    proxyName: normalizeString(item.proxyName),
+    proxyConfig: normalizeString(item.proxyConfig),
+    dnsServers: normalizeOptionalString(item.dnsServers),
+    groupName: normalizeOptionalString(item.groupName),
+    sortOrder: normalizeInt32(item.sortOrder),
+    sourceId: sourceUrl ? normalizeOptionalString(item.sourceId) : undefined,
+    sourceUrl: sourceUrl || undefined,
+    sourceNamePrefix: sourceUrl ? normalizeOptionalString(item.sourceNamePrefix) : undefined,
+    sourceFilterJson: sourceUrl ? normalizeOptionalString(item.sourceFilterJson) : undefined,
+    sourceAutoRefresh,
+    sourceRefreshIntervalM: sourceAutoRefresh ? normalizeInt32(item.sourceRefreshIntervalM) : 0,
+    sourceLastRefreshAt: sourceUrl ? normalizeOptionalString(item.sourceLastRefreshAt) : undefined,
+    lastLatencyMs: normalizeInt64(item.lastLatencyMs),
+    lastTestOk: item.lastTestOk === true,
+    lastTestedAt: normalizeOptionalString(item.lastTestedAt),
+    lastIPHealthJson: normalizeOptionalString(item.lastIPHealthJson),
+  }
+}
+
+function normalizeString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function normalizeOptionalString(value: unknown): string | undefined {
+  const text = normalizeString(value)
+  return text || undefined
+}
+
+function normalizeInt32(value: unknown): number {
+  const number = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(number)) {
+    return 0
+  }
+  return Math.max(-2147483648, Math.min(2147483647, Math.trunc(number)))
+}
+
+function normalizeInt64(value: unknown): number {
+  const number = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(number)) {
+    return 0
+  }
+  return Math.trunc(number)
 }
 
 export function decodeBrowserProxyFetchClashByURLResponse(payload: Uint8Array): ProtoClashImportURLResult {

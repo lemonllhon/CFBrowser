@@ -32,26 +32,28 @@ const (
 
 // App 应用结构体
 type App struct {
-	ctx              context.Context
-	config           *config.Config
-	db               *database.DB
-	interceptor      *logger.MethodInterceptor
-	browserMgr       *browser.Manager
-	xrayMgr          *proxy.XrayManager
-	clashMgr         *proxy.ClashManager
-	singboxMgr       *proxy.SingBoxManager
-	launchCodeSvc    *launchcode.LaunchCodeService
-	launchServer     *launchcode.LaunchServer
-	speedScheduler   *browser.ProxySpeedScheduler
-	platformRuntime  platform.Runtime
-	protoEventMu     sync.RWMutex
-	protoEventSink   func(eventName string, payload []byte)
-	appRoot          string
-	version          string
-	startupReady     chan struct{}
-	startupReadyOnce sync.Once
-	updateRuntimeMu  sync.Mutex
-	updateRuntime    *wailsUpdateRuntime
+	ctx                context.Context
+	config             *config.Config
+	db                 *database.DB
+	interceptor        *logger.MethodInterceptor
+	browserMgr         *browser.Manager
+	xrayMgr            *proxy.XrayManager
+	clashMgr           *proxy.ClashManager
+	singboxMgr         *proxy.SingBoxManager
+	launchCodeSvc      *launchcode.LaunchCodeService
+	launchServer       *launchcode.LaunchServer
+	speedScheduler     *browser.ProxySpeedScheduler
+	platformRuntime    platform.Runtime
+	protoEventMu       sync.RWMutex
+	protoEventSink     func(eventName string, payload []byte)
+	appRoot            string
+	version            string
+	localDataReady     chan struct{}
+	localDataReadyOnce sync.Once
+	startupReady       chan struct{}
+	startupReadyOnce   sync.Once
+	updateRuntimeMu    sync.Mutex
+	updateRuntime      *wailsUpdateRuntime
 
 	forceQuit                bool       // 强制退出标志，用于跳过 OnBeforeClose 的拦截
 	quitMode                 quitMode   // 退出模式：全量退出 / 仅退出应用
@@ -85,6 +87,7 @@ func NewApp(appRoot string, appVersion ...string) *App {
 		xrayBridgeRefs:      make(map[string]string),
 		switchBridgeRefs:    make(map[string]*switchingProxyBridge),
 		authProxyBridgeRefs: make(map[string]*authenticatedProxyBridge),
+		localDataReady:      make(chan struct{}),
 		startupReady:        make(chan struct{}),
 	}
 }
@@ -152,10 +155,11 @@ func (a *App) emitProtoEvent(eventName string, payload []byte) {
 
 // startup 应用启动时调用
 func (a *App) startup(ctx context.Context) {
-	defer a.markStartupReady()
 	a.ctx = ctx
 	if err := apppath.EnsureWritableLayout(a.appRoot); err != nil {
 		a.appRuntime().LogFatal(ctx, fmt.Sprintf("初始化 Linux 用户数据目录失败: %v", err))
+		a.markLocalDataReady()
+		a.markStartupReady()
 		return
 	}
 	cfg, err := LoadConfig(a.resolveAppPath("config.yaml"))
@@ -203,8 +207,6 @@ func (a *App) startup(ctx context.Context) {
 		log.Error("创建 data 目录失败", logger.F("error", err))
 	}
 
-	a.ensureDefaultCores()
-
 	if cfg.Logging.Interceptor.Enabled {
 		interceptorConfig := logger.InterceptorConfig{
 			Enabled:         cfg.Logging.Interceptor.Enabled,
@@ -219,6 +221,8 @@ func (a *App) startup(ctx context.Context) {
 	if err != nil {
 		log.Error("初始化数据库失败", logger.F("error", err))
 		a.appRuntime().LogFatal(ctx, fmt.Sprintf("初始化数据库失败: %v", err))
+		a.markLocalDataReady()
+		a.markStartupReady()
 		return
 	}
 	a.db = db
@@ -244,9 +248,9 @@ func (a *App) startup(ctx context.Context) {
 	a.migrateToSQLite()
 
 	a.browserMgr.InitData()
-	a.autoDetectCores()
 	a.loadProxies()
 	a.reconcileProfileProxyBindings()
+	a.markLocalDataReady()
 
 	// 初始化 LaunchCode 服务
 	launchCodeDAO := launchcode.NewSQLiteLaunchCodeDAO(a.db.GetConn())
@@ -256,22 +260,7 @@ func (a *App) startup(ctx context.Context) {
 	}
 	a.browserMgr.CodeProvider = a.launchCodeSvc
 
-	// 启动 LaunchServer
-	port := a.config.LaunchServer.Port
-	a.launchServer = launchcode.NewLaunchServer(a.launchCodeSvc, a, a.browserMgr, port)
-	a.launchServer.SetAPIAuthConfig(launchcode.APIAuthConfig{
-		Enabled: a.config.LaunchServer.Auth.Enabled,
-		APIKey:  a.config.LaunchServer.Auth.APIKey,
-		Header:  a.config.LaunchServer.Auth.Header,
-	})
-	if err := a.launchServer.Start(); err != nil {
-		log.Error("LaunchServer 启动失败", logger.F("error", err))
-	} else {
-		log.Info("LaunchServer 监听地址",
-			logger.F("url", fmt.Sprintf("http://127.0.0.1:%d", a.launchServer.Port())),
-			logger.F("preferred_port", port),
-		)
-	}
+	a.startLaunchServer(log)
 
 	// 连接池失效通知
 	a.xrayMgr.OnBridgeDied = func(key string, err error) {
@@ -305,8 +294,52 @@ func (a *App) startup(ctx context.Context) {
 	)
 	a.speedScheduler.Start()
 
+	go a.runPostStartupLocalDiscovery()
+
+	a.markStartupReady()
 	log.Info("应用启动成功")
 	a.emitPendingAppUpdateIfNeeded()
+}
+
+func (a *App) startLaunchServer(log *logger.Logger) {
+	if a == nil || a.config == nil || a.launchCodeSvc == nil || a.browserMgr == nil {
+		return
+	}
+	port := a.config.LaunchServer.Port
+	a.launchServer = launchcode.NewLaunchServer(a.launchCodeSvc, a, a.browserMgr, port)
+	a.launchServer.SetAPIAuthConfig(launchcode.APIAuthConfig{
+		Enabled: a.config.LaunchServer.Auth.Enabled,
+		APIKey:  a.config.LaunchServer.Auth.APIKey,
+		Header:  a.config.LaunchServer.Auth.Header,
+	})
+	if err := a.launchServer.Start(); err != nil {
+		log.Error("LaunchServer 启动失败", logger.F("error", err))
+		return
+	}
+	log.Info("LaunchServer 监听地址",
+		logger.F("url", fmt.Sprintf("http://127.0.0.1:%d", a.launchServer.Port())),
+		logger.F("preferred_port", port),
+	)
+}
+
+func (a *App) runPostStartupLocalDiscovery() {
+	if a == nil || a.browserMgr == nil {
+		return
+	}
+	log := logger.New("App")
+	startedAt := time.Now()
+	a.ensureDefaultCores()
+	a.autoDetectCores()
+	log.Info("启动后本地资源检测完成", logger.F("elapsed_ms", time.Since(startedAt).Milliseconds()))
+}
+
+func (a *App) markLocalDataReady() {
+	if a == nil || a.localDataReady == nil {
+		return
+	}
+	a.localDataReadyOnce.Do(func() {
+		close(a.localDataReady)
+	})
 }
 
 func (a *App) markStartupReady() {
@@ -316,6 +349,29 @@ func (a *App) markStartupReady() {
 	a.startupReadyOnce.Do(func() {
 		close(a.startupReady)
 	})
+}
+
+func (a *App) waitLocalDataReady(ctx context.Context, timeout time.Duration) error {
+	if a == nil || a.localDataReady == nil {
+		return nil
+	}
+	select {
+	case <-a.localDataReady:
+		return nil
+	default:
+	}
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case <-a.localDataReady:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return fmt.Errorf("本地数据仍在初始化")
+	}
 }
 
 func (a *App) waitStartupReady(ctx context.Context, timeout time.Duration) error {

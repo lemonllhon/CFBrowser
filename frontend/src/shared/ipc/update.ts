@@ -9,6 +9,7 @@ import {
   concatBytes,
   decodeString,
   decodeVarintField,
+  encodeBoolField,
   encodeBytesField,
   encodeInt32Field,
   encodeInt64Field,
@@ -145,13 +146,13 @@ export function encodeAppUpdateInfo(info: ProtoAppUpdateInfo): Uint8Array {
     encodeStringField(4, info.releaseUrl),
     encodeStringField(5, info.publishedAt),
     encodeStringField(6, info.body),
-    encodeInt32Field(7, info.hasUpdate ? 1 : 0),
+    encodeBoolField(7, info.hasUpdate),
     info.asset ? encodeBytesField(8, encodeAppUpdateAsset(info.asset)) : new Uint8Array(),
     info.installerAsset ? encodeBytesField(9, encodeAppUpdateAsset(info.installerAsset)) : new Uint8Array(),
     info.portableAsset ? encodeBytesField(10, encodeAppUpdateAsset(info.portableAsset)) : new Uint8Array(),
     encodeStringField(11, info.distributionKind),
     encodeStringField(12, info.recommendedPackageKind),
-    encodeInt32Field(13, info.canSelfUpdatePortable ? 1 : 0),
+    encodeBoolField(13, info.canSelfUpdatePortable),
     encodeStringField(14, info.message),
   ])
 }
@@ -159,7 +160,7 @@ export function encodeAppUpdateInfo(info: ProtoAppUpdateInfo): Uint8Array {
 export function encodeAppUpdateDownloadRequest(message: { info: ProtoAppUpdateInfo; installOnRestart: boolean }): Uint8Array {
   return concatBytes([
     encodeBytesField(1, encodeAppUpdateInfo(message.info)),
-    encodeInt32Field(2, message.installOnRestart ? 1 : 0),
+    encodeBoolField(2, message.installOnRestart),
   ])
 }
 

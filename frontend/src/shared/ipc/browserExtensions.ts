@@ -17,6 +17,7 @@ import {
   concatBytes,
   decodeString,
   decodeVarintField,
+  encodeBoolField,
   encodeInt32Field,
   encodeStringField,
   readFields,
@@ -171,14 +172,14 @@ export function encodeBrowserExtensionAssignRequest(message: ProtoBrowserExtensi
     encodeStringField(1, message.extensionId),
     ...message.profileIds.map(profileId => encodeStringField(2, profileId)),
     encodeStringField(3, message.mode),
-    encodeInt32Field(4, message.enabled ? 1 : 0),
+    encodeBoolField(4, message.enabled),
   ])
 }
 
 export function encodeBrowserExtensionAutoBindRequest(message: ProtoBrowserExtensionAutoBindInput): Uint8Array {
   return concatBytes([
     encodeStringField(1, message.extensionId),
-    encodeInt32Field(2, message.enabled ? 1 : 0),
+    encodeBoolField(2, message.enabled),
     encodeStringField(3, message.mode),
   ])
 }

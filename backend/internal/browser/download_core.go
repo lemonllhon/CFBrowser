@@ -44,6 +44,7 @@ func (cw *coreDownloadWriter) Write(p []byte) (int, error) {
 func (m *Manager) DownloadAndExtractCore(ctx context.Context, coreName string, targetUrl string, proxyConfig string, emitEvent EventEmitter) {
 	log := logger.New("Browser")
 	t := time.Now()
+	proxyConfig = strings.TrimSpace(proxyConfig)
 
 	sendEvent := func(phase string, progress int, msg string) {
 		if emitEvent == nil {
@@ -57,6 +58,7 @@ func (m *Manager) DownloadAndExtractCore(ctx context.Context, coreName string, t
 	}
 
 	sendEvent("downloading", 0, "开始解析地址并创建下载请求: "+targetUrl)
+	log.Info("内核下载开始", logger.F("core_name", coreName), logger.F("url", targetUrl), logger.F("proxy_mode", describeCoreDownloadProxy(proxyConfig)))
 
 	// 1. 检查名称重复
 	coreName = strings.TrimSpace(coreName)
@@ -91,19 +93,24 @@ func (m *Manager) DownloadAndExtractCore(ctx context.Context, coreName string, t
 			} else {
 				// 解析失败则回退到环境变量
 				transport.Proxy = http.ProxyFromEnvironment
+				sendEvent("downloading", 0, "系统代理地址解析失败，使用环境变量兜底: "+pErr.Error())
 			}
 		} else {
 			// 没有系统代理配置或读取失败，尝试环境变量兜底
 			transport.Proxy = http.ProxyFromEnvironment
-			sendEvent("downloading", 0, "系统注册表无代理配置，使用环境变量兜底")
+			sendEvent("downloading", 0, "系统注册表无代理配置，使用环境变量兜底: "+rErr.Error())
 		}
 	} else if proxyConfig != "" && proxyConfig != "direct://" && proxyConfig != "__direct__" {
 		if proxyURL, pErr := url.Parse(proxyConfig); pErr == nil {
 			transport.Proxy = http.ProxyURL(proxyURL)
+			sendEvent("downloading", 0, "已使用指定代理: "+proxyURL.Scheme+"://"+proxyURL.Host)
 		} else {
 			sendEvent("error", 0, "代理地址解析失败: "+pErr.Error())
+			log.Error("内核下载代理地址解析失败", logger.F("proxy_config", proxyConfig), logger.F("error", pErr.Error()))
 			return
 		}
+	} else {
+		sendEvent("downloading", 0, "使用直连下载")
 	}
 
 	client := &http.Client{
@@ -127,6 +134,7 @@ func (m *Manager) DownloadAndExtractCore(ctx context.Context, coreName string, t
 	err = doConcurrentDownload(ctx, client, targetUrl, tempFile, sendEvent)
 	if err != nil {
 		sendEvent("error", 0, "下载失败: "+err.Error())
+		log.Error("内核下载失败", logger.F("url", targetUrl), logger.F("proxy_mode", describeCoreDownloadProxy(proxyConfig)), logger.F("error", err.Error()), logger.F("cost", time.Since(t).String()))
 		return
 	}
 
@@ -140,6 +148,7 @@ func (m *Manager) DownloadAndExtractCore(ctx context.Context, coreName string, t
 	}); err != nil {
 		os.RemoveAll(targetDir) // 删除不完整的解压文件
 		sendEvent("error", 0, "解压失败: "+err.Error())
+		log.Error("内核解压失败", logger.F("temp", tempFilePath), logger.F("target", targetDir), logger.F("error", err.Error()))
 		return
 	}
 
@@ -154,6 +163,7 @@ func (m *Manager) DownloadAndExtractCore(ctx context.Context, coreName string, t
 		}
 		if err := m.SaveCore(newCore); err != nil {
 			sendEvent("error", 0, "保存配置入库失败: "+err.Error())
+			log.Error("内核下载后保存配置失败", logger.F("core_name", coreName), logger.F("error", err.Error()))
 			return
 		}
 		sendEvent("done", 100, "内核下载与配置成功！")
@@ -161,6 +171,23 @@ func (m *Manager) DownloadAndExtractCore(ctx context.Context, coreName string, t
 	} else {
 		os.RemoveAll(targetDir) // 删除不正确的解压内容
 		sendEvent("error", 0, fmt.Sprintf("解压后未找到浏览器可执行文件（候选：%s），请检查压缩包内容！", strings.Join(CoreExecutableCandidates(), ", ")))
+		log.Error("内核下载包内容无效", logger.F("target", targetDir), logger.F("candidates", strings.Join(CoreExecutableCandidates(), ",")))
+	}
+}
+
+func describeCoreDownloadProxy(proxyConfig string) string {
+	lower := strings.ToLower(strings.TrimSpace(proxyConfig))
+	switch {
+	case lower == "", lower == "__direct__", lower == "direct://":
+		return "direct"
+	case lower == "__system__":
+		return "system"
+	case strings.HasPrefix(lower, "http://"), strings.HasPrefix(lower, "https://"):
+		return "http"
+	case strings.HasPrefix(lower, "socks5://"):
+		return "socks5"
+	default:
+		return "custom"
 	}
 }
 
