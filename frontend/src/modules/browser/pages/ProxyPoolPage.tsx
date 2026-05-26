@@ -11,6 +11,7 @@ const BUILTIN_PROXY_IDS = new Set(['__direct__', '__local__'])
 const PROXY_LATENCY_CACHE_KEY = 'browser:proxyPool:latencyMap:v1'
 const PROXY_IP_HEALTH_CACHE_KEY = 'browser:proxyPool:ipHealthMap:v1'
 const PROXY_SOURCE_IGNORED_NAMES_KEY = 'browser:proxyPool:sourceIgnoredProxyNames:v1'
+const PROXY_SOURCE_META_STORAGE_KEY = 'browser:proxyPool:sourceMetas:v1'
 const PROXY_GLOBAL_AUTO_REFRESH_KEY = 'browser:proxyPool:globalAutoRefreshEnabled:v1'
 const PROXY_GLOBAL_REFRESH_INTERVAL_KEY = 'browser:proxyPool:globalRefreshIntervalM:v1'
 const PROXY_LATENCY_CACHE_TTL_MS = 12 * 60 * 60 * 1000
@@ -1077,8 +1078,69 @@ function resolveImportSourceID(list: BrowserProxy[], sourceURL: string, sourceNa
   return candidate
 }
 
-function collectURLImportSources(list: BrowserProxy[]): URLImportSourceMeta[] {
+function normalizeSourceMeta(meta: URLImportSourceMeta): URLImportSourceMeta {
+  return {
+    sourceId: meta.sourceId.trim(),
+    sourceUrl: meta.sourceUrl.trim(),
+    sourceNamePrefix: meta.sourceNamePrefix.trim(),
+    sourceGroupName: meta.sourceGroupName.trim(),
+    sourceDnsServers: meta.sourceDnsServers.trim(),
+    sourceFilterJson: meta.sourceFilterJson.trim(),
+    sourceAutoRefresh: !!meta.sourceAutoRefresh,
+    sourceRefreshIntervalM: normalizeRefreshIntervalM(Number(meta.sourceRefreshIntervalM || 0)),
+    sourceLastRefreshAt: meta.sourceLastRefreshAt.trim(),
+    proxyCount: Math.max(0, Number(meta.proxyCount || 0)),
+  }
+}
+
+function readStoredSourceMetas(): URLImportSourceMeta[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PROXY_SOURCE_META_STORAGE_KEY) || '[]')
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .map((item): URLImportSourceMeta | null => {
+        if (!item || typeof item !== 'object') return null
+        const sourceId = String((item as any).sourceId || '').trim()
+        const sourceUrl = String((item as any).sourceUrl || '').trim()
+        if (!sourceId || !sourceUrl) return null
+        return normalizeSourceMeta({
+          sourceId,
+          sourceUrl,
+          sourceNamePrefix: String((item as any).sourceNamePrefix || ''),
+          sourceGroupName: String((item as any).sourceGroupName || ''),
+          sourceDnsServers: String((item as any).sourceDnsServers || ''),
+          sourceFilterJson: String((item as any).sourceFilterJson || ''),
+          sourceAutoRefresh: !!(item as any).sourceAutoRefresh,
+          sourceRefreshIntervalM: Number((item as any).sourceRefreshIntervalM || 0),
+          sourceLastRefreshAt: String((item as any).sourceLastRefreshAt || ''),
+          proxyCount: Number((item as any).proxyCount || 0),
+        })
+      })
+      .filter((item): item is URLImportSourceMeta => !!item)
+  } catch {
+    return []
+  }
+}
+
+function writeStoredSourceMetas(metas: URLImportSourceMeta[]) {
+  const deduped = new Map<string, URLImportSourceMeta>()
+  metas.forEach((meta) => {
+    const normalized = normalizeSourceMeta(meta)
+    if (normalized.sourceId && normalized.sourceUrl) {
+      deduped.set(normalized.sourceId, normalized)
+    }
+  })
+  localStorage.setItem(PROXY_SOURCE_META_STORAGE_KEY, JSON.stringify(Array.from(deduped.values())))
+}
+
+function collectURLImportSources(list: BrowserProxy[], archived: URLImportSourceMeta[] = []): URLImportSourceMeta[] {
   const sourceMap = new Map<string, URLImportSourceMeta>()
+  archived.forEach((meta) => {
+    const normalized = normalizeSourceMeta({ ...meta, proxyCount: 0 })
+    if (normalized.sourceId && normalized.sourceUrl) {
+      sourceMap.set(normalized.sourceId, normalized)
+    }
+  })
   for (const item of list) {
     const sourceId = (item.sourceId || '').trim()
     const sourceUrl = (item.sourceUrl || '').trim()
@@ -1103,6 +1165,12 @@ function collectURLImportSources(list: BrowserProxy[]): URLImportSourceMeta[] {
     }
 
     last.proxyCount += 1
+    last.sourceUrl = sourceUrl
+    last.sourceNamePrefix = (item.sourceNamePrefix || '').trim()
+    last.sourceGroupName = (item.groupName || '').trim()
+    last.sourceDnsServers = (item.dnsServers || '').trim()
+    last.sourceAutoRefresh = !!item.sourceAutoRefresh
+    last.sourceRefreshIntervalM = normalizeRefreshIntervalM(Number(item.sourceRefreshIntervalM || 0))
     if (
       parseTimestampMs(currentLastRefreshAt) > parseTimestampMs(last.sourceLastRefreshAt) &&
       currentLastRefreshAt.trim()
@@ -1405,6 +1473,7 @@ function previewHealthMatchesFilter(result: ProxyIPHealthResult | undefined, che
 
 export function ProxyPoolPage() {
   const [proxies, setProxies] = useState<BrowserProxy[]>([])
+  const [sourceArchive, setSourceArchive] = useState<URLImportSourceMeta[]>(readStoredSourceMetas)
   const [displayList, setDisplayList] = useState<ProxyDisplayInfo[]>([])
   const [loading, setLoading] = useState(true)
   const [groups, setGroups] = useState<string[]>([])
@@ -1473,6 +1542,7 @@ export function ProxyPoolPage() {
   const [ipHealthDetailOpen, setIPHealthDetailOpen] = useState(false)
   const [currentIPHealthDetail, setCurrentIPHealthDetail] = useState<ProxyIPHealthResult | null>(null)
   const proxiesRef = useRef<BrowserProxy[]>([])
+  const sourceArchiveRef = useRef<URLImportSourceMeta[]>(sourceArchive)
   const refreshingSourceIdsRef = useRef<Set<string>>(new Set())
   const autoRefreshRunningRef = useRef(false)
   const globalRefreshInterval = useMemo(() => {
@@ -1509,6 +1579,10 @@ export function ProxyPoolPage() {
   useEffect(() => {
     proxiesRef.current = proxies
   }, [proxies])
+
+  useEffect(() => {
+    sourceArchiveRef.current = sourceArchive
+  }, [sourceArchive])
 
   useEffect(() => {
     refreshingSourceIdsRef.current = refreshingSourceIds
@@ -1569,6 +1643,10 @@ export function ProxyPoolPage() {
         }
       })
 
+      const archivedSources = collectURLImportSources(proxyList, sourceArchiveRef.current)
+      sourceArchiveRef.current = archivedSources
+      setSourceArchive(archivedSources)
+      writeStoredSourceMetas(archivedSources)
       setProxies(proxyList)
       setDisplayList(toDisplayList(proxyList))
       setLatencyMap(prev => ({ ...persistedLatency, ...prev }))
@@ -1580,22 +1658,31 @@ export function ProxyPoolPage() {
     }
   }
 
+  const updateSourceArchive = useCallback((updater: (current: URLImportSourceMeta[]) => URLImportSourceMeta[]) => {
+    const next = updater(sourceArchiveRef.current)
+    sourceArchiveRef.current = next
+    setSourceArchive(next)
+    writeStoredSourceMetas(next)
+    return next
+  }, [])
+
   // 直接保存完整列表，内置代理保护由后端负责
   const saveProxies = useCallback(async (list: BrowserProxy[]) => {
     await saveBrowserProxies(list)
+    updateSourceArchive(current => collectURLImportSources(list, current))
     setProxies(list)
     setDisplayList(toDisplayList(list))
     // 刷新分组列表（可能有新分组加入）
     const grps = await fetchBrowserProxyGroups()
     setGroups(grps)
-  }, [])
+  }, [updateSourceArchive])
 
-  const sourceMetas = useMemo(() => collectURLImportSources(proxies), [proxies])
+  const sourceMetas = useMemo(() => collectURLImportSources(proxies, sourceArchive), [proxies, sourceArchive])
   const hasURLImportSources = sourceMetas.length > 0
 
   const refreshSingleSource = useCallback(async (sourceId: string, silent: boolean) => {
     const currentList = proxiesRef.current
-    const metas = collectURLImportSources(currentList)
+    const metas = collectURLImportSources(currentList, sourceArchiveRef.current)
     const meta = metas.find(item => item.sourceId === sourceId)
     if (!meta) return false
 
@@ -1656,7 +1743,7 @@ export function ProxyPoolPage() {
   }, [globalAutoRefreshEnabled, globalRefreshInterval, saveProxies])
 
   const handleRefreshAllSources = useCallback(async (silent = false) => {
-    const metas = collectURLImportSources(proxiesRef.current)
+    const metas = collectURLImportSources(proxiesRef.current, sourceArchiveRef.current)
     if (metas.length === 0) {
       if (!silent) {
         toast.info('当前没有 URL 导入订阅')
@@ -1692,7 +1779,7 @@ export function ProxyPoolPage() {
         return
       }
       const intervalMs = globalRefreshInterval * 60 * 1000
-      const metas = collectURLImportSources(proxiesRef.current).filter(meta => {
+      const metas = collectURLImportSources(proxiesRef.current, sourceArchiveRef.current).filter(meta => {
         if (!meta.sourceUrl.trim()) return false
         const last = parseTimestampMs(meta.sourceLastRefreshAt)
         return last <= 0 || Date.now() - last >= intervalMs
@@ -2638,6 +2725,16 @@ export function ProxyPoolPage() {
 
     try {
       await saveProxies(updated)
+      updateSourceArchive(current => current.map(item => {
+        if (item.sourceId !== editingSource.sourceId) return item
+        return normalizeSourceMeta({
+          ...item,
+          sourceUrl: nextURL,
+          sourceGroupName: nextGroup,
+          sourceNamePrefix: nextPrefix,
+          sourceDnsServers: nextDNS,
+        })
+      }))
       setSourceEditModalOpen(false)
       setEditingSource(null)
       toast.success('订阅已更新')
@@ -2656,6 +2753,7 @@ export function ProxyPoolPage() {
     try {
       const updated = proxies.filter(item => (item.sourceId || '').trim() !== deletingSource.sourceId)
       await saveProxies(updated)
+      updateSourceArchive(current => current.filter(item => item.sourceId !== deletingSource.sourceId))
       setDeletingSource(null)
       toast.success('订阅已删除')
     } catch (error: any) {
