@@ -175,6 +175,10 @@ interface URLImportSourceMeta {
   proxyCount: number
 }
 
+function encodeManualSourceName(name: string): string {
+  return encodeURIComponent(name.trim()).replace(/%20/g, '+')
+}
+
 function parseProxyInfo(proxyConfig: string): { type: string; server: string; port: number } {
   const cfg = proxyConfig.trim()
   if (cfg === 'direct://') return { type: 'direct', server: '-', port: 0 }
@@ -1019,11 +1023,34 @@ async function applySourceRefreshFilterToParsedProxies(
 function sourceHostLabel(sourceURL: string): string {
   const raw = (sourceURL || '').trim()
   if (!raw) return ''
+  const manual = parseManualSourceURL(raw)
+  if (manual) return manual.name
   try {
     const u = new URL(raw)
     return u.host || raw
   } catch {
     return raw
+  }
+}
+
+function parseManualSourceURL(sourceURL: string): { kind: string; name: string } | null {
+  const raw = (sourceURL || '').trim()
+  const match = raw.match(/^manual-(subscription|direct):\/\/(.+)$/i)
+  if (!match) return null
+  const kind = match[1].toLowerCase()
+  const encoded = match[2] || ''
+  const name = safeDecodeURIComponent(encoded.replace(/\+/g, '%20')).trim()
+  return { kind, name: name || (kind === 'subscription' ? '手动订阅' : '手动代理') }
+}
+
+function isRefreshableSourceURL(sourceURL: string): boolean {
+  const raw = (sourceURL || '').trim()
+  if (!raw || parseManualSourceURL(raw)) return false
+  try {
+    const scheme = new URL(raw).protocol.toLowerCase()
+    return scheme === 'http:' || scheme === 'https:'
+  } catch {
+    return false
   }
 }
 
@@ -1048,6 +1075,21 @@ function buildStableSourceID(sourceURL: string, sourceNamePrefix: string, source
   }
   const unsigned = hash >>> 0
   return `src-${unsigned.toString(36)}`
+}
+
+function buildManualSourceURL(mode: ProxyImportMode, name: string): string {
+  const fallback = mode === 'clash' ? '手动订阅' : '手动代理'
+  return `manual-${mode === 'clash' ? 'subscription' : 'direct'}://${encodeManualSourceName(name || fallback)}`
+}
+
+function defaultImportSourceName(mode: ProxyImportMode, groupName: string, prefix: string, selectedCount: number): string {
+  const group = groupName.trim()
+  const namePrefix = prefix.trim()
+  if (group) return group
+  if (namePrefix) return namePrefix
+  return mode === 'clash'
+    ? `手动订阅 ${new Date().toLocaleString()}`
+    : `${selectedCount > 1 ? '批量代理' : '单个代理'} ${new Date().toLocaleString()}`
 }
 
 function resolveImportSourceID(list: BrowserProxy[], sourceURL: string, sourceNamePrefix: string, sourceGroupName: string): string {
@@ -1504,6 +1546,7 @@ export function ProxyPoolPage() {
   const [importDnsServers, setImportDnsServers] = useState('')
   const [importNamePrefix, setImportNamePrefix] = useState('')
   const [importGroupName, setImportGroupName] = useState('')
+  const [importSourceName, setImportSourceName] = useState('')
   const [directImportForm, setDirectImportForm] = useState<DirectImportForm>(() => ({ ...INITIAL_DIRECT_IMPORT_FORM }))
   const [directImportText, setDirectImportText] = useState('')
   const [previewModalOpen, setPreviewModalOpen] = useState(false)
@@ -1685,6 +1728,10 @@ export function ProxyPoolPage() {
     const metas = collectURLImportSources(currentList, sourceArchiveRef.current)
     const meta = metas.find(item => item.sourceId === sourceId)
     if (!meta) return false
+    if (!isRefreshableSourceURL(meta.sourceUrl)) {
+      if (!silent) toast.warning('手动添加的资源没有订阅 URL，不能刷新；可以编辑后补充 URL')
+      return false
+    }
 
     if (refreshingSourceIdsRef.current.has(sourceId)) return false
     setRefreshingSourceIds(prev => {
@@ -1780,7 +1827,7 @@ export function ProxyPoolPage() {
       }
       const intervalMs = globalRefreshInterval * 60 * 1000
       const metas = collectURLImportSources(proxiesRef.current, sourceArchiveRef.current).filter(meta => {
-        if (!meta.sourceUrl.trim()) return false
+        if (!isRefreshableSourceURL(meta.sourceUrl)) return false
         const last = parseTimestampMs(meta.sourceLastRefreshAt)
         return last <= 0 || Date.now() - last >= intervalMs
       })
@@ -2697,15 +2744,17 @@ export function ProxyPoolPage() {
       toast.error('订阅 URL 不能为空')
       return
     }
-    try {
-      const parsed = new URL(nextURL)
-      if (!['http:', 'https:'].includes(parsed.protocol)) {
-        toast.error('订阅 URL 仅支持 HTTP / HTTPS')
+    if (!parseManualSourceURL(nextURL)) {
+      try {
+        const parsed = new URL(nextURL)
+        if (!['http:', 'https:'].includes(parsed.protocol)) {
+          toast.error('订阅 URL 仅支持 HTTP / HTTPS；手动资源请保留 manual-* 标识')
+          return
+        }
+      } catch {
+        toast.error('订阅 URL 格式无效')
         return
       }
-    } catch {
-      toast.error('订阅 URL 格式无效')
-      return
     }
 
     const nextGroup = sourceEditForm.groupName.trim()
@@ -2830,11 +2879,13 @@ export function ProxyPoolPage() {
     }
     setImporting(true)
     try {
-      const sourceURL = importMode === 'clash' ? importResolvedUrl.trim() : ''
-      const isURLImport = !!sourceURL
+      const sourceURL = importMode === 'clash' ? (importResolvedUrl.trim() || importUrl.trim()) : ''
+      const isURLImport = isRefreshableSourceURL(sourceURL)
       const sourceNamePrefix = importMode === 'clash' ? importNamePrefix.trim() : ''
       const sourceGroupName = importGroupName.trim()
-      const sourceID = isURLImport ? resolveImportSourceID(proxies, sourceURL, sourceNamePrefix, sourceGroupName) : ''
+      const sourceDisplayName = importSourceName.trim() || defaultImportSourceName(importMode, sourceGroupName, sourceNamePrefix, selectedPreviewList.length)
+      const effectiveSourceURL = isURLImport ? sourceURL : buildManualSourceURL(importMode, sourceDisplayName)
+      const sourceID = resolveImportSourceID(proxies, effectiveSourceURL, sourceNamePrefix, sourceGroupName)
       const sourceAutoRefresh = isURLImport ? globalAutoRefreshEnabled : false
       const sourceRefreshIntervalM = sourceAutoRefresh ? globalRefreshInterval : 0
       const sourceLastRefreshAt = isURLImport ? new Date().toISOString() : ''
@@ -2848,7 +2899,7 @@ export function ProxyPoolPage() {
         }
       }
       const sourceFilter = parseSourceRefreshFilter(sourceFilterJson)
-      const oldSourceProxies = isURLImport
+      const oldSourceProxies = sourceID
         ? proxies.filter(item => (item.sourceId || '').trim() === sourceID)
         : []
       const pickExistingID = createExistingProxyIDPicker(oldSourceProxies)
@@ -2860,14 +2911,14 @@ export function ProxyPoolPage() {
         dnsServers: importMode === 'clash' ? importDnsServers.trim() || undefined : undefined,
         groupName: sourceGroupName || undefined,
         sourceId: sourceID || undefined,
-        sourceUrl: sourceURL || undefined,
+        sourceUrl: effectiveSourceURL || undefined,
         sourceNamePrefix: sourceNamePrefix || undefined,
         sourceFilterJson: sourceFilterJson || undefined,
         sourceAutoRefresh,
         sourceRefreshIntervalM,
         sourceLastRefreshAt: sourceLastRefreshAt || undefined,
       }))
-      const allProxies = isURLImport
+      const allProxies = sourceID
         ? proxies.filter(item => (item.sourceId || '').trim() !== sourceID).concat(newProxies)
         : [...proxies, ...newProxies]
       await saveProxies(allProxies)
@@ -2881,7 +2932,7 @@ export function ProxyPoolPage() {
         ))
         .map(item => item.proxyName)
       const ignoredProxyNames = [...removedPreviewProxyNames, ...unselectedPreviewProxyNames]
-      if (isURLImport && ignoredProxyNames.length > 0) {
+      if (sourceID && ignoredProxyNames.length > 0) {
         appendSourceIgnoredProxyNames(sourceID, ignoredProxyNames)
       }
       setPreviewModalOpen(false)
@@ -2891,6 +2942,7 @@ export function ProxyPoolPage() {
       setImportDnsServers('')
       setImportNamePrefix('')
       setImportGroupName('')
+      setImportSourceName('')
       setDirectImportForm({ ...INITIAL_DIRECT_IMPORT_FORM })
       setDirectImportText('')
       setPreviewList([])
@@ -2917,7 +2969,9 @@ export function ProxyPoolPage() {
       render: (_, record) => (
         <div className="text-xs leading-5 min-w-0 max-w-[280px] overflow-hidden">
           <div className="text-[var(--color-text-primary)] truncate" title={record.sourceUrl}>{sourceHostLabel(record.sourceUrl)}</div>
-          <div className="text-[var(--color-text-muted)] truncate" title={record.sourceUrl}>{record.sourceUrl}</div>
+          <div className="text-[var(--color-text-muted)] truncate" title={record.sourceUrl}>
+            {parseManualSourceURL(record.sourceUrl) ? '手动添加资源' : record.sourceUrl}
+          </div>
         </div>
       ),
     },
@@ -2948,6 +3002,8 @@ export function ProxyPoolPage() {
             variant="secondary"
             onClick={() => void refreshSingleSource(record.sourceId, false)}
             loading={refreshingSourceIds.has(record.sourceId)}
+            disabled={!isRefreshableSourceURL(record.sourceUrl)}
+            title={isRefreshableSourceURL(record.sourceUrl) ? '刷新订阅' : '手动添加资源没有可刷新 URL'}
           >
             刷新
           </Button>
@@ -3191,6 +3247,14 @@ export function ProxyPoolPage() {
               ? '支持管理 Clash 订阅 URL、直接粘贴 YAML，也支持 v2rayN Base64 订阅/分享链接；AnyTLS 等 sing-box 节点会自动桥接'
               : '支持批量粘贴 HTTP / HTTPS / SOCKS5 代理，也可以用表单补充单条带认证代理'}
           </p>
+          <FormItem label="资源名称（可选）">
+            <Input
+              value={importSourceName}
+              onChange={e => setImportSourceName(e.target.value)}
+              placeholder={importMode === 'clash' ? '例如：机场A、手动订阅A' : '例如：批量代理A、单个代理A'}
+            />
+            <p className="text-xs text-[var(--color-text-muted)] mt-1">本次添加会作为一条资源出现在订阅管理中；不填写时会自动生成名称。</p>
+          </FormItem>
           {importMode === 'clash' && (
             <>
               <FormItem label="订阅 URL（可选）">
@@ -3398,12 +3462,13 @@ export function ProxyPoolPage() {
       <Modal open={sourceEditModalOpen} onClose={() => setSourceEditModalOpen(false)} title="编辑订阅" width="560px"
         footer={<><Button variant="secondary" onClick={() => setSourceEditModalOpen(false)}>取消</Button><Button onClick={handleSaveSource}>保存</Button></>}>
         <div className="space-y-4">
-          <FormItem label="订阅 URL" required>
+          <FormItem label="订阅 URL / 手动资源标识" required>
             <Input
               value={sourceEditForm.sourceUrl}
               onChange={e => setSourceEditForm(prev => ({ ...prev, sourceUrl: e.target.value }))}
               placeholder="https://example.com/clash/subscription"
             />
+            <p className="text-xs text-[var(--color-text-muted)] mt-1">手动添加资源会使用 manual-* 标识；补充为 http/https URL 后即可刷新。</p>
           </FormItem>
           <FormItem label="分组名称（可选）">
             <Input
