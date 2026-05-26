@@ -94,6 +94,7 @@ func (a *App) markProfileRunningLocked(profileId string, profile *BrowserProfile
 	if debugReady && a.launchServer != nil {
 		a.launchServer.SetActiveProfile(profile)
 	}
+	a.persistBrowserProfileRuntimeState(profile)
 }
 
 func (a *App) markProfileDebugReadyLocked(profile *BrowserProfile, debugPort int) {
@@ -104,6 +105,7 @@ func (a *App) markProfileDebugReadyLocked(profile *BrowserProfile, debugPort int
 	profile.DebugReady = true
 	profile.RuntimeWarning = ""
 	profile.LastError = ""
+	a.persistBrowserProfileRuntimeState(profile)
 }
 
 func (a *App) setProfileDebugReady(profileId string, debugPort int) (*BrowserProfile, bool) {

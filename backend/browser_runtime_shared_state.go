@@ -1,0 +1,204 @@
+package backend
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
+type browserProfileRuntimeState struct {
+	ProfileID      string `json:"profileId"`
+	Running        bool   `json:"running"`
+	DebugPort      int    `json:"debugPort"`
+	DebugReady     bool   `json:"debugReady"`
+	PID            int    `json:"pid"`
+	RuntimeWarning string `json:"runtimeWarning"`
+	LastStartAt    string `json:"lastStartAt"`
+	LastStopAt     string `json:"lastStopAt"`
+	UpdatedAt      string `json:"updatedAt"`
+}
+
+func (a *App) reconcileBrowserProfileRuntimeStates() {
+	if a == nil || a.browserMgr == nil {
+		return
+	}
+
+	a.browserMgr.InitData()
+	a.browserMgr.Mutex.Lock()
+	defer a.browserMgr.Mutex.Unlock()
+
+	changed := false
+	for profileID, profile := range a.browserMgr.Profiles {
+		if profile == nil {
+			continue
+		}
+
+		state, err := a.loadBrowserProfileRuntimeState(profileID)
+		if err != nil || state == nil || !state.Running {
+			if profile.Running && !isBrowserProfileLive(profile, a.browserMgr.BrowserProcesses[profileID]) {
+				a.markProfileStoppedLocked(profileID, profile)
+				changed = true
+			}
+			continue
+		}
+
+		if !browserRuntimeStateLive(state) {
+			if profile.Running && profile.DebugPort == state.DebugPort && profile.Pid == state.PID {
+				a.markProfileStoppedLocked(profileID, profile)
+				changed = true
+			}
+			_ = a.clearBrowserProfileRuntimeState(profileID)
+			continue
+		}
+
+		debugReady := state.DebugReady
+		runtimeWarning := state.RuntimeWarning
+		if state.DebugPort > 0 && canConnectDebugPort(state.DebugPort, 250*time.Millisecond) {
+			debugReady = true
+			runtimeWarning = ""
+		}
+
+		if profile.Running != true ||
+			profile.DebugPort != state.DebugPort ||
+			profile.DebugReady != debugReady ||
+			profile.Pid != state.PID ||
+			profile.RuntimeWarning != runtimeWarning ||
+			(state.LastStartAt != "" && profile.LastStartAt != state.LastStartAt) {
+			profile.Running = true
+			profile.DebugPort = state.DebugPort
+			profile.DebugReady = debugReady
+			profile.Pid = state.PID
+			profile.RuntimeWarning = runtimeWarning
+			if state.LastStartAt != "" {
+				profile.LastStartAt = state.LastStartAt
+			}
+			profile.LastError = ""
+			changed = true
+		}
+	}
+
+	if changed && a.launchServer != nil {
+		for _, profile := range a.browserMgr.Profiles {
+			if profile != nil && profile.Running && profile.DebugReady && profile.DebugPort > 0 {
+				a.launchServer.SetActiveProfile(profile)
+				break
+			}
+		}
+	}
+}
+
+func browserRuntimeStateLive(state *browserProfileRuntimeState) bool {
+	if state == nil || !state.Running {
+		return false
+	}
+	if state.DebugPort > 0 && canConnectDebugPort(state.DebugPort, 250*time.Millisecond) {
+		return true
+	}
+	if state.PID > 0 && isProcessAlive(state.PID) {
+		return true
+	}
+	return false
+}
+
+func (a *App) persistBrowserProfileRuntimeState(profile *BrowserProfile) {
+	if a == nil || profile == nil {
+		return
+	}
+
+	state := browserProfileRuntimeState{
+		ProfileID:      profile.ProfileId,
+		Running:        profile.Running,
+		DebugPort:      profile.DebugPort,
+		DebugReady:     profile.DebugReady,
+		PID:            profile.Pid,
+		RuntimeWarning: profile.RuntimeWarning,
+		LastStartAt:    profile.LastStartAt,
+		LastStopAt:     profile.LastStopAt,
+		UpdatedAt:      time.Now().Format(time.RFC3339Nano),
+	}
+	if !state.Running {
+		_ = a.clearBrowserProfileRuntimeState(profile.ProfileId)
+		return
+	}
+
+	path := a.browserProfileRuntimeStatePath(profile.ProfileId)
+	if path == "" {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return
+	}
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0644); err != nil {
+		return
+	}
+	_ = os.Rename(tmp, path)
+}
+
+func (a *App) loadBrowserProfileRuntimeState(profileID string) (*browserProfileRuntimeState, error) {
+	path := a.browserProfileRuntimeStatePath(profileID)
+	if path == "" {
+		return nil, os.ErrNotExist
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var state browserProfileRuntimeState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(state.ProfileID) == "" {
+		state.ProfileID = profileID
+	}
+	return &state, nil
+}
+
+func (a *App) clearBrowserProfileRuntimeState(profileID string) error {
+	path := a.browserProfileRuntimeStatePath(profileID)
+	if path == "" {
+		return nil
+	}
+	err := os.Remove(path)
+	if err == nil || os.IsNotExist(err) {
+		return nil
+	}
+	return err
+}
+
+func (a *App) browserProfileRuntimeStatePath(profileID string) string {
+	profileID = strings.TrimSpace(profileID)
+	if profileID == "" || strings.TrimSpace(a.appRoot) == "" {
+		return ""
+	}
+	return filepath.Join(a.appStateRootAbs(), "runtime", "browser-instances", safeBrowserRuntimeStateName(profileID)+".json")
+}
+
+func safeBrowserRuntimeStateName(value string) string {
+	value = strings.TrimSpace(value)
+	var builder strings.Builder
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z':
+			builder.WriteRune(r)
+		case r >= 'A' && r <= 'Z':
+			builder.WriteRune(r)
+		case r >= '0' && r <= '9':
+			builder.WriteRune(r)
+		case r == '-' || r == '_':
+			builder.WriteRune(r)
+		default:
+			builder.WriteByte('_')
+		}
+	}
+	if builder.Len() == 0 {
+		return "profile"
+	}
+	return builder.String()
+}

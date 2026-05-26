@@ -863,10 +863,14 @@ type BrowserExtensionBinding = browser.ExtensionBinding
 // ============================================================================
 
 // BrowserProfileList 获取所有实例列表
-func (a *App) BrowserProfileList() []BrowserProfile { return a.browserMgr.List() }
+func (a *App) BrowserProfileList() []BrowserProfile {
+	a.reconcileBrowserProfileRuntimeStates()
+	return a.browserMgr.List()
+}
 
 // BrowserProfileListByTag 按标签筛选实例列表
 func (a *App) BrowserProfileListByTag(tag string) []BrowserProfile {
+	a.reconcileBrowserProfileRuntimeStates()
 	return a.browserMgr.ListByTag(tag)
 }
 
