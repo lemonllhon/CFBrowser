@@ -18,11 +18,13 @@ import (
 // ============================================================================
 
 func (a *App) BrowserInstanceStart(profileId string) (*BrowserProfile, error) {
+	a.refreshBrowserProfileConfigCacheFromStore()
 	return a.browserInstanceStartInternal(profileId, nil, nil, false, false)
 }
 
 // BrowserInstanceStartWithParams 通过额外参数启动实例（仅本次启动生效，不落库）
 func (a *App) BrowserInstanceStartWithParams(profileId string, extraLaunchArgs []string, startURLs []string, skipDefaultStartURLs bool) (*BrowserProfile, error) {
+	a.refreshBrowserProfileConfigCacheFromStore()
 	return a.browserInstanceStartInternal(profileId, extraLaunchArgs, startURLs, skipDefaultStartURLs, true)
 }
 
@@ -404,6 +406,7 @@ func (a *App) browserInstanceStartInternal(profileId string, extraLaunchArgs []s
 }
 
 func (a *App) BrowserInstanceStop(profileId string) (*BrowserProfile, error) {
+	a.refreshBrowserProfileConfigCacheFromStore()
 	if err := a.ensureWindowSyncProfileMutable(profileId); err != nil {
 		return nil, err
 	}
@@ -445,6 +448,7 @@ func (a *App) BrowserInstanceStop(profileId string) (*BrowserProfile, error) {
 }
 
 func (a *App) BrowserInstanceRestart(profileId string) (*BrowserProfile, error) {
+	a.refreshBrowserProfileConfigCacheFromStore()
 	if err := a.ensureWindowSyncProfileMutable(profileId); err != nil {
 		return nil, err
 	}
@@ -456,6 +460,7 @@ func (a *App) BrowserInstanceRestart(profileId string) (*BrowserProfile, error) 
 
 // BrowserProfileBatchSetTags 批量为实例设置标签（追加模式：将 tags 加入已有标签；replace 模式：直接替换）
 func (a *App) BrowserProfileBatchSetTags(profileIds []string, tags []string, replace bool) error {
+	a.refreshBrowserProfileConfigCacheFromStore()
 	log := logger.New("Browser")
 	a.browserMgr.Mutex.Lock()
 	defer a.browserMgr.Mutex.Unlock()
@@ -493,6 +498,7 @@ func (a *App) BrowserProfileBatchSetTags(profileIds []string, tags []string, rep
 
 // BrowserProfileBatchRemoveTags 批量从实例移除指定标签
 func (a *App) BrowserProfileBatchRemoveTags(profileIds []string, tags []string) error {
+	a.refreshBrowserProfileConfigCacheFromStore()
 	log := logger.New("Browser")
 	a.browserMgr.Mutex.Lock()
 	defer a.browserMgr.Mutex.Unlock()
@@ -527,6 +533,7 @@ func (a *App) BrowserProfileBatchRemoveTags(profileIds []string, tags []string) 
 
 // BrowserRenameTag 重命名所有实例中的指定标签
 func (a *App) BrowserRenameTag(oldName string, newName string) error {
+	a.refreshBrowserProfileConfigCacheFromStore()
 	log := logger.New("Browser")
 	oldName = strings.TrimSpace(oldName)
 	newName = strings.TrimSpace(newName)
@@ -586,6 +593,7 @@ func (a *App) BrowserRenameTag(oldName string, newName string) error {
 }
 
 func (a *App) BrowserInstanceStatus(profileId string) (*BrowserProfile, error) {
+	a.reconcileBrowserProfileRuntimeStates()
 	a.browserMgr.Mutex.Lock()
 	defer a.browserMgr.Mutex.Unlock()
 	profile, exists := a.browserMgr.Profiles[profileId]

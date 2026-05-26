@@ -593,6 +593,7 @@ export function BrowserListPage() {
     const timer = window.setInterval(() => {
       if (document.visibilityState !== 'visible') return
       void loadProfiles({ silent: true, syncRuntimeState: true })
+      void loadGroups()
     }, 2000)
 
     return () => {

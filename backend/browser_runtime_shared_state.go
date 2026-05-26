@@ -25,6 +25,7 @@ func (a *App) reconcileBrowserProfileRuntimeStates() {
 		return
 	}
 
+	a.refreshBrowserProfileConfigCacheFromStore()
 	a.browserMgr.InitData()
 	a.browserMgr.Mutex.Lock()
 	defer a.browserMgr.Mutex.Unlock()
@@ -87,6 +88,66 @@ func (a *App) reconcileBrowserProfileRuntimeStates() {
 			}
 		}
 	}
+}
+
+func (a *App) refreshBrowserProfileConfigCacheFromStore() {
+	if a == nil || a.browserMgr == nil || a.browserMgr.ProfileDAO == nil {
+		return
+	}
+
+	profiles, err := a.browserMgr.ProfileDAO.List()
+	if err != nil {
+		return
+	}
+
+	next := make(map[string]*BrowserProfile, len(profiles))
+	for _, persisted := range profiles {
+		if persisted == nil || strings.TrimSpace(persisted.ProfileId) == "" {
+			continue
+		}
+		snapshot := *persisted
+		next[persisted.ProfileId] = &snapshot
+	}
+
+	a.browserMgr.Mutex.Lock()
+
+	cleanupProfileIDs := make([]string, 0)
+	for profileID, existing := range a.browserMgr.Profiles {
+		incoming := next[profileID]
+		if incoming == nil {
+			delete(a.browserMgr.BrowserProcesses, profileID)
+			cleanupProfileIDs = append(cleanupProfileIDs, profileID)
+			continue
+		}
+		preserveBrowserProfileRuntimeFields(incoming, existing)
+	}
+
+	a.browserMgr.Profiles = next
+	a.browserMgr.Mutex.Unlock()
+
+	for _, profileID := range cleanupProfileIDs {
+		a.releaseProfileXrayBridge(profileID)
+		a.releaseProfileSwitchBridge(profileID)
+		a.releaseProfileAuthProxyBridge(profileID)
+		if a.launchServer != nil {
+			a.launchServer.ClearActiveProfile(profileID)
+		}
+	}
+}
+
+func preserveBrowserProfileRuntimeFields(target *BrowserProfile, source *BrowserProfile) {
+	if target == nil || source == nil {
+		return
+	}
+	target.Running = source.Running
+	target.DebugPort = source.DebugPort
+	target.DebugReady = source.DebugReady
+	target.Pid = source.Pid
+	target.RuntimeWarning = source.RuntimeWarning
+	target.LastError = source.LastError
+	target.LastStartAt = source.LastStartAt
+	target.LastStopAt = source.LastStopAt
+	target.LaunchCode = source.LaunchCode
 }
 
 func browserRuntimeStateLive(state *browserProfileRuntimeState) bool {

@@ -640,6 +640,7 @@ func (a *App) releaseProfileAuthProxyBridge(profileId string) {
 }
 
 func (a *App) BrowserProfileSwitchProxyNow(profileId string) (*BrowserProfile, error) {
+	a.refreshBrowserProfileConfigCacheFromStore()
 	profileId = strings.TrimSpace(profileId)
 	if profileId == "" {
 		return nil, fmt.Errorf("profile id is required")
@@ -876,11 +877,13 @@ func (a *App) BrowserProfileListByTag(tag string) []BrowserProfile {
 
 // BrowserGetAllTags 获取所有已使用的标签
 func (a *App) BrowserGetAllTags() []string {
+	a.refreshBrowserProfileConfigCacheFromStore()
 	return a.browserMgr.GetAllTags()
 }
 
 // BrowserProfileSetKeywords 设置实例关键字
 func (a *App) BrowserProfileSetKeywords(profileId string, keywords []string) (*BrowserProfile, error) {
+	a.refreshBrowserProfileConfigCacheFromStore()
 	if err := a.ensureWindowSyncProfileMutable(profileId); err != nil {
 		return nil, err
 	}
@@ -888,6 +891,7 @@ func (a *App) BrowserProfileSetKeywords(profileId string, keywords []string) (*B
 }
 
 func (a *App) BrowserProfileCreate(input BrowserProfileInput) (*BrowserProfile, error) {
+	a.refreshBrowserProfileConfigCacheFromStore()
 	profile, err := a.browserMgr.Create(input)
 	if err != nil {
 		return nil, err
@@ -899,6 +903,7 @@ func (a *App) BrowserProfileCreate(input BrowserProfileInput) (*BrowserProfile, 
 }
 
 func (a *App) BrowserProfileUpdate(profileId string, input BrowserProfileInput) (*BrowserProfile, error) {
+	a.refreshBrowserProfileConfigCacheFromStore()
 	if err := a.ensureWindowSyncProfileMutable(profileId); err != nil {
 		return nil, err
 	}
@@ -906,6 +911,7 @@ func (a *App) BrowserProfileUpdate(profileId string, input BrowserProfileInput) 
 }
 
 func (a *App) BrowserProfileDelete(profileId string) error {
+	a.refreshBrowserProfileConfigCacheFromStore()
 	if err := a.ensureWindowSyncProfileMutable(profileId); err != nil {
 		return err
 	}
@@ -914,6 +920,7 @@ func (a *App) BrowserProfileDelete(profileId string) error {
 
 // BrowserProfileCopy 复制实例配置（除指纹参数外全部复制）
 func (a *App) BrowserProfileCopy(profileId string, newName string) (*BrowserProfile, error) {
+	a.refreshBrowserProfileConfigCacheFromStore()
 	profile, err := a.browserMgr.Copy(profileId, newName)
 	if err != nil {
 		return nil, err
