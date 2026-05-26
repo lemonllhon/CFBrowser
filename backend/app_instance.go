@@ -107,6 +107,12 @@ func (a *App) browserInstanceStartInternal(profileId string, extraLaunchArgs []s
 	if err := browser.EnsureDefaultBookmarks(userDataDir, a.BookmarkListForProfile(profile)); err != nil {
 		log.Error("默认书签写入失败", logger.F("error", err.Error()))
 	}
+	if err := a.prepareSharedExtensionDataForProfile(profile); err != nil {
+		startErr := fmt.Errorf("实例启动失败：扩展插件共享数据目录准备失败。原因：%w", err)
+		log.Error("扩展插件共享数据目录准备失败", logger.F("profile_id", profileId), logger.F("error", err.Error()), logger.F("reason", startErr.Error()))
+		profile.LastError = startErr.Error()
+		return profile, startErr
+	}
 
 	proxies := a.getLatestProxies()
 	acquiredXrayBridgeKey := ""
