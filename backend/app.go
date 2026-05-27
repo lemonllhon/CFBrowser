@@ -501,7 +501,7 @@ func platformSupportsTrayCloseFlow() bool {
 }
 
 func platformSupportsTrayCloseFlowForOS(goos string) bool {
-	return false
+	return goos == "windows"
 }
 
 func (a *App) setQuitMode(mode quitMode) {
@@ -514,13 +514,17 @@ func (a *App) shouldStopRuntimeServicesOnShutdown() bool {
 }
 
 func ShouldBlockClose(a *App, ctx context.Context) bool {
+	return shouldBlockClose(a, ctx, platformSupportsTrayCloseFlow())
+}
+
+func shouldBlockClose(a *App, ctx context.Context, supportsCloseFlow bool) bool {
 	if a == nil {
 		return false
 	}
 	if a.forceQuit {
 		return false
 	}
-	if !platformSupportsTrayCloseFlow() {
+	if !supportsCloseFlow {
 		return false
 	}
 	a.appRuntime().EmitEvent(ctx, "app:request-close")

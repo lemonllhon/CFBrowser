@@ -8,18 +8,47 @@ import (
 )
 
 func TestPlatformSupportsTrayCloseFlowForOS(t *testing.T) {
-	if platformSupportsTrayCloseFlowForOS("windows") {
-		t.Fatal("expected Windows close to proceed without frontend interception")
+	if !platformSupportsTrayCloseFlowForOS("windows") {
+		t.Fatal("expected Windows close to open the frontend confirmation flow")
 	}
 	if platformSupportsTrayCloseFlowForOS("linux") {
 		t.Fatal("expected Linux to skip tray close flow")
 	}
+	if platformSupportsTrayCloseFlowForOS("darwin") {
+		t.Fatal("expected macOS to skip tray close flow")
+	}
 }
 
-func TestShouldBlockClose_DoesNotInterceptWindowClose(t *testing.T) {
+func TestShouldBlockClose_InterceptsSupportedWindowClose(t *testing.T) {
 	app := NewApp("")
-	if ShouldBlockClose(app, context.Background()) {
-		t.Fatal("expected window close to proceed without frontend interception")
+	events := 0
+	app.setProtoEventSink(func(eventName string, payload []byte) {
+		if eventName == "app:request-close" {
+			events++
+		}
+	})
+
+	if !shouldBlockClose(app, context.Background(), true) {
+		t.Fatal("expected supported window close to be intercepted")
+	}
+	if events != 1 {
+		t.Fatalf("expected app:request-close event to be emitted once, got %d", events)
+	}
+}
+
+func TestShouldBlockClose_SkipsUnsupportedWindowClose(t *testing.T) {
+	app := NewApp("")
+	if shouldBlockClose(app, context.Background(), false) {
+		t.Fatal("expected unsupported window close to proceed without frontend interception")
+	}
+}
+
+func TestShouldBlockClose_SkipsAfterQuitModeSelected(t *testing.T) {
+	app := NewApp("")
+	app.setQuitMode(quitModeFull)
+
+	if shouldBlockClose(app, context.Background(), true) {
+		t.Fatal("expected selected quit mode to bypass close interception")
 	}
 }
 
