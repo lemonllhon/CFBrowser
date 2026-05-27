@@ -571,6 +571,27 @@ function New-WindowsSelfUpdatePackage {
     }
 }
 
+function New-WailsUpdaterChecksums {
+    Write-Host "[Windows] 生成 Wails3 updater SHA256SUMS..."
+    $outputDir = Join-Path $repoRoot "publish/output"
+    $selfUpdates = @(Get-ChildItem -LiteralPath $outputDir -Filter "TraceBrowser-SelfUpdate-*.zip" -ErrorAction SilentlyContinue)
+    if ($selfUpdates.Count -eq 0) {
+        throw "未找到 Wails3 self-update ZIP，无法生成 SHA256SUMS"
+    }
+
+    $lines = @()
+    foreach ($asset in $selfUpdates) {
+        $checksum = (Get-FileHash -Algorithm SHA256 -LiteralPath $asset.FullName).Hash.ToLowerInvariant()
+        $lines += "$checksum  $($asset.Name)"
+    }
+
+    $checksumPath = Join-Path $outputDir "SHA256SUMS"
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($checksumPath, ($lines -join "`n") + "`n", $utf8NoBom)
+    Write-Host "✓ Wails3 updater SHA256SUMS: publish\output\SHA256SUMS"
+    Write-Host ""
+}
+
 function Remove-WindowsStaging {
     param([string]$StagingDir)
 
@@ -595,6 +616,7 @@ function Publish-Windows {
         $stagingDir = New-WindowsStaging
         Invoke-WindowsPackaging -MakensisPath $makensisPath -StagingDir $stagingDir
         New-WindowsSelfUpdatePackage
+        New-WailsUpdaterChecksums
     }
     finally {
         Remove-WindowsStaging -StagingDir $stagingDir

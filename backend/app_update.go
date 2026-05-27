@@ -1,7 +1,6 @@
 package backend
 
 import (
-	selfupdate "ant-chrome/backend/internal/wails3selfupdate"
 	"archive/zip"
 	"context"
 	"crypto/sha256"
@@ -20,13 +19,15 @@ import (
 	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/updater"
+	updatergithub "github.com/wailsapp/wails/v3/pkg/updater/providers/github"
 )
 
 const PROJECT_GITHUB_URL = "https://github.com/lemon-casino/trace-browser-release/releases"
 
 const githubLatestReleaseAPI = "https://api.github.com/repos/lemon-casino/trace-browser-release/releases/latest"
 const defaultWailsUpdateManifestURL = "https://github.com/lemon-casino/trace-browser-release/releases/latest/download/update.json"
-const defaultWailsSelfUpdateAssetPattern = "TraceBrowser-SelfUpdate-{version}-{platform}"
+const defaultWailsChecksumAssetName = "SHA256SUMS"
 
 type AppUpdateAsset struct {
 	Name        string `json:"name"`
@@ -116,10 +117,24 @@ type wailsUpdatePlatform struct {
 }
 
 type wailsUpdateRuntime struct {
-	service *selfupdate.Service
-	owner   string
-	repo    string
-	pattern string
+	app              *application.App
+	owner            string
+	repo             string
+	checksumAsset    string
+	initialized      bool
+	eventsRegistered bool
+}
+
+func (a *App) ConfigureOfficialWailsUpdater(wailsApp *application.App) {
+	if a == nil || wailsApp == nil {
+		return
+	}
+	a.updateRuntimeMu.Lock()
+	defer a.updateRuntimeMu.Unlock()
+	if a.updateRuntime == nil {
+		a.updateRuntime = &wailsUpdateRuntime{}
+	}
+	a.updateRuntime.app = wailsApp
 }
 
 func (a *App) CheckAppUpdate() (*AppUpdateInfo, error) {
@@ -198,55 +213,99 @@ func (a *App) checkAppUpdateFromOfficialWailsRuntime(ctx context.Context, curren
 	if err != nil {
 		return nil, err
 	}
-	result, err := runtime.service.Check(ctx)
+	result, err := runtime.app.Updater.Check(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("Wails3 官方 updater 检查失败: %w", err)
+	}
+	if result == nil {
+		return &AppUpdateInfo{
+			CurrentVersion:         currentVersion,
+			LatestVersion:          currentVersion,
+			ReleaseURL:             PROJECT_GITHUB_URL + "/latest",
+			HasUpdate:              false,
+			DistributionKind:       a.currentUpdateDistributionKind(),
+			RecommendedPackageKind: "selfupdate",
+			CanSelfUpdatePortable:  true,
+			Message:                "当前已是最新版本",
+		}, nil
 	}
 
 	latestVersion := normalizeVersion(result.Version)
 	if latestVersion == "" {
 		latestVersion = normalizeVersion(currentVersion)
 	}
-	asset := appUpdateAssetFromWailsUpdateResult(result)
+	asset := appUpdateAssetFromOfficialRelease(result)
 	info := &AppUpdateInfo{
 		CurrentVersion:         currentVersion,
 		LatestVersion:          latestVersion,
-		ReleaseName:            firstNonEmpty("v"+latestVersion, result.Version),
-		ReleaseURL:             firstNonEmpty(result.ReleaseURL, PROJECT_GITHUB_URL+"/latest"),
-		PublishedAt:            formatWailsUpdateTime(result.ReleaseDate),
-		Body:                   strings.TrimSpace(result.ReleaseNotes),
-		HasUpdate:              result.UpdateAvailable,
+		ReleaseName:            firstNonEmpty(result.Name, "v"+latestVersion, result.Version),
+		ReleaseURL:             firstNonEmpty(officialReleaseURL(result), PROJECT_GITHUB_URL+"/latest"),
+		PublishedAt:            formatOfficialReleaseTime(result.PublishedAt),
+		Body:                   strings.TrimSpace(result.Notes),
+		HasUpdate:              appReleaseVersionsDiffer(latestVersion, currentVersion),
 		Asset:                  asset,
 		InstallerAsset:         asset,
 		DistributionKind:       a.currentUpdateDistributionKind(),
 		RecommendedPackageKind: "selfupdate",
-		CanSelfUpdatePortable:  runtime.service.CanUpdate(),
+		CanSelfUpdatePortable:  true,
 	}
 	if !info.HasUpdate {
 		info.Message = "当前已是最新版本"
 	} else if asset == nil {
 		info.Message = "检测到新版本，但没有找到官方 Wails3 自更新资产"
-	} else if !runtime.service.CanUpdate() {
-		info.Message = "检测到新版本，但当前安装目录不可写，请打开下载页手动更新"
 	} else {
 		info.Message = "检测到新版本，可使用 Wails3 官方 updater 直接更新"
 	}
 	return info, nil
 }
 
-func appUpdateAssetFromWailsUpdateResult(result *selfupdate.UpdateResult) *AppUpdateAsset {
-	if result == nil || strings.TrimSpace(result.DownloadURL) == "" {
+func appUpdateAssetFromOfficialRelease(release *updater.Release) *AppUpdateAsset {
+	if release == nil {
+		return nil
+	}
+	downloadURL := officialReleaseDownloadURL(release)
+	if strings.TrimSpace(downloadURL) == "" {
 		return nil
 	}
 	return &AppUpdateAsset{
-		Name:        firstNonEmpty(result.AssetName, fileNameFromURL(result.DownloadURL), "trace-browser-selfupdate"),
-		Size:        result.Size,
-		DownloadURL: result.DownloadURL,
-		Checksum:    result.Checksum,
+		Name:        firstNonEmpty(release.Artifact.Filename, fileNameFromURL(downloadURL), "trace-browser-selfupdate"),
+		Size:        release.Artifact.Size,
+		DownloadURL: downloadURL,
+		Checksum:    officialReleaseChecksum(release.Verification),
 	}
 }
 
-func formatWailsUpdateTime(value time.Time) string {
+func officialReleaseURL(release *updater.Release) string {
+	if release == nil || release.Metadata == nil {
+		return ""
+	}
+	if value, ok := release.Metadata["github.release.htmlURL"].(string); ok {
+		return strings.TrimSpace(value)
+	}
+	return ""
+}
+
+func officialReleaseDownloadURL(release *updater.Release) string {
+	if release == nil || release.Metadata == nil {
+		return ""
+	}
+	if value, ok := release.Metadata["github.asset.url"].(string); ok {
+		return strings.TrimSpace(value)
+	}
+	return ""
+}
+
+func officialReleaseChecksum(verification *updater.Verification) string {
+	if verification == nil || len(verification.Digest) == 0 {
+		return ""
+	}
+	if !strings.EqualFold(strings.TrimSpace(verification.DigestAlgo), "sha256") {
+		return ""
+	}
+	return hex.EncodeToString(verification.Digest)
+}
+
+func formatOfficialReleaseTime(value time.Time) string {
 	if value.IsZero() {
 		return ""
 	}
@@ -261,40 +320,45 @@ func (a *App) officialWailsUpdateRuntime(ctx context.Context) (*wailsUpdateRunti
 	if err != nil {
 		return nil, err
 	}
-	pattern := strings.TrimSpace(os.Getenv("TRACE_BROWSER_SELFUPDATE_ASSET_PATTERN"))
-	if pattern == "" {
-		pattern = defaultWailsSelfUpdateAssetPattern
+	checksumAsset := strings.TrimSpace(os.Getenv("TRACE_BROWSER_UPDATE_CHECKSUM_ASSET"))
+	if checksumAsset == "" {
+		checksumAsset = defaultWailsChecksumAssetName
 	}
 
 	a.updateRuntimeMu.Lock()
 	defer a.updateRuntimeMu.Unlock()
-	if a.updateRuntime != nil && a.updateRuntime.service != nil &&
-		a.updateRuntime.owner == owner && a.updateRuntime.repo == repo && a.updateRuntime.pattern == pattern {
+	if a.updateRuntime == nil || a.updateRuntime.app == nil {
+		return nil, fmt.Errorf("Wails3 官方 updater 尚未初始化")
+	}
+	if a.updateRuntime.initialized &&
+		a.updateRuntime.owner == owner && a.updateRuntime.repo == repo && a.updateRuntime.checksumAsset == checksumAsset {
 		return a.updateRuntime, nil
 	}
 
-	service := selfupdate.New(&selfupdate.Config{
-		CurrentVersion: normalizeVersion(a.appVersion()),
-		Provider:       "github",
-		Channel:        "stable",
-		AssetPattern:   pattern,
-		GitHub: &selfupdate.GitHubConfig{
-			Owner: owner,
-			Repo:  repo,
-			Token: strings.TrimSpace(os.Getenv("TRACE_BROWSER_UPDATE_TOKEN")),
-		},
-		PrepareFunc: a.prepareOfficialWailsUpdate,
-		OnProgress:  a.emitOfficialWailsUpdateProgress,
+	provider, err := updatergithub.New(updatergithub.Config{
+		Repository:    owner + "/" + repo,
+		Token:         strings.TrimSpace(os.Getenv("TRACE_BROWSER_UPDATE_TOKEN")),
+		ChecksumAsset: checksumAsset,
+		AssetMatcher:  matchOfficialSelfUpdateAsset,
 	})
-	if err := service.ServiceStartup(ctx, application.ServiceOptions{}); err != nil {
+	if err != nil {
+		return nil, fmt.Errorf("初始化 Wails3 GitHub updater provider 失败: %w", err)
+	}
+	if err := a.updateRuntime.app.Updater.Init(updater.Config{
+		Providers:      []updater.Provider{provider},
+		CurrentVersion: normalizeVersion(a.appVersion()),
+		Window:         updater.WindowNone,
+	}); err != nil {
 		return nil, fmt.Errorf("初始化 Wails3 官方 updater 失败: %w", err)
 	}
-	a.updateRuntime = &wailsUpdateRuntime{
-		service: service,
-		owner:   owner,
-		repo:    repo,
-		pattern: pattern,
+	if !a.updateRuntime.eventsRegistered {
+		a.registerOfficialWailsUpdateEvents(a.updateRuntime.app)
+		a.updateRuntime.eventsRegistered = true
 	}
+	a.updateRuntime.owner = owner
+	a.updateRuntime.repo = repo
+	a.updateRuntime.checksumAsset = checksumAsset
+	a.updateRuntime.initialized = true
 	return a.updateRuntime, nil
 }
 
@@ -376,24 +440,19 @@ func (a *App) downloadOfficialWailsUpdate(info AppUpdateInfo, installOnRestart b
 	if err != nil {
 		return nil, err
 	}
-	last := runtime.service.GetLastCheck()
-	if last == nil || normalizeVersion(last.Version) != normalizeVersion(info.LatestVersion) {
-		if _, err := runtime.service.Check(context.Background()); err != nil {
+	if normalizeVersion(info.LatestVersion) != "" {
+		if _, err := runtime.app.Updater.Check(context.Background()); err != nil {
 			return nil, fmt.Errorf("Wails3 官方 updater 刷新版本信息失败: %w", err)
 		}
 	}
-	a.emitAppUpdateDownloadProgress("starting", 0, "准备通过 Wails3 官方 updater 下载更新...")
-	ok, err := runtime.service.Download(context.Background())
-	if err != nil {
+	a.emitAppUpdateDownloadProgress("starting", 0, "准备通过 Wails3 官方 updater 下载并准备更新...")
+	if err := runtime.app.Updater.DownloadAndInstall(context.Background()); err != nil {
 		a.emitAppUpdateDownloadProgress("error", 0, err.Error())
-		return nil, fmt.Errorf("Wails3 官方 updater 下载失败: %w", err)
+		return nil, fmt.Errorf("Wails3 官方 updater 下载或准备更新失败: %w", err)
 	}
-	if !ok {
-		return nil, fmt.Errorf("Wails3 官方 updater 未下载任何更新")
-	}
-	a.emitAppUpdateDownloadProgress("done", 100, "官方更新包已下载，准备应用更新")
+	a.emitAppUpdateDownloadProgress("done", 100, "官方更新包已准备完成，等待重启应用")
 	return &AppUpdateDownloadResult{
-		Message:     "官方更新包已下载，正在准备应用更新",
+		Message:     "官方更新包已准备完成，正在准备重启应用",
 		Version:     resolveUpdateVersion(info),
 		PackageKind: "selfupdate",
 	}, nil
@@ -550,33 +609,28 @@ func (a *App) hasOfficialWailsUpdateRuntime() bool {
 	}
 	a.updateRuntimeMu.Lock()
 	defer a.updateRuntimeMu.Unlock()
-	return a.updateRuntime != nil && a.updateRuntime.service != nil
+	return a.updateRuntime != nil && a.updateRuntime.app != nil && a.updateRuntime.initialized
 }
 
 func (a *App) installOfficialWailsUpdate() error {
 	a.updateRuntimeMu.Lock()
 	runtime := a.updateRuntime
 	a.updateRuntimeMu.Unlock()
-	if runtime == nil || runtime.service == nil {
+	if runtime == nil || runtime.app == nil || !runtime.initialized {
 		return fmt.Errorf("Wails3 官方 updater 尚未下载更新")
-	}
-	a.emitAppUpdateDownloadProgress("installing", 100, "正在通过 Wails3 官方 updater 应用更新...")
-	if err := runtime.service.Install(context.Background()); err != nil {
-		a.emitAppUpdateDownloadProgress("error", 100, "Wails3 官方 updater 应用更新失败")
-		return fmt.Errorf("Wails3 官方 updater 应用更新失败: %w", err)
 	}
 	a.clearPendingAppUpdate()
 	a.emitAppUpdateDownloadProgress("done", 100, "更新已应用，应用即将重启")
-	go func(service *selfupdate.Service) {
+	go func(wailsApp *application.App) {
 		time.Sleep(600 * time.Millisecond)
-		if err := service.Restart(); err != nil {
+		if err := wailsApp.Updater.Restart(context.Background()); err != nil {
 			a.emitAppUpdatePendingEvent("app:update:pending:install-failed", map[string]interface{}{
 				"version": "",
 				"error":   err.Error(),
 			})
 			a.ForceQuit()
 		}
-	}(runtime.service)
+	}(runtime.app)
 	return nil
 }
 
@@ -597,80 +651,129 @@ func (a *App) emitAppUpdateDownloadProgress(phase string, progress int, message 
 	})
 }
 
-func (a *App) emitOfficialWailsUpdateProgress(info *selfupdate.ProgressInfo) {
-	if info == nil {
+func (a *App) registerOfficialWailsUpdateEvents(wailsApp *application.App) {
+	if a == nil || wailsApp == nil {
 		return
 	}
-	progress := int(info.Percentage)
-	if progress < 0 {
-		progress = 0
-	}
-	if progress > 100 {
-		progress = 100
-	}
-	message := strings.TrimSpace(info.State)
-	switch info.State {
-	case "started":
-		message = "Wails3 官方 updater 已开始下载"
-	case "downloading":
-		message = formatDownloadProgress(info.DownloadedBytes, info.TotalBytes)
-	case "finished":
-		message = "Wails3 官方 updater 下载完成"
-	case "error":
-		message = firstNonEmpty(info.Error, "Wails3 官方 updater 下载失败")
-	}
-	a.emitAppUpdateDownloadProgress(info.State, progress, message)
-}
-
-func (a *App) prepareOfficialWailsUpdate(ctx context.Context, downloadPath string, _ *selfupdate.ProviderConfig) (string, error) {
-	select {
-	case <-ctx.Done():
-		return "", ctx.Err()
-	default:
-	}
-	extractDir := filepath.Join(a.appUpdateWorkDir(), "official-"+shortHash(downloadPath+time.Now().Format(time.RFC3339Nano)))
-	_ = os.RemoveAll(extractDir)
-	if err := os.MkdirAll(extractDir, 0755); err != nil {
-		return "", err
-	}
-	if err := unzipFileTo(downloadPath, extractDir); err != nil {
-		_ = os.RemoveAll(extractDir)
-		return downloadPath, nil
-	}
-	executablePath, err := findOfficialWailsUpdateExecutable(extractDir)
-	if err != nil {
-		_ = os.RemoveAll(extractDir)
-		return "", err
-	}
-	return executablePath, nil
-}
-
-func findOfficialWailsUpdateExecutable(root string) (string, error) {
-	expected := "trace-browser"
-	if goruntime.GOOS == "windows" {
-		expected += ".exe"
-	}
-	var found string
-	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if entry == nil || entry.IsDir() {
-			return nil
-		}
-		if strings.EqualFold(entry.Name(), expected) {
-			found = path
-			return filepath.SkipAll
-		}
-		return nil
+	wailsApp.Event.On(updater.EventDownloadStarted, func(event *application.CustomEvent) {
+		a.emitAppUpdateDownloadProgress("started", 0, "Wails3 官方 updater 已开始下载")
 	})
+	wailsApp.Event.On(updater.EventDownloadProgress, func(event *application.CustomEvent) {
+		written, total := officialProgressBytes(event)
+		progress := 0
+		if total > 0 {
+			progress = int(float64(written) * 100 / float64(total))
+		}
+		a.emitAppUpdateDownloadProgress("downloading", progress, formatDownloadProgress(written, total))
+	})
+	wailsApp.Event.On(updater.EventDownloadComplete, func(event *application.CustomEvent) {
+		a.emitAppUpdateDownloadProgress("downloaded", 100, "Wails3 官方 updater 下载完成")
+	})
+	wailsApp.Event.On(updater.EventError, func(event *application.CustomEvent) {
+		a.emitAppUpdateDownloadProgress("error", 0, firstNonEmpty(officialEventMessage(event), "Wails3 官方 updater 更新失败"))
+	})
+}
+
+func matchOfficialSelfUpdateAsset(req updater.CheckRequest, assets []updatergithub.ReleaseAsset) int {
+	if len(assets) == 0 {
+		return -1
+	}
+	platform := strings.ToLower(strings.TrimSpace(req.Platform))
+	arch := strings.ToLower(strings.TrimSpace(req.Arch))
+	if platform == "" {
+		platform = goruntime.GOOS
+	}
+	if arch == "" {
+		arch = goruntime.GOARCH
+	}
+	platformAliases := []string{platform}
+	if platform == "windows" {
+		platformAliases = append(platformAliases, "win")
+	} else if platform == "darwin" {
+		platformAliases = append(platformAliases, "macos", "mac")
+	}
+	archAliases := []string{arch}
+	if arch == "amd64" {
+		archAliases = append(archAliases, "x64", "x86_64")
+	}
+
+	bestIndex := -1
+	bestScore := 0
+	for i, asset := range assets {
+		name := strings.ToLower(strings.TrimSpace(asset.Name))
+		if name == "" || strings.Contains(name, "sha256sums") || strings.HasSuffix(name, ".json") || strings.HasSuffix(name, ".txt") {
+			continue
+		}
+		score := 0
+		if strings.Contains(name, "selfupdate") || strings.Contains(name, "self-update") {
+			score += 100
+		}
+		for _, alias := range platformAliases {
+			if alias != "" && strings.Contains(name, alias) {
+				score += 25
+				break
+			}
+		}
+		for _, alias := range archAliases {
+			if alias != "" && strings.Contains(name, alias) {
+				score += 25
+				break
+			}
+		}
+		if strings.HasSuffix(name, ".zip") || strings.HasSuffix(name, ".exe") || strings.HasSuffix(name, ".tar.gz") {
+			score += 10
+		}
+		if score > bestScore {
+			bestScore = score
+			bestIndex = i
+		}
+	}
+	if bestScore < 125 {
+		return -1
+	}
+	return bestIndex
+}
+
+func officialProgressBytes(event *application.CustomEvent) (int64, int64) {
+	if event == nil {
+		return 0, 0
+	}
+	if progress, ok := event.Data.(updater.Progress); ok {
+		return progress.Written, progress.Total
+	}
+	if progress, ok := event.Data.(*updater.Progress); ok && progress != nil {
+		return progress.Written, progress.Total
+	}
+	var progress updater.Progress
+	payload, err := json.Marshal(event.Data)
 	if err != nil {
-		return "", err
+		return 0, 0
 	}
-	if found == "" {
-		return "", fmt.Errorf("官方更新包中未找到 %s", expected)
+	if err := json.Unmarshal(payload, &progress); err != nil {
+		return 0, 0
 	}
-	return found, nil
+	return progress.Written, progress.Total
+}
+
+func officialEventMessage(event *application.CustomEvent) string {
+	if event == nil {
+		return ""
+	}
+	if info, ok := event.Data.(updater.ErrorInfo); ok {
+		return strings.TrimSpace(info.Message)
+	}
+	if info, ok := event.Data.(*updater.ErrorInfo); ok && info != nil {
+		return strings.TrimSpace(info.Message)
+	}
+	var info updater.ErrorInfo
+	payload, err := json.Marshal(event.Data)
+	if err != nil {
+		return ""
+	}
+	if err := json.Unmarshal(payload, &info); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(info.Message)
 }
 
 func (a *App) emitPendingAppUpdateIfNeeded() {

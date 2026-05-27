@@ -8,7 +8,7 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/leanovate/gopter v0.2.11
 	github.com/metacubex/mihomo v1.19.20
-	github.com/wailsapp/wails/v3 v3.0.0-alpha.95
+	github.com/wailsapp/wails/v3 v3.0.0-alpha.96
 	golang.org/x/net v0.53.0
 	golang.org/x/sys v0.43.0
 	google.golang.org/protobuf v1.34.2

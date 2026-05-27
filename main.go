@@ -531,6 +531,7 @@ func main() {
 	})
 
 	wailsRuntime := backend.ConfigureWails3Runtime(app.App, wailsApp, nil)
+	app.ConfigureOfficialWailsUpdater(wailsApp)
 	app.SetWindowSyncToolbarAdapter(&wails3WindowSyncToolbarAdapter{
 		wailsApp:            wailsApp,
 		protoIPC:            protoIPC,

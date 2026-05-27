@@ -186,8 +186,8 @@ message RpcResponse {
 - 已新增前端 `frontend/src/shared/ipc` 和 `frontend/src/shared/backend/client.ts`，具备 request id、超时、并发请求映射、错误解码和 Ping client。
 - 最终承载层已切为本地 `127.0.0.1` WebSocket binary transport，使用一次性随机 token，迁移后的业务请求只走 binary WebSocket。
 - 当前 request/response 已具备真正二进制帧承载；已补齐 WebSocket binary event 广播和前端订阅/取消订阅入口。代码生成链路和功能域协议仍按后续阶段继续收敛。
-- R5 设置、备份、更新通信层已接入 Protobuf-only：AppConfig、打开路径、打开 release 页面、备份初始化/导出/导入、更新检查/下载/安装/便携包下载及相关进度/待安装事件均不再保留旧 Wails binding 兜底；更新运行时已切到 Wails3 官方 `selfupdate` service。
-- 当前 `github.com/wailsapp/wails/v3 v3.0.0-alpha.95` 尚未发布文档中的 `CreateUpdaterService` API，但官方仓库 `v3/feat/self-update` 分支已提供 `pkg/services/selfupdate` service；本项目已按该官方 service 接入运行时，并保留 Protobuf 作为唯一前端访问层。
+- R5 设置、备份、更新通信层已接入 Protobuf-only：AppConfig、打开路径、打开 release 页面、备份初始化/导出/导入、更新检查/下载/安装/便携包下载及相关进度/待安装事件均不再保留旧 Wails binding 兜底；更新运行时已切到 Wails3 官方 `pkg/updater`。
+- 当前 `github.com/wailsapp/wails/v3 v3.0.0-alpha.96` 已提供 `pkg/updater` 和 `pkg/updater/providers/github`，本项目直接通过 `app.Updater` 驱动检查、下载、安装准备和重启；前端仍只走项目 Protobuf 通道。
 - R6 低频浏览器 API 已继续收敛：默认书签、默认打开页、默认内容联动规则、浏览器实例快照、Cookie 管理、用户数据目录打开动作、扩展管理、浏览器设置已接入 Protobuf-only，旧 Wails binding/mock 兜底已移除。
 - R7 窗口同步通信层已完成：主窗口侧候选列表、启动/停止、暂停/恢复、展示窗口、布局、同步设置和状态变化事件已接入 Protobuf-only；Wails3 悬浮工具栏已改为同进程多窗口，并通过同一套 Protobuf client 调用命令和同步尺寸。
 - R8 旧访问层清理已完成：仪表盘、授权/CDKey、资料页远程作者配置、应用日志列表/清空、App 退出控制、窗口尺寸/状态/隐藏/最小化、外部链接、业务事件订阅和文件拖拽事件已接入 Protobuf-only，相关前端模块已移除旧 Wails binding、旧 runtime、`window.go` 兜底和未使用的 runtime 空壳导出。
@@ -791,3 +791,4 @@ React 不做整体重写，页面组件和现有交互优先保留。重构范�
 - 2026-05-24：官方 updater 发布链路继续推进。Windows workflow 已生成 `publish/output/update.json` 并上传到 release 资产，manifest 包含 `windows-amd64` 下载 URL、文件名、大小和 SHA256；应用更新检查优先读取官方 updater 风格 manifest，下载后会校验 SHA256，manifest 不可用时再回退 GitHub Releases 资产选择。
 - 2026-05-24：收尾清理脚本和方案文档。`bat/dev.bat`、`bat/generate-bindings.bat` 不再识别旧 `--wails2` 参数，旧 `tmp-wails2-*` 日志清理项已删除；两个脚本会在 PATH 无 `go` 时自动发现仓库内 `.tmp/toolchains/go*/go` 便携 Go。源码和脚本扫描确认非文档区域无 Wails2 / `wailsjs` / `wails.json` / JSON over IPC 旧关键字残留。方案文档已补充当前剩余收尾清单：签名链路、跨平台 manifest 和发版前人工回归。
 - 2026-05-24：官方 Wails3 updater runtime 替换完成。当前最新 tag 仍为 `v3.0.0-alpha.95`，未发布 `CreateUpdaterService` API；已从官方仓库 `v3/feat/self-update` 分支接入 `pkg/services/selfupdate` service 运行时，后端检查/下载/安装/重启分别调用官方 service 的 `Check`、`Download`、`Install`、`Restart`，下载进度通过 Protobuf event 发给设置页。Windows workflow 新增 `TraceBrowser-SelfUpdate-<version>-windows-amd64.zip`，`update.json` 指向该 self-update ZIP，完整安装包和便携包继续上传。
+- 2026-05-27：官方 updater 包切换完成。依赖升级到 `github.com/wailsapp/wails/v3 v3.0.0-alpha.96`，后端移除本地 `backend/internal/wails3selfupdate` snapshot，改为直接初始化 `app.Updater`，使用 `pkg/updater/providers/github` provider 匹配 `TraceBrowser-SelfUpdate-<version>-windows-amd64.zip`；Windows 发布链路新增官方 checksum sidecar `SHA256SUMS`，完整安装包和便携包继续保留为分发资产。

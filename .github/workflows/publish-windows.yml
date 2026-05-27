@@ -58,7 +58,7 @@ jobs:
         run: choco install nsis -y --no-progress
 
       - name: Install Wails CLI
-        run: go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha.95
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha.96
 
       - name: Add Go bin to PATH
         run: echo "$(go env GOPATH)\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
@@ -292,6 +292,26 @@ jobs:
           Write-Host "Update manifest: $manifestPath"
           Write-Host "Update URL: $downloadUrl"
 
+      - name: Generate Wails updater checksums
+        run: |
+          $selfUpdates = @(Get-ChildItem -LiteralPath "publish/output" -Filter "TraceBrowser-SelfUpdate-*.zip")
+          if ($selfUpdates.Count -eq 0) {
+            throw "Missing Wails self-update package for SHA256SUMS"
+          }
+          $lines = @()
+          foreach ($asset in $selfUpdates) {
+            $checksum = (Get-FileHash -Algorithm SHA256 -LiteralPath $asset.FullName).Hash.ToLowerInvariant()
+            $lines += "$checksum  $($asset.Name)"
+          }
+          $checksumPath = "publish/output/SHA256SUMS"
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllText(
+            (Join-Path $PWD.Path $checksumPath),
+            ($lines -join "`n") + "`n",
+            $utf8NoBom
+          )
+          Write-Host "Updater checksums: $checksumPath"
+
       - name: Upload Windows packages
         uses: actions/upload-artifact@v4
         with:
@@ -302,6 +322,7 @@ jobs:
             publish/output/TraceBrowser-Portable-*-win-x64.zip
             publish/output/TraceBrowser-SelfUpdate-*-windows-amd64.zip
             publish/output/update.json
+            publish/output/SHA256SUMS
 
       - name: Checkout public release repository
         if: ${{ vars.PUBLIC_RELEASE_REPOSITORY != '' }}
@@ -311,39 +332,27 @@ jobs:
           token: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
           path: public-release-repo
 
-      - name: Create public release tag commit
+      - name: Resolve public release target
+        id: public_release_target
         if: ${{ vars.PUBLIC_RELEASE_REPOSITORY != '' }}
-        env:
-          RELEASE_TAG: ${{ steps.version.outputs.tag }}
         run: |
-          $sourceCommitMessage = (git -C $env:GITHUB_WORKSPACE log -1 --format=%B | Out-String).Trim()
-          if (-not $sourceCommitMessage) {
-            $sourceCommitMessage = "Release $env:RELEASE_TAG"
-          }
-
           $repo = Join-Path $env:GITHUB_WORKSPACE "public-release-repo"
           Set-Location -LiteralPath $repo
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          $messageFile = Join-Path $env:RUNNER_TEMP "public-release-commit-message.txt"
-          Set-Content -LiteralPath $messageFile -Value $sourceCommitMessage -Encoding UTF8
-
-          git commit --allow-empty --file $messageFile
-          if ($LASTEXITCODE -ne 0) {
-            throw "Failed to create public release commit"
-          }
 
           $branch = git branch --show-current
           if (-not $branch) {
             $remoteHead = git symbolic-ref --short refs/remotes/origin/HEAD
             $branch = $remoteHead -replace '^origin/', ''
           }
+          if (-not $branch) {
+            throw "Cannot resolve default branch for public release repository"
+          }
 
-          git tag -f $env:RELEASE_TAG
-          git push origin "HEAD:$branch"
-          git push origin "refs/tags/$env:RELEASE_TAG" --force
+          $head = git rev-parse HEAD
+          "target_commitish=$branch" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "target_sha=$head" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Public release target branch: $branch"
+          Write-Host "Public release target sha: $head"
 
       - name: Upload packages to current repository release
         if: ${{ vars.PUBLIC_RELEASE_REPOSITORY == '' }}
@@ -357,6 +366,7 @@ jobs:
             publish/output/TraceBrowser-Portable-*-win-x64.zip
             publish/output/TraceBrowser-SelfUpdate-*-windows-amd64.zip
             publish/output/update.json
+            publish/output/SHA256SUMS
 
       - name: Upload packages to public release repository
         if: ${{ vars.PUBLIC_RELEASE_REPOSITORY != '' }}
@@ -365,6 +375,7 @@ jobs:
           repository: ${{ vars.PUBLIC_RELEASE_REPOSITORY }}
           token: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
           tag_name: ${{ steps.version.outputs.tag }}
+          target_commitish: ${{ steps.public_release_target.outputs.target_commitish }}
           name: Trace Browser ${{ steps.version.outputs.version }}
           fail_on_unmatched_files: true
           files: |
@@ -372,3 +383,4 @@ jobs:
             publish/output/TraceBrowser-Portable-*-win-x64.zip
             publish/output/TraceBrowser-SelfUpdate-*-windows-amd64.zip
             publish/output/update.json
+            publish/output/SHA256SUMS

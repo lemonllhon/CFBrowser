@@ -500,6 +500,8 @@ github.com/vmihailenco/tagparser/v2 v2.0.0 h1:y09buUbR+b5aycVFQs/g70pqKVZNBmxwAh
 github.com/vmihailenco/tagparser/v2 v2.0.0/go.mod h1:Wri+At7QHww0WTrCBeu4J6bNtoV6mEfg5OIWRZA9qds=
 github.com/wailsapp/wails/v3 v3.0.0-alpha.95 h1:Rve8djRSldn6381q2l8gw8XEnzPX/4So6VsRM6bc7Vs=
 github.com/wailsapp/wails/v3 v3.0.0-alpha.95/go.mod h1:3euiK0wb6vnXvxiHysRYYbukCa060bLSsfrvN7sZg4k=
+github.com/wailsapp/wails/v3 v3.0.0-alpha.96 h1:FmZdo4LiUkFUvz8rZO8f4nGLm5af9J+D3sr3Flset2g=
+github.com/wailsapp/wails/v3 v3.0.0-alpha.96/go.mod h1:p1MUZwFPPQyx81cgejDvKIwU1+x/hndR+4z1uG5bw6s=
 github.com/wailsapp/wails/webview2 v1.0.24 h1:uULnjCSaRfMlU84mS3kjLgPsRosEOIusVK1nFOHZHzs=
 github.com/wailsapp/wails/webview2 v1.0.24/go.mod h1:sdf+s0nAdxlzVWf9SCxC15XaxnQPJeY+uU1Ucn3jHQM=
 github.com/xanzy/ssh-agent v0.3.3 h1:+/15pJfg/RsTxqYcX6fHqOXZwwMP+2VyYWJeWM2qQFM=
