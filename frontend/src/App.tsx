@@ -221,14 +221,21 @@ function useAutoUpdateCheck() {
 
   const handleDownload = async (installOnRestart: boolean) => {
     if (!updateInfo) return
-    setUpdateProgress({ phase: 'starting', progress: 0, message: '准备下载更新安装包...' })
+    const selfUpdate = updateInfo.recommendedPackageKind === 'selfupdate'
+    setUpdateProgress({
+      phase: 'starting',
+      progress: 0,
+      message: selfUpdate ? '准备通过 Wails3 官方 updater 下载更新...' : '准备下载更新安装包...',
+    })
     setAction(installOnRestart ? 'download-next' : 'download-now')
     try {
       const res = await downloadAppUpdate(updateInfo, installOnRestart)
       addNotification({
         type: 'success',
-        title: '更新下载完成',
-        message: installOnRestart ? '下次打开软件时会自动启动安装程序' : '安装程序即将启动',
+        title: selfUpdate ? '官方更新包已准备好' : '更新下载完成',
+        message: installOnRestart
+          ? '下次打开软件时会自动启动安装程序'
+          : selfUpdate ? '应用即将重启完成更新' : '安装程序即将启动',
       })
       if (installOnRestart) {
         setOpen(false)
@@ -318,7 +325,7 @@ function useAutoUpdateCheck() {
                 variant={updateInfo?.recommendedPackageKind === 'portable' ? 'danger' : 'secondary'}
                 onClick={handleDownloadPortable}
                 loading={action === 'download-portable'}
-                disabled={!updateInfo?.portableAsset || (action !== 'none' && action !== 'download-portable')}
+                disabled={updateInfo?.recommendedPackageKind === 'selfupdate' || !updateInfo?.portableAsset || (action !== 'none' && action !== 'download-portable')}
               >
                 {updateInfo?.canSelfUpdatePortable ? '下载 ZIP 并重启更新' : '下载 ZIP 并解压'}
               </Button>
@@ -326,12 +333,12 @@ function useAutoUpdateCheck() {
                 variant={updateInfo?.recommendedPackageKind === 'portable' ? 'secondary' : 'primary'}
                 onClick={() => handleDownload(true)}
                 loading={action === 'download-next'}
-                disabled={!updateInfo?.installerAsset || (action !== 'none' && action !== 'download-next')}
+                disabled={updateInfo?.recommendedPackageKind === 'selfupdate' || !updateInfo?.installerAsset || (action !== 'none' && action !== 'download-next')}
               >
                 下次启动自动安装
               </Button>
               <Button variant="danger" onClick={() => handleDownload(false)} loading={action === 'download-now'} disabled={!updateInfo?.installerAsset || (action !== 'none' && action !== 'download-now')}>
-                下载安装包并安装
+                {updateInfo?.recommendedPackageKind === 'selfupdate' ? '下载并应用官方更新' : '下载安装包并安装'}
               </Button>
             </>
           )}
