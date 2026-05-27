@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -35,7 +36,7 @@ func (d *SQLiteProfileDAO) List() ([]*Profile, error) {
 		       COALESCE(proxy_bind_name, ''), COALESCE(proxy_bind_updated_at, ''),
 		       COALESCE(auto_proxy_switch_enabled, 0), COALESCE(auto_proxy_switch_group_name, ''),
 		       COALESCE(auto_proxy_switch_mode, 'interval'), COALESCE(auto_proxy_switch_interval_m, 0),
-		       COALESCE(auto_proxy_switch_last_proxy_id, ''),
+		       COALESCE(auto_proxy_switch_rotate_by_group, 0), COALESCE(auto_proxy_switch_last_proxy_id, ''),
 		       launch_args,
 		       tags, keywords, group_id, created_at, updated_at
 		FROM browser_profiles ORDER BY created_at ASC`)
@@ -64,7 +65,7 @@ func (d *SQLiteProfileDAO) GetById(profileId string) (*Profile, error) {
 		       COALESCE(proxy_bind_name, ''), COALESCE(proxy_bind_updated_at, ''),
 		       COALESCE(auto_proxy_switch_enabled, 0), COALESCE(auto_proxy_switch_group_name, ''),
 		       COALESCE(auto_proxy_switch_mode, 'interval'), COALESCE(auto_proxy_switch_interval_m, 0),
-		       COALESCE(auto_proxy_switch_last_proxy_id, ''),
+		       COALESCE(auto_proxy_switch_rotate_by_group, 0), COALESCE(auto_proxy_switch_last_proxy_id, ''),
 		       launch_args,
 		       tags, keywords, group_id, created_at, updated_at
 		FROM browser_profiles WHERE profile_id = ?`, profileId)
@@ -85,6 +86,10 @@ func (d *SQLiteProfileDAO) Upsert(profile *Profile) error {
 	if profile.AutoProxySwitchEnabled {
 		autoSwitchEnabled = 1
 	}
+	autoSwitchRotateByGroup := 0
+	if profile.AutoProxySwitchRotateByGroup && strings.TrimSpace(profile.AutoProxySwitchGroupName) == "" {
+		autoSwitchRotateByGroup = 1
+	}
 
 	now := time.Now().Format(time.RFC3339)
 	if profile.CreatedAt == "" {
@@ -99,9 +104,9 @@ func (d *SQLiteProfileDAO) Upsert(profile *Profile) error {
 		  (profile_id, profile_name, user_data_dir, core_id, fingerprint_args,
 		   proxy_id, proxy_config, proxy_bind_source_id, proxy_bind_source_url, proxy_bind_name, proxy_bind_updated_at,
 		   auto_proxy_switch_enabled, auto_proxy_switch_group_name, auto_proxy_switch_mode,
-		   auto_proxy_switch_interval_m, auto_proxy_switch_last_proxy_id,
+		   auto_proxy_switch_interval_m, auto_proxy_switch_rotate_by_group, auto_proxy_switch_last_proxy_id,
 		   launch_args, tags, keywords, group_id, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(profile_id) DO UPDATE SET
 		  profile_name     = excluded.profile_name,
 		  user_data_dir    = excluded.user_data_dir,
@@ -117,6 +122,7 @@ func (d *SQLiteProfileDAO) Upsert(profile *Profile) error {
 		  auto_proxy_switch_group_name = excluded.auto_proxy_switch_group_name,
 		  auto_proxy_switch_mode = excluded.auto_proxy_switch_mode,
 		  auto_proxy_switch_interval_m = excluded.auto_proxy_switch_interval_m,
+		  auto_proxy_switch_rotate_by_group = excluded.auto_proxy_switch_rotate_by_group,
 		  auto_proxy_switch_last_proxy_id = excluded.auto_proxy_switch_last_proxy_id,
 		  launch_args      = excluded.launch_args,
 		  tags             = excluded.tags,
@@ -127,7 +133,7 @@ func (d *SQLiteProfileDAO) Upsert(profile *Profile) error {
 		string(fingerprintArgs), profile.ProxyId, profile.ProxyConfig,
 		profile.ProxyBindSourceID, profile.ProxyBindSourceURL, profile.ProxyBindName, profile.ProxyBindUpdatedAt,
 		autoSwitchEnabled, profile.AutoProxySwitchGroupName, normalizeAutoProxySwitchMode(profile.AutoProxySwitchMode),
-		profile.AutoProxySwitchIntervalM, profile.AutoProxySwitchLastProxyId,
+		profile.AutoProxySwitchIntervalM, autoSwitchRotateByGroup, profile.AutoProxySwitchLastProxyId,
 		string(launchArgs), string(tags), string(keywords), profile.GroupId,
 		profile.CreatedAt, profile.UpdatedAt,
 	)
@@ -172,7 +178,7 @@ func (d *SQLiteProfileDAO) ListByGroup(groupId string, includeChildren bool, chi
 			       COALESCE(proxy_bind_name, ''), COALESCE(proxy_bind_updated_at, ''),
 			       COALESCE(auto_proxy_switch_enabled, 0), COALESCE(auto_proxy_switch_group_name, ''),
 			       COALESCE(auto_proxy_switch_mode, 'interval'), COALESCE(auto_proxy_switch_interval_m, 0),
-			       COALESCE(auto_proxy_switch_last_proxy_id, ''),
+			       COALESCE(auto_proxy_switch_rotate_by_group, 0), COALESCE(auto_proxy_switch_last_proxy_id, ''),
 			       launch_args,
 			       tags, keywords, group_id, created_at, updated_at
 			FROM browser_profiles WHERE group_id IN (%s) ORDER BY created_at ASC`, inClause), args...)
@@ -185,7 +191,7 @@ func (d *SQLiteProfileDAO) ListByGroup(groupId string, includeChildren bool, chi
 			       COALESCE(proxy_bind_name, ''), COALESCE(proxy_bind_updated_at, ''),
 			       COALESCE(auto_proxy_switch_enabled, 0), COALESCE(auto_proxy_switch_group_name, ''),
 			       COALESCE(auto_proxy_switch_mode, 'interval'), COALESCE(auto_proxy_switch_interval_m, 0),
-			       COALESCE(auto_proxy_switch_last_proxy_id, ''),
+			       COALESCE(auto_proxy_switch_rotate_by_group, 0), COALESCE(auto_proxy_switch_last_proxy_id, ''),
 			       launch_args,
 			       tags, keywords, group_id, created_at, updated_at
 			FROM browser_profiles WHERE group_id = ? ORDER BY created_at ASC`, groupId)
@@ -239,14 +245,14 @@ func scanProfile(s scanner) (*Profile, error) {
 	var (
 		fingerprintArgsJSON, launchArgsJSON, tagsJSON, keywordsJSON string
 		p                                                           Profile
-		autoSwitchEnabled                                           int
+		autoSwitchEnabled, autoSwitchRotateByGroup                  int
 	)
 	err := s.Scan(
 		&p.ProfileId, &p.ProfileName, &p.UserDataDir, &p.CoreId,
 		&fingerprintArgsJSON, &p.ProxyId, &p.ProxyConfig,
 		&p.ProxyBindSourceID, &p.ProxyBindSourceURL, &p.ProxyBindName, &p.ProxyBindUpdatedAt,
 		&autoSwitchEnabled, &p.AutoProxySwitchGroupName, &p.AutoProxySwitchMode,
-		&p.AutoProxySwitchIntervalM, &p.AutoProxySwitchLastProxyId,
+		&p.AutoProxySwitchIntervalM, &autoSwitchRotateByGroup, &p.AutoProxySwitchLastProxyId,
 		&launchArgsJSON, &tagsJSON, &keywordsJSON, &p.GroupId,
 		&p.CreatedAt, &p.UpdatedAt,
 	)
@@ -258,6 +264,7 @@ func scanProfile(s scanner) (*Profile, error) {
 	_ = json.Unmarshal([]byte(tagsJSON), &p.Tags)
 	_ = json.Unmarshal([]byte(keywordsJSON), &p.Keywords)
 	p.AutoProxySwitchEnabled = autoSwitchEnabled == 1
+	p.AutoProxySwitchRotateByGroup = autoSwitchRotateByGroup == 1 && strings.TrimSpace(p.AutoProxySwitchGroupName) == ""
 	p.AutoProxySwitchMode = normalizeAutoProxySwitchMode(p.AutoProxySwitchMode)
 	if p.FingerprintArgs == nil {
 		p.FingerprintArgs = []string{}

@@ -9,55 +9,57 @@ import (
 
 // Profile 浏览器配置文件
 type Profile struct {
-	ProfileId          string   `json:"profileId"`
-	ProfileName        string   `json:"profileName"`
-	UserDataDir        string   `json:"userDataDir"`
-	CoreId             string   `json:"coreId"`
-	FingerprintArgs    []string `json:"fingerprintArgs"`
-	ProxyId            string   `json:"proxyId"`
-	ProxyConfig        string   `json:"proxyConfig"`
-	ProxyBindSourceID  string   `json:"proxyBindSourceId"`
-	ProxyBindSourceURL string   `json:"proxyBindSourceUrl"`
-	ProxyBindName      string   `json:"proxyBindName"`
-	ProxyBindUpdatedAt string   `json:"proxyBindUpdatedAt"`
-	AutoProxySwitchEnabled   bool   `json:"autoProxySwitchEnabled"`
-	AutoProxySwitchGroupName string `json:"autoProxySwitchGroupName"`
-	AutoProxySwitchMode      string `json:"autoProxySwitchMode"`
-	AutoProxySwitchIntervalM int    `json:"autoProxySwitchIntervalM"`
-	AutoProxySwitchLastProxyId string `json:"autoProxySwitchLastProxyId"`
-	LaunchArgs         []string `json:"launchArgs"`
-	Tags               []string `json:"tags"`
-	Keywords           []string `json:"keywords"`
-	GroupId            string   `json:"groupId"` // 所属分组ID
-	LaunchCode         string   `json:"launchCode"`
-	Running            bool     `json:"running"`
-	DebugPort          int      `json:"debugPort"`
-	DebugReady         bool     `json:"debugReady"`
-	Pid                int      `json:"pid"`
-	RuntimeWarning     string   `json:"runtimeWarning"`
-	LastError          string   `json:"lastError"`
-	CreatedAt          string   `json:"createdAt"`
-	UpdatedAt          string   `json:"updatedAt"`
-	LastStartAt        string   `json:"lastStartAt"`
-	LastStopAt         string   `json:"lastStopAt"`
+	ProfileId                    string   `json:"profileId"`
+	ProfileName                  string   `json:"profileName"`
+	UserDataDir                  string   `json:"userDataDir"`
+	CoreId                       string   `json:"coreId"`
+	FingerprintArgs              []string `json:"fingerprintArgs"`
+	ProxyId                      string   `json:"proxyId"`
+	ProxyConfig                  string   `json:"proxyConfig"`
+	ProxyBindSourceID            string   `json:"proxyBindSourceId"`
+	ProxyBindSourceURL           string   `json:"proxyBindSourceUrl"`
+	ProxyBindName                string   `json:"proxyBindName"`
+	ProxyBindUpdatedAt           string   `json:"proxyBindUpdatedAt"`
+	AutoProxySwitchEnabled       bool     `json:"autoProxySwitchEnabled"`
+	AutoProxySwitchGroupName     string   `json:"autoProxySwitchGroupName"`
+	AutoProxySwitchMode          string   `json:"autoProxySwitchMode"`
+	AutoProxySwitchIntervalM     int      `json:"autoProxySwitchIntervalM"`
+	AutoProxySwitchRotateByGroup bool     `json:"autoProxySwitchRotateByGroup"`
+	AutoProxySwitchLastProxyId   string   `json:"autoProxySwitchLastProxyId"`
+	LaunchArgs                   []string `json:"launchArgs"`
+	Tags                         []string `json:"tags"`
+	Keywords                     []string `json:"keywords"`
+	GroupId                      string   `json:"groupId"` // 所属分组ID
+	LaunchCode                   string   `json:"launchCode"`
+	Running                      bool     `json:"running"`
+	DebugPort                    int      `json:"debugPort"`
+	DebugReady                   bool     `json:"debugReady"`
+	Pid                          int      `json:"pid"`
+	RuntimeWarning               string   `json:"runtimeWarning"`
+	LastError                    string   `json:"lastError"`
+	CreatedAt                    string   `json:"createdAt"`
+	UpdatedAt                    string   `json:"updatedAt"`
+	LastStartAt                  string   `json:"lastStartAt"`
+	LastStopAt                   string   `json:"lastStopAt"`
 }
 
 // ProfileInput 创建/更新配置文件的输入
 type ProfileInput struct {
-	ProfileName     string   `json:"profileName"`
-	UserDataDir     string   `json:"userDataDir"`
-	CoreId          string   `json:"coreId"`
-	FingerprintArgs []string `json:"fingerprintArgs"`
-	ProxyId         string   `json:"proxyId"`
-	ProxyConfig     string   `json:"proxyConfig"`
-	AutoProxySwitchEnabled   bool   `json:"autoProxySwitchEnabled"`
-	AutoProxySwitchGroupName string `json:"autoProxySwitchGroupName"`
-	AutoProxySwitchMode      string `json:"autoProxySwitchMode"`
-	AutoProxySwitchIntervalM int    `json:"autoProxySwitchIntervalM"`
-	LaunchArgs      []string `json:"launchArgs"`
-	Tags            []string `json:"tags"`
-	Keywords        []string `json:"keywords"`
-	GroupId         string   `json:"groupId"` // 所属分组ID
+	ProfileName                  string   `json:"profileName"`
+	UserDataDir                  string   `json:"userDataDir"`
+	CoreId                       string   `json:"coreId"`
+	FingerprintArgs              []string `json:"fingerprintArgs"`
+	ProxyId                      string   `json:"proxyId"`
+	ProxyConfig                  string   `json:"proxyConfig"`
+	AutoProxySwitchEnabled       bool     `json:"autoProxySwitchEnabled"`
+	AutoProxySwitchGroupName     string   `json:"autoProxySwitchGroupName"`
+	AutoProxySwitchMode          string   `json:"autoProxySwitchMode"`
+	AutoProxySwitchIntervalM     int      `json:"autoProxySwitchIntervalM"`
+	AutoProxySwitchRotateByGroup bool     `json:"autoProxySwitchRotateByGroup"`
+	LaunchArgs                   []string `json:"launchArgs"`
+	Tags                         []string `json:"tags"`
+	Keywords                     []string `json:"keywords"`
+	GroupId                      string   `json:"groupId"` // 所属分组ID
 }
 
 // Tab 浏览器标签页

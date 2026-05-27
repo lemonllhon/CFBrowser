@@ -61,6 +61,7 @@ export type ProtoBrowserProfile = {
   autoProxySwitchGroupName?: string
   autoProxySwitchMode?: string
   autoProxySwitchIntervalM?: number
+  autoProxySwitchRotateByGroup?: boolean
   autoProxySwitchLastProxyId?: string
   launchArgs: string[]
   tags: string[]
@@ -90,6 +91,7 @@ export type ProtoBrowserProfileInput = {
   autoProxySwitchGroupName?: string
   autoProxySwitchMode?: string
   autoProxySwitchIntervalM?: number
+  autoProxySwitchRotateByGroup?: boolean
   launchArgs: string[]
   tags: string[]
   keywords: string[]
@@ -397,6 +399,7 @@ export function encodeBrowserProfileInput(input: ProtoBrowserProfileInput): Uint
     ...encodeRepeatedStringFields(12, input.tags),
     ...encodeRepeatedStringFields(13, input.keywords),
     encodeStringField(14, input.groupId ?? ''),
+    encodeBoolField(15, input.autoProxySwitchRotateByGroup === true),
   ])
 }
 
@@ -789,6 +792,9 @@ function decodeBrowserProfile(payload: Uint8Array): ProtoBrowserProfile {
           break
         case 25:
           profile.pid = number
+          break
+        case 32:
+          profile.autoProxySwitchRotateByGroup = number !== 0
           break
       }
     }

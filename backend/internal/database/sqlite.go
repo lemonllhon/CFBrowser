@@ -204,6 +204,13 @@ var migrations = []migration{
 			`ALTER TABLE browser_proxies ADD COLUMN source_filter_json TEXT NOT NULL DEFAULT ''`,
 		},
 	},
+	{
+		version: 12,
+		desc:    "实例表添加代理自动切换按分组轮换开关",
+		stmts: []string{
+			`ALTER TABLE browser_profiles ADD COLUMN auto_proxy_switch_rotate_by_group INTEGER NOT NULL DEFAULT 0`,
+		},
+	},
 	// ── 新版本在此追加，格式：
 	// {
 	//     version: 4,

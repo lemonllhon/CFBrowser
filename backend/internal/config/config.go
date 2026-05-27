@@ -105,27 +105,27 @@ type BrowserStartURL struct {
 }
 
 type BrowserDefaultContentRule struct {
-	RuleId        string            `yaml:"rule_id" json:"ruleId"`
-	Scope         string            `yaml:"scope" json:"scope"`
-	TargetId      string            `yaml:"target_id,omitempty" json:"targetId,omitempty"`
-	TargetName    string            `yaml:"target_name" json:"targetName"`
-	StartURLs     []BrowserStartURL `yaml:"start_urls,omitempty" json:"startUrls"`
-	Bookmarks     []BrowserBookmark `yaml:"bookmarks,omitempty" json:"bookmarks"`
-	Enabled       bool              `yaml:"enabled" json:"enabled"`
-	ApplyToChilds bool              `yaml:"apply_to_childs,omitempty" json:"applyToChilds,omitempty"`
-	IncludeGlobalDefaults *bool     `yaml:"include_global_defaults,omitempty" json:"includeGlobalDefaults,omitempty"`
+	RuleId                string            `yaml:"rule_id" json:"ruleId"`
+	Scope                 string            `yaml:"scope" json:"scope"`
+	TargetId              string            `yaml:"target_id,omitempty" json:"targetId,omitempty"`
+	TargetName            string            `yaml:"target_name" json:"targetName"`
+	StartURLs             []BrowserStartURL `yaml:"start_urls,omitempty" json:"startUrls"`
+	Bookmarks             []BrowserBookmark `yaml:"bookmarks,omitempty" json:"bookmarks"`
+	Enabled               bool              `yaml:"enabled" json:"enabled"`
+	ApplyToChilds         bool              `yaml:"apply_to_childs,omitempty" json:"applyToChilds,omitempty"`
+	IncludeGlobalDefaults *bool             `yaml:"include_global_defaults,omitempty" json:"includeGlobalDefaults,omitempty"`
 }
 
 type BrowserConfig struct {
-	UserDataRoot           string                 `yaml:"user_data_root"`
-	DefaultFingerprintArgs []string               `yaml:"default_fingerprint_args"`
-	DefaultLaunchArgs      []string               `yaml:"default_launch_args"`
-	DefaultProxy           string                 `yaml:"default_proxy"`
-	StartReadyTimeoutMs    int                    `yaml:"start_ready_timeout_ms,omitempty"`
-	StartStableWindowMs    int                    `yaml:"start_stable_window_ms,omitempty"`
-	DefaultStartURLs       []BrowserStartURL      `yaml:"default_start_urls,omitempty"`
-	DefaultStartURLsSet    bool                   `yaml:"default_start_urls_set,omitempty"`
-	DefaultBookmarks       []BrowserBookmark      `yaml:"default_bookmarks,omitempty"`
+	UserDataRoot           string                      `yaml:"user_data_root"`
+	DefaultFingerprintArgs []string                    `yaml:"default_fingerprint_args"`
+	DefaultLaunchArgs      []string                    `yaml:"default_launch_args"`
+	DefaultProxy           string                      `yaml:"default_proxy"`
+	StartReadyTimeoutMs    int                         `yaml:"start_ready_timeout_ms,omitempty"`
+	StartStableWindowMs    int                         `yaml:"start_stable_window_ms,omitempty"`
+	DefaultStartURLs       []BrowserStartURL           `yaml:"default_start_urls,omitempty"`
+	DefaultStartURLsSet    bool                        `yaml:"default_start_urls_set,omitempty"`
+	DefaultBookmarks       []BrowserBookmark           `yaml:"default_bookmarks,omitempty"`
 	DefaultContentRules    []BrowserDefaultContentRule `yaml:"default_content_rules,omitempty"`
 	Cores                  []BrowserCore               `yaml:"cores,omitempty"`
 	Proxies                []BrowserProxy              `yaml:"proxies,omitempty"`
@@ -183,27 +183,28 @@ type BrowserEnvironment struct {
 }
 
 type BrowserProfileConfig struct {
-	ProfileId          string   `yaml:"profile_id" json:"profileId"`
-	ProfileName        string   `yaml:"profile_name" json:"profileName"`
-	UserDataDir        string   `yaml:"user_data_dir" json:"userDataDir"`
-	CoreId             string   `yaml:"core_id" json:"coreId"`
-	FingerprintArgs    []string `yaml:"fingerprint_args" json:"fingerprintArgs"`
-	ProxyId            string   `yaml:"proxy_id" json:"proxyId"`
-	ProxyConfig        string   `yaml:"proxy_config" json:"proxyConfig"`
-	ProxyBindSourceID  string   `yaml:"proxy_bind_source_id,omitempty" json:"proxyBindSourceId,omitempty"`
-	ProxyBindSourceURL string   `yaml:"proxy_bind_source_url,omitempty" json:"proxyBindSourceUrl,omitempty"`
-	ProxyBindName      string   `yaml:"proxy_bind_name,omitempty" json:"proxyBindName,omitempty"`
-	ProxyBindUpdatedAt string   `yaml:"proxy_bind_updated_at,omitempty" json:"proxyBindUpdatedAt,omitempty"`
-	AutoProxySwitchEnabled     bool   `yaml:"auto_proxy_switch_enabled,omitempty" json:"autoProxySwitchEnabled,omitempty"`
-	AutoProxySwitchGroupName   string `yaml:"auto_proxy_switch_group_name,omitempty" json:"autoProxySwitchGroupName,omitempty"`
-	AutoProxySwitchMode        string `yaml:"auto_proxy_switch_mode,omitempty" json:"autoProxySwitchMode,omitempty"`
-	AutoProxySwitchIntervalM   int    `yaml:"auto_proxy_switch_interval_m,omitempty" json:"autoProxySwitchIntervalM,omitempty"`
-	AutoProxySwitchLastProxyId string `yaml:"auto_proxy_switch_last_proxy_id,omitempty" json:"autoProxySwitchLastProxyId,omitempty"`
-	LaunchArgs         []string `yaml:"launch_args" json:"launchArgs"`
-	Tags               []string `yaml:"tags" json:"tags"`
-	Keywords           []string `yaml:"keywords,omitempty" json:"keywords,omitempty"`
-	CreatedAt          string   `yaml:"created_at" json:"createdAt"`
-	UpdatedAt          string   `yaml:"updated_at" json:"updatedAt"`
+	ProfileId                    string   `yaml:"profile_id" json:"profileId"`
+	ProfileName                  string   `yaml:"profile_name" json:"profileName"`
+	UserDataDir                  string   `yaml:"user_data_dir" json:"userDataDir"`
+	CoreId                       string   `yaml:"core_id" json:"coreId"`
+	FingerprintArgs              []string `yaml:"fingerprint_args" json:"fingerprintArgs"`
+	ProxyId                      string   `yaml:"proxy_id" json:"proxyId"`
+	ProxyConfig                  string   `yaml:"proxy_config" json:"proxyConfig"`
+	ProxyBindSourceID            string   `yaml:"proxy_bind_source_id,omitempty" json:"proxyBindSourceId,omitempty"`
+	ProxyBindSourceURL           string   `yaml:"proxy_bind_source_url,omitempty" json:"proxyBindSourceUrl,omitempty"`
+	ProxyBindName                string   `yaml:"proxy_bind_name,omitempty" json:"proxyBindName,omitempty"`
+	ProxyBindUpdatedAt           string   `yaml:"proxy_bind_updated_at,omitempty" json:"proxyBindUpdatedAt,omitempty"`
+	AutoProxySwitchEnabled       bool     `yaml:"auto_proxy_switch_enabled,omitempty" json:"autoProxySwitchEnabled,omitempty"`
+	AutoProxySwitchGroupName     string   `yaml:"auto_proxy_switch_group_name,omitempty" json:"autoProxySwitchGroupName,omitempty"`
+	AutoProxySwitchMode          string   `yaml:"auto_proxy_switch_mode,omitempty" json:"autoProxySwitchMode,omitempty"`
+	AutoProxySwitchIntervalM     int      `yaml:"auto_proxy_switch_interval_m,omitempty" json:"autoProxySwitchIntervalM,omitempty"`
+	AutoProxySwitchRotateByGroup bool     `yaml:"auto_proxy_switch_rotate_by_group,omitempty" json:"autoProxySwitchRotateByGroup,omitempty"`
+	AutoProxySwitchLastProxyId   string   `yaml:"auto_proxy_switch_last_proxy_id,omitempty" json:"autoProxySwitchLastProxyId,omitempty"`
+	LaunchArgs                   []string `yaml:"launch_args" json:"launchArgs"`
+	Tags                         []string `yaml:"tags" json:"tags"`
+	Keywords                     []string `yaml:"keywords,omitempty" json:"keywords,omitempty"`
+	CreatedAt                    string   `yaml:"created_at" json:"createdAt"`
+	UpdatedAt                    string   `yaml:"updated_at" json:"updatedAt"`
 }
 
 // LoggingConfig 日志配置

@@ -14,6 +14,7 @@ export interface BrowserProfile {
   autoProxySwitchGroupName?: string
   autoProxySwitchMode?: 'interval' | 'manual' | string
   autoProxySwitchIntervalM?: number
+  autoProxySwitchRotateByGroup?: boolean
   autoProxySwitchLastProxyId?: string
   launchArgs: string[]
   tags: string[]
@@ -43,6 +44,7 @@ export interface BrowserProfileInput {
   autoProxySwitchGroupName?: string
   autoProxySwitchMode?: 'interval' | 'manual' | string
   autoProxySwitchIntervalM?: number
+  autoProxySwitchRotateByGroup?: boolean
   launchArgs: string[]
   tags: string[]
   keywords: string[]

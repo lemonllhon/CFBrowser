@@ -22,11 +22,12 @@ import (
 )
 
 type switchingProxyBridge struct {
-	app       *App
-	profileID string
-	groupName string
-	mode      string
-	interval  time.Duration
+	app           *App
+	profileID     string
+	groupName     string
+	mode          string
+	interval      time.Duration
+	rotateByGroup bool
 
 	server   *http.Server
 	listener net.Listener
@@ -52,14 +53,15 @@ func newSwitchingProxyBridge(app *App, profile *BrowserProfile) *switchingProxyB
 		intervalM = 24 * 60
 	}
 	return &switchingProxyBridge{
-		app:         app,
-		profileID:   strings.TrimSpace(profile.ProfileId),
-		groupName:   strings.TrimSpace(profile.AutoProxySwitchGroupName),
-		mode:        normalizeProxySwitchMode(profile.AutoProxySwitchMode),
-		interval:    time.Duration(intervalM) * time.Minute,
-		stopped:     make(chan struct{}),
-		rng:         rand.New(rand.NewSource(time.Now().UnixNano())),
-		activeConns: make(map[net.Conn]uint64),
+		app:           app,
+		profileID:     strings.TrimSpace(profile.ProfileId),
+		groupName:     strings.TrimSpace(profile.AutoProxySwitchGroupName),
+		mode:          normalizeProxySwitchMode(profile.AutoProxySwitchMode),
+		interval:      time.Duration(intervalM) * time.Minute,
+		rotateByGroup: profile.AutoProxySwitchRotateByGroup && strings.TrimSpace(profile.AutoProxySwitchGroupName) == "",
+		stopped:       make(chan struct{}),
+		rng:           rand.New(rand.NewSource(time.Now().UnixNano())),
+		activeConns:   make(map[net.Conn]uint64),
 	}
 }
 
@@ -116,9 +118,6 @@ func (b *switchingProxyBridge) switchNow() error {
 	if len(candidates) == 0 {
 		return fmt.Errorf("代理池分组 %q 没有可用代理", b.groupName)
 	}
-	if b.mode == proxySwitchModeInterval {
-		candidates = preferHealthyProxyCandidates(candidates)
-	}
 
 	b.mu.Lock()
 
@@ -127,6 +126,12 @@ func (b *switchingProxyBridge) switchNow() error {
 	if b.hasCurrent {
 		currentID = b.current.ProxyId
 		currentConfig = b.current.ProxyConfig
+	}
+	if b.rotateByGroup && b.groupName == "" {
+		candidates = b.pickNextGroupCandidates(candidates)
+	}
+	if b.mode == proxySwitchModeInterval {
+		candidates = preferHealthyProxyCandidates(candidates)
 	}
 	filtered := make([]config.BrowserProxy, 0, len(candidates))
 	recent := make(map[string]struct{}, len(b.recent)+1)
@@ -187,6 +192,45 @@ func (b *switchingProxyBridge) switchNow() error {
 		b.syncCurrentProxyToProfile(next.ProxyId)
 	}
 	return nil
+}
+
+func (b *switchingProxyBridge) pickNextGroupCandidates(candidates []config.BrowserProxy) []config.BrowserProxy {
+	if b == nil || len(candidates) == 0 {
+		return candidates
+	}
+	currentGroup := ""
+	if b.hasCurrent {
+		currentGroup = strings.TrimSpace(b.current.GroupName)
+	}
+	grouped := make(map[string][]config.BrowserProxy)
+	groups := make([]string, 0)
+	for _, item := range candidates {
+		group := strings.TrimSpace(item.GroupName)
+		if group == "" {
+			continue
+		}
+		if _, ok := grouped[group]; !ok {
+			groups = append(groups, group)
+		}
+		grouped[group] = append(grouped[group], item)
+	}
+	if len(groups) == 0 {
+		return candidates
+	}
+	availableGroups := groups
+	if currentGroup != "" && len(groups) > 1 {
+		availableGroups = make([]string, 0, len(groups)-1)
+		for _, group := range groups {
+			if group != currentGroup {
+				availableGroups = append(availableGroups, group)
+			}
+		}
+	}
+	if len(availableGroups) == 0 {
+		availableGroups = groups
+	}
+	nextGroup := availableGroups[b.rng.Intn(len(availableGroups))]
+	return grouped[nextGroup]
 }
 
 func (b *switchingProxyBridge) candidateProxies() []config.BrowserProxy {

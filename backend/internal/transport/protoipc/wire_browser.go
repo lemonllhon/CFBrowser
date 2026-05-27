@@ -37,37 +37,38 @@ const (
 )
 
 type BrowserProfile struct {
-	ProfileID                  string
-	ProfileName                string
-	UserDataDir                string
-	CoreID                     string
-	FingerprintArgs            []string
-	ProxyID                    string
-	ProxyConfig                string
-	ProxyBindSourceID          string
-	ProxyBindSourceURL         string
-	ProxyBindName              string
-	ProxyBindUpdatedAt         string
-	AutoProxySwitchEnabled     bool
-	AutoProxySwitchGroupName   string
-	AutoProxySwitchMode        string
-	AutoProxySwitchIntervalM   int32
-	AutoProxySwitchLastProxyID string
-	LaunchArgs                 []string
-	Tags                       []string
-	Keywords                   []string
-	GroupID                    string
-	LaunchCode                 string
-	Running                    bool
-	DebugPort                  int32
-	DebugReady                 bool
-	PID                        int32
-	RuntimeWarning             string
-	LastError                  string
-	CreatedAt                  string
-	UpdatedAt                  string
-	LastStartAt                string
-	LastStopAt                 string
+	ProfileID                    string
+	ProfileName                  string
+	UserDataDir                  string
+	CoreID                       string
+	FingerprintArgs              []string
+	ProxyID                      string
+	ProxyConfig                  string
+	ProxyBindSourceID            string
+	ProxyBindSourceURL           string
+	ProxyBindName                string
+	ProxyBindUpdatedAt           string
+	AutoProxySwitchEnabled       bool
+	AutoProxySwitchGroupName     string
+	AutoProxySwitchMode          string
+	AutoProxySwitchIntervalM     int32
+	AutoProxySwitchRotateByGroup bool
+	AutoProxySwitchLastProxyID   string
+	LaunchArgs                   []string
+	Tags                         []string
+	Keywords                     []string
+	GroupID                      string
+	LaunchCode                   string
+	Running                      bool
+	DebugPort                    int32
+	DebugReady                   bool
+	PID                          int32
+	RuntimeWarning               string
+	LastError                    string
+	CreatedAt                    string
+	UpdatedAt                    string
+	LastStartAt                  string
+	LastStopAt                   string
 }
 
 type BrowserProfileListRequest struct {
@@ -79,20 +80,21 @@ type BrowserProfileListResponse struct {
 }
 
 type BrowserProfileInput struct {
-	ProfileName              string
-	UserDataDir              string
-	CoreID                   string
-	FingerprintArgs          []string
-	ProxyID                  string
-	ProxyConfig              string
-	AutoProxySwitchEnabled   bool
-	AutoProxySwitchGroupName string
-	AutoProxySwitchMode      string
-	AutoProxySwitchIntervalM int32
-	LaunchArgs               []string
-	Tags                     []string
-	Keywords                 []string
-	GroupID                  string
+	ProfileName                  string
+	UserDataDir                  string
+	CoreID                       string
+	FingerprintArgs              []string
+	ProxyID                      string
+	ProxyConfig                  string
+	AutoProxySwitchEnabled       bool
+	AutoProxySwitchGroupName     string
+	AutoProxySwitchMode          string
+	AutoProxySwitchIntervalM     int32
+	AutoProxySwitchRotateByGroup bool
+	LaunchArgs                   []string
+	Tags                         []string
+	Keywords                     []string
+	GroupID                      string
 }
 
 type BrowserProfileCreateRequest struct {
@@ -1242,6 +1244,7 @@ func EncodeBrowserProfileInput(message BrowserProfileInput) []byte {
 	out = appendStringField(out, 8, message.AutoProxySwitchGroupName)
 	out = appendStringField(out, 9, message.AutoProxySwitchMode)
 	out = appendInt32Field(out, 10, message.AutoProxySwitchIntervalM)
+	out = appendBoolField(out, 15, message.AutoProxySwitchRotateByGroup)
 	out = appendRepeatedStringField(out, 11, message.LaunchArgs)
 	out = appendRepeatedStringField(out, 12, message.Tags)
 	out = appendRepeatedStringField(out, 13, message.Keywords)
@@ -1293,6 +1296,10 @@ func DecodeBrowserProfileInput(payload []byte) (BrowserProfileInput, error) {
 			number, err := consumeVarintValue(wireType, value)
 			result.AutoProxySwitchIntervalM = int32(number)
 			return err
+		case 15:
+			value, err := consumeBoolValue(wireType, value)
+			result.AutoProxySwitchRotateByGroup = value
+			return err
 		case 11:
 			text, err := consumeStringValue(wireType, value)
 			result.LaunchArgs = append(result.LaunchArgs, text)
@@ -1337,6 +1344,7 @@ func EncodeBrowserProfile(message BrowserProfile) []byte {
 	out = appendStringField(out, 14, message.AutoProxySwitchMode)
 	out = appendInt32Field(out, 15, message.AutoProxySwitchIntervalM)
 	out = appendStringField(out, 16, message.AutoProxySwitchLastProxyID)
+	out = appendBoolField(out, 32, message.AutoProxySwitchRotateByGroup)
 	out = appendRepeatedStringField(out, 17, message.LaunchArgs)
 	out = appendRepeatedStringField(out, 18, message.Tags)
 	out = appendRepeatedStringField(out, 19, message.Keywords)
@@ -1422,6 +1430,10 @@ func DecodeBrowserProfile(payload []byte) (BrowserProfile, error) {
 		case 16:
 			text, err := consumeStringValue(wireType, value)
 			result.AutoProxySwitchLastProxyID = text
+			return err
+		case 32:
+			value, err := consumeBoolValue(wireType, value)
+			result.AutoProxySwitchRotateByGroup = value
 			return err
 		case 17:
 			text, err := consumeStringValue(wireType, value)

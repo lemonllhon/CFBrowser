@@ -56,6 +56,7 @@ export function BrowserEditPage() {
     autoProxySwitchGroupName: '',
     autoProxySwitchMode: 'interval',
     autoProxySwitchIntervalM: 5,
+    autoProxySwitchRotateByGroup: false,
     launchArgs: [],
     tags: [],
     keywords: [],
@@ -110,6 +111,7 @@ export function BrowserEditPage() {
         autoProxySwitchGroupName: current.autoProxySwitchGroupName || '',
         autoProxySwitchMode: current.autoProxySwitchMode || 'interval',
         autoProxySwitchIntervalM: current.autoProxySwitchIntervalM || 5,
+        autoProxySwitchRotateByGroup: current.autoProxySwitchRotateByGroup || false,
         launchArgs: currentLaunchArgs,
         tags: current.tags,
         keywords: current.keywords || [],
@@ -163,6 +165,23 @@ export function BrowserEditPage() {
     setFormData(prev => ({ ...prev, fingerprintArgs: serializeFingerprint(nextFingerprint) }))
   }
 
+  const handleAutoProxySwitchGroupChange = (groupName: string) => {
+    setIsDirty(true)
+    setFormData(prev => ({
+      ...prev,
+      autoProxySwitchGroupName: groupName,
+      autoProxySwitchRotateByGroup: groupName ? false : prev.autoProxySwitchRotateByGroup,
+    }))
+  }
+
+  const handleRotateByGroupToggle = () => {
+    setIsDirty(true)
+    setFormData(prev => ({
+      ...prev,
+      autoProxySwitchRotateByGroup: !prev.autoProxySwitchRotateByGroup,
+    }))
+  }
+
   const handleIncognitoToggle = () => {
     const nextArgs = setLaunchArgEnabled(launchArgsText.split('\n'), incognitoArg, !incognitoEnabled)
     setLaunchArgsText(nextArgs.join('\n'))
@@ -178,6 +197,9 @@ export function BrowserEditPage() {
     if (payload.autoProxySwitchEnabled) {
       payload.proxyId = ''
       payload.proxyConfig = ''
+      payload.autoProxySwitchRotateByGroup = !payload.autoProxySwitchGroupName && payload.autoProxySwitchRotateByGroup === true
+    } else {
+      payload.autoProxySwitchRotateByGroup = false
     }
     try {
       if (isCreate) {
@@ -203,6 +225,7 @@ export function BrowserEditPage() {
   const defaultCore = cores.find(c => c.isDefault)
   const proxyGroupOptions = Array.from(new Set(proxies.map(p => (p.groupName || '').trim()).filter(Boolean))).sort()
   const autoProxySwitchEnabled = !!formData.autoProxySwitchEnabled
+  const showRotateByGroupButton = autoProxySwitchEnabled && !formData.autoProxySwitchGroupName
   const currentFingerprint = deserializeFingerprint(formData.fingerprintArgs)
   const selectedRegionCode = currentFingerprint.region && findRegionPreset(currentFingerprint.region)
     ? currentFingerprint.region
@@ -359,7 +382,7 @@ export function BrowserEditPage() {
               <FormItem label="轮询代理池分组" hint="留空则从全部代理池节点中随机切换">
                 <Select
                   value={formData.autoProxySwitchGroupName || ''}
-                  onChange={e => handleChange('autoProxySwitchGroupName', e.target.value)}
+                  onChange={e => handleAutoProxySwitchGroupChange(e.target.value)}
                   options={[
                     { value: '', label: '全部代理池节点' },
                     ...proxyGroupOptions.map(group => ({ value: group, label: group })),
@@ -387,6 +410,22 @@ export function BrowserEditPage() {
                   placeholder="5"
                 />
               </FormItem>
+              )}
+              {showRotateByGroupButton && (
+                <div className="md:col-span-2 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-primary)] p-3">
+                  <div>
+                    <p className="text-sm font-medium text-[var(--color-text-primary)]">按代理分组切换</p>
+                    <p className="text-xs text-[var(--color-text-muted)] mt-1">启用后每次切换都会先换到另一个代理分组，再从该分组内随机选择节点。</p>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={formData.autoProxySwitchRotateByGroup ? 'primary' : 'secondary'}
+                    onClick={handleRotateByGroupToggle}
+                  >
+                    {formData.autoProxySwitchRotateByGroup ? '已按分组切换' : '按分组切换'}
+                  </Button>
+                </div>
               )}
             </div>
           )}

@@ -15,37 +15,38 @@ func TestBrowserProfileListRoundTrip(t *testing.T) {
 	response := BrowserProfileListResponse{
 		Profiles: []BrowserProfile{
 			{
-				ProfileID:                  "profile-1",
-				ProfileName:                "测试实例",
-				UserDataDir:                "data/profile-1",
-				CoreID:                     "chrome",
-				FingerprintArgs:            []string{"--a=1", "--b=2"},
-				ProxyID:                    "proxy-1",
-				ProxyConfig:                "socks5://127.0.0.1:1080",
-				ProxyBindSourceID:          "source-1",
-				ProxyBindSourceURL:         "https://example.test/proxies",
-				ProxyBindName:              "线路 1",
-				ProxyBindUpdatedAt:         "2026-05-24T00:00:00Z",
-				AutoProxySwitchEnabled:     true,
-				AutoProxySwitchGroupName:   "default",
-				AutoProxySwitchMode:        "interval",
-				AutoProxySwitchIntervalM:   15,
-				AutoProxySwitchLastProxyID: "proxy-0",
-				LaunchArgs:                 []string{"--disable-gpu"},
-				Tags:                       []string{"工作", "默认"},
-				Keywords:                   []string{"alpha", "beta"},
-				GroupID:                    "group-1",
-				LaunchCode:                 "ABCD12",
-				Running:                    true,
-				DebugPort:                  9222,
-				DebugReady:                 true,
-				PID:                        12345,
-				RuntimeWarning:             "warning",
-				LastError:                  "error",
-				CreatedAt:                  "2026-05-24T00:00:00Z",
-				UpdatedAt:                  "2026-05-24T00:01:00Z",
-				LastStartAt:                "2026-05-24T00:02:00Z",
-				LastStopAt:                 "2026-05-24T00:03:00Z",
+				ProfileID:                    "profile-1",
+				ProfileName:                  "测试实例",
+				UserDataDir:                  "data/profile-1",
+				CoreID:                       "chrome",
+				FingerprintArgs:              []string{"--a=1", "--b=2"},
+				ProxyID:                      "proxy-1",
+				ProxyConfig:                  "socks5://127.0.0.1:1080",
+				ProxyBindSourceID:            "source-1",
+				ProxyBindSourceURL:           "https://example.test/proxies",
+				ProxyBindName:                "线路 1",
+				ProxyBindUpdatedAt:           "2026-05-24T00:00:00Z",
+				AutoProxySwitchEnabled:       true,
+				AutoProxySwitchGroupName:     "default",
+				AutoProxySwitchMode:          "interval",
+				AutoProxySwitchIntervalM:     15,
+				AutoProxySwitchRotateByGroup: true,
+				AutoProxySwitchLastProxyID:   "proxy-0",
+				LaunchArgs:                   []string{"--disable-gpu"},
+				Tags:                         []string{"工作", "默认"},
+				Keywords:                     []string{"alpha", "beta"},
+				GroupID:                      "group-1",
+				LaunchCode:                   "ABCD12",
+				Running:                      true,
+				DebugPort:                    9222,
+				DebugReady:                   true,
+				PID:                          12345,
+				RuntimeWarning:               "warning",
+				LastError:                    "error",
+				CreatedAt:                    "2026-05-24T00:00:00Z",
+				UpdatedAt:                    "2026-05-24T00:01:00Z",
+				LastStartAt:                  "2026-05-24T00:02:00Z",
+				LastStopAt:                   "2026-05-24T00:03:00Z",
 			},
 		},
 	}
@@ -64,7 +65,7 @@ func TestBrowserProfileListRoundTrip(t *testing.T) {
 	if len(profile.Tags) != 2 || profile.Tags[0] != "工作" || profile.Tags[1] != "默认" {
 		t.Fatalf("unexpected tags: %#v", profile.Tags)
 	}
-	if !profile.AutoProxySwitchEnabled || !profile.Running || !profile.DebugReady {
+	if !profile.AutoProxySwitchEnabled || !profile.AutoProxySwitchRotateByGroup || !profile.Running || !profile.DebugReady {
 		t.Fatalf("bool fields were not preserved: %#v", profile)
 	}
 	if profile.DebugPort != 9222 || profile.PID != 12345 {
@@ -74,20 +75,21 @@ func TestBrowserProfileListRoundTrip(t *testing.T) {
 
 func TestBrowserProfileMutationRoundTrip(t *testing.T) {
 	input := BrowserProfileInput{
-		ProfileName:              "新实例",
-		UserDataDir:              "data/new",
-		CoreID:                   "chrome",
-		FingerprintArgs:          []string{"--fingerprint=1"},
-		ProxyID:                  "proxy-1",
-		ProxyConfig:              "http://127.0.0.1:8080",
-		AutoProxySwitchEnabled:   true,
-		AutoProxySwitchGroupName: "默认",
-		AutoProxySwitchMode:      "interval",
-		AutoProxySwitchIntervalM: 10,
-		LaunchArgs:               []string{"--start-maximized"},
-		Tags:                     []string{"工作"},
-		Keywords:                 []string{"alpha"},
-		GroupID:                  "group-1",
+		ProfileName:                  "新实例",
+		UserDataDir:                  "data/new",
+		CoreID:                       "chrome",
+		FingerprintArgs:              []string{"--fingerprint=1"},
+		ProxyID:                      "proxy-1",
+		ProxyConfig:                  "http://127.0.0.1:8080",
+		AutoProxySwitchEnabled:       true,
+		AutoProxySwitchGroupName:     "默认",
+		AutoProxySwitchMode:          "interval",
+		AutoProxySwitchIntervalM:     10,
+		AutoProxySwitchRotateByGroup: true,
+		LaunchArgs:                   []string{"--start-maximized"},
+		Tags:                         []string{"工作"},
+		Keywords:                     []string{"alpha"},
+		GroupID:                      "group-1",
 	}
 
 	createRequest, err := DecodeBrowserProfileCreateRequest(EncodeBrowserProfileCreateRequest(BrowserProfileCreateRequest{
@@ -107,7 +109,7 @@ func TestBrowserProfileMutationRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DecodeBrowserProfileUpdateRequest failed: %v", err)
 	}
-	if updateRequest.ProfileID != "profile-1" || updateRequest.Profile.AutoProxySwitchIntervalM != 10 {
+	if updateRequest.ProfileID != "profile-1" || updateRequest.Profile.AutoProxySwitchIntervalM != 10 || !updateRequest.Profile.AutoProxySwitchRotateByGroup {
 		t.Fatalf("update request was not preserved: %#v", updateRequest)
 	}
 
