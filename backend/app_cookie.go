@@ -5,8 +5,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
+
+	"ant-chrome/backend/internal/logger"
 
 	"github.com/gorilla/websocket"
 )
@@ -207,14 +211,61 @@ func (a *App) BrowserGetCookies(profileId string) ([]CookieInfo, error) {
 	return cookies, nil
 }
 
-// BrowserClearCookies 通过 CDP 清除实例所有 Cookie
+// BrowserClearCookies 清理实例 Cookie。
+// 实例运行且调试接口就绪时通过 CDP 清除 Cookie；实例未运行时清空该实例用户数据目录。
 func (a *App) BrowserClearCookies(profileId string) error {
+	profileId = strings.TrimSpace(profileId)
+	if profileId == "" {
+		return fmt.Errorf("profile id is required")
+	}
+	if a == nil || a.browserMgr == nil {
+		return fmt.Errorf("browser manager is not initialized")
+	}
+
+	a.browserMgr.Mutex.Lock()
+	profile, exists := a.browserMgr.Profiles[profileId]
+	if !exists || profile == nil {
+		a.browserMgr.Mutex.Unlock()
+		return fmt.Errorf("profile not found: %s", profileId)
+	}
+	snapshot := *profile
+	a.browserMgr.Mutex.Unlock()
+
+	if !snapshot.Running {
+		return a.clearStoppedProfileUserData(&snapshot)
+	}
+
 	debugPort, err := a.getDebugPort(profileId)
 	if err != nil {
 		return err
 	}
 	_, err = cdpCall(debugPort, "Network.clearBrowserCookies", nil)
 	return err
+}
+
+func (a *App) clearStoppedProfileUserData(profile *BrowserProfile) error {
+	userDataDir, err := a.safeProfileUserDataDir(profile)
+	if err != nil {
+		return err
+	}
+	if userDataDir == "" {
+		return nil
+	}
+	if err := os.MkdirAll(userDataDir, 0755); err != nil {
+		return fmt.Errorf("创建实例用户数据目录失败: %w", err)
+	}
+	entries, err := os.ReadDir(userDataDir)
+	if err != nil {
+		return fmt.Errorf("读取实例用户数据目录失败: %w", err)
+	}
+	for _, entry := range entries {
+		target := filepath.Join(userDataDir, entry.Name())
+		if err := os.RemoveAll(target); err != nil {
+			return fmt.Errorf("清理实例用户数据失败: %w", err)
+		}
+	}
+	logger.New("Browser").Info("未运行实例用户数据目录已清空", logger.F("profile_id", profile.ProfileId), logger.F("path", userDataDir))
+	return nil
 }
 
 func parseNetscapeCookies(text string) ([]CookieInfo, int, error) {

@@ -76,9 +76,12 @@ func (a *App) extensionDirForBinding(binding browser.ExtensionBinding, extension
 	absDir := ""
 	var err error
 	if mode == "exclusive" {
+		if err := a.refreshExtensionExclusiveDir(binding, extension); err != nil {
+			return "", err
+		}
 		absDir, err = a.safeExtensionExclusiveDir(rawDir)
 	} else {
-		absDir, err = a.safeExtensionLibraryDir(a.resolveAppPath(rawDir))
+		absDir, err = a.extensionContentDir(extension)
 	}
 	if err != nil {
 		return "", err

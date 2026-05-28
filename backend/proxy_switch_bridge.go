@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"math/rand"
@@ -28,6 +29,8 @@ type switchingProxyBridge struct {
 	mode          string
 	interval      time.Duration
 	rotateByGroup bool
+	proxyURL      string
+	controlToken  string
 
 	server   *http.Server
 	listener net.Listener
@@ -59,6 +62,7 @@ func newSwitchingProxyBridge(app *App, profile *BrowserProfile) *switchingProxyB
 		mode:          normalizeProxySwitchMode(profile.AutoProxySwitchMode),
 		interval:      time.Duration(intervalM) * time.Minute,
 		rotateByGroup: profile.AutoProxySwitchRotateByGroup && strings.TrimSpace(profile.AutoProxySwitchGroupName) == "",
+		controlToken:  newSwitchProxyControlToken(),
 		stopped:       make(chan struct{}),
 		rng:           rand.New(rand.NewSource(time.Now().UnixNano())),
 		activeConns:   make(map[net.Conn]uint64),
@@ -83,7 +87,8 @@ func (b *switchingProxyBridge) start() (string, error) {
 	if b.mode == proxySwitchModeInterval {
 		go b.rotationLoop()
 	}
-	return "http://" + ln.Addr().String(), nil
+	b.proxyURL = "http://" + ln.Addr().String()
+	return b.proxyURL, nil
 }
 
 func (b *switchingProxyBridge) stop() {
@@ -252,11 +257,44 @@ func (b *switchingProxyBridge) candidateProxies() []config.BrowserProxy {
 }
 
 func (b *switchingProxyBridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if !r.URL.IsAbs() && r.URL.Path == switchProxyControlPath {
+		b.handleSwitchProxyControl(w, r)
+		return
+	}
 	if r.Method == http.MethodConnect {
 		b.handleConnect(w, r)
 		return
 	}
 	b.handleHTTP(w, r)
+}
+
+func (b *switchingProxyBridge) handleSwitchProxyControl(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		_ = json.NewEncoder(w).Encode(switchProxyControlResponse{OK: false, Error: "method not allowed"})
+		return
+	}
+	if strings.TrimSpace(b.controlToken) == "" || r.Header.Get(switchProxyControlTokenHeader) != b.controlToken {
+		w.WriteHeader(http.StatusForbidden)
+		_ = json.NewEncoder(w).Encode(switchProxyControlResponse{OK: false, Error: "forbidden"})
+		return
+	}
+	if err := b.switchNow(); err != nil {
+		w.WriteHeader(http.StatusBadGateway)
+		_ = json.NewEncoder(w).Encode(switchProxyControlResponse{OK: false, Error: err.Error()})
+		return
+	}
+	b.mu.RLock()
+	current := b.current
+	hasCurrent := b.hasCurrent
+	b.mu.RUnlock()
+	resp := switchProxyControlResponse{OK: true}
+	if hasCurrent {
+		resp.ProxyID = current.ProxyId
+		resp.ProxyName = current.ProxyName
+	}
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 func (b *switchingProxyBridge) handleConnect(w http.ResponseWriter, r *http.Request) {

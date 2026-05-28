@@ -186,7 +186,7 @@ func (a *App) BrowserExtensionImportDirectory(input BrowserExtensionImportInput)
 	if err != nil {
 		return nil, err
 	}
-	return a.importExtensionFromDirectory(extensionDir, "directory", "", "", input)
+	return a.importExtensionFromDirectory(extensionDir, "directory", extensionDir, "", input)
 }
 
 // BrowserExtensionImportArchive 导入本地 ZIP/CRX 扩展压缩包。
@@ -780,7 +780,7 @@ func (a *App) safeExtensionPackagePath(target string) (string, error) {
 	return cleanTarget, nil
 }
 
-func (a *App) prepareExtensionExclusiveDir(extension *browser.Extension, profileId string) (string, error) {
+func (a *App) extensionContentDir(extension *browser.Extension) (string, error) {
 	if extension == nil {
 		return "", fmt.Errorf("扩展插件不存在")
 	}
@@ -788,7 +788,54 @@ func (a *App) prepareExtensionExclusiveDir(extension *browser.Extension, profile
 	if installDir == "" {
 		return "", fmt.Errorf("扩展插件安装目录为空")
 	}
-	sourceDir, err := a.safeExtensionLibraryDir(a.resolveAppPath(installDir))
+	libraryDir, err := a.safeExtensionLibraryDir(a.resolveAppPath(installDir))
+	if err != nil {
+		return "", err
+	}
+	if sourceDir, ok, err := a.localExtensionSourceDir(extension); err != nil {
+		return "", err
+	} else if ok && !sameCleanPath(sourceDir, libraryDir) {
+		if err := a.writeExtensionDirectory(sourceDir, libraryDir, "同步扩展库目录"); err != nil {
+			return "", err
+		}
+	}
+	return libraryDir, nil
+}
+
+func (a *App) localExtensionSourceDir(extension *browser.Extension) (string, bool, error) {
+	if extension == nil || !strings.EqualFold(strings.TrimSpace(extension.SourceType), "directory") {
+		return "", false, nil
+	}
+	sourceDir := strings.TrimSpace(extension.SourceURL)
+	if sourceDir == "" {
+		return "", false, nil
+	}
+	absSource, err := filepath.Abs(a.resolveAppPath(sourceDir))
+	if err != nil {
+		return "", false, fmt.Errorf("解析本地扩展来源目录失败: %w", err)
+	}
+	cleanSource := filepath.Clean(absSource)
+	info, err := os.Stat(cleanSource)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", false, nil
+		}
+		return "", false, fmt.Errorf("访问本地扩展来源目录失败: %w", err)
+	}
+	if !info.IsDir() {
+		return "", false, fmt.Errorf("本地扩展来源不是目录: %s", cleanSource)
+	}
+	if _, err := readExtensionManifest(cleanSource); err != nil {
+		return "", false, err
+	}
+	return cleanSource, true, nil
+}
+
+func (a *App) prepareExtensionExclusiveDir(extension *browser.Extension, profileId string) (string, error) {
+	if extension == nil {
+		return "", fmt.Errorf("扩展插件不存在")
+	}
+	sourceDir, err := a.extensionContentDir(extension)
 	if err != nil {
 		return "", err
 	}
@@ -800,28 +847,66 @@ func (a *App) prepareExtensionExclusiveDir(extension *browser.Extension, profile
 	if err != nil {
 		return "", err
 	}
-	tmpTarget := safeTargetDir + ".tmp-" + uuid.NewString()
-	if err := copyDirContents(sourceDir, tmpTarget); err != nil {
-		_ = os.RemoveAll(tmpTarget)
-		return "", fmt.Errorf("复制独享扩展目录失败: %w", err)
-	}
-	if _, err := readExtensionManifest(tmpTarget); err != nil {
-		_ = os.RemoveAll(tmpTarget)
+	if err := a.writeExtensionDirectory(sourceDir, safeTargetDir, "写入独享扩展目录"); err != nil {
 		return "", err
-	}
-	if err := os.RemoveAll(safeTargetDir); err != nil {
-		_ = os.RemoveAll(tmpTarget)
-		return "", fmt.Errorf("清理旧独享扩展目录失败: %w", err)
-	}
-	if err := os.Rename(tmpTarget, safeTargetDir); err != nil {
-		_ = os.RemoveAll(tmpTarget)
-		return "", fmt.Errorf("写入独享扩展目录失败: %w", err)
 	}
 	rel, err := a.relativeStatePath(safeTargetDir)
 	if err != nil {
 		return safeTargetDir, nil
 	}
 	return rel, nil
+}
+
+func (a *App) refreshExtensionExclusiveDir(binding browser.ExtensionBinding, extension *browser.Extension) error {
+	sourceDir, ok, err := a.localExtensionSourceDir(extension)
+	if err != nil || !ok {
+		return err
+	}
+	targetDir := strings.TrimSpace(binding.ExclusiveDir)
+	if targetDir == "" {
+		return fmt.Errorf("扩展插件 %s 的独享目录为空，请重新保存绑定", binding.ExtensionId)
+	}
+	safeTargetDir, err := a.safeExtensionExclusiveDir(targetDir)
+	if err != nil {
+		return err
+	}
+	return a.writeExtensionDirectory(sourceDir, safeTargetDir, "同步独享扩展目录")
+}
+
+func (a *App) writeExtensionDirectory(sourceDir string, safeTargetDir string, action string) error {
+	if sameCleanPath(sourceDir, safeTargetDir) {
+		return nil
+	}
+	tmpTarget := safeTargetDir + ".tmp-" + uuid.NewString()
+	if err := copyDirContents(sourceDir, tmpTarget); err != nil {
+		_ = os.RemoveAll(tmpTarget)
+		return fmt.Errorf("%s失败: %w", action, err)
+	}
+	if _, err := readExtensionManifest(tmpTarget); err != nil {
+		_ = os.RemoveAll(tmpTarget)
+		return err
+	}
+	if err := os.RemoveAll(safeTargetDir); err != nil {
+		_ = os.RemoveAll(tmpTarget)
+		return fmt.Errorf("清理旧扩展目录失败: %w", err)
+	}
+	if err := os.Rename(tmpTarget, safeTargetDir); err != nil {
+		_ = os.RemoveAll(tmpTarget)
+		return fmt.Errorf("%s失败: %w", action, err)
+	}
+	return nil
+}
+
+func sameCleanPath(left string, right string) bool {
+	leftAbs, err := filepath.Abs(left)
+	if err != nil {
+		leftAbs = left
+	}
+	rightAbs, err := filepath.Abs(right)
+	if err != nil {
+		rightAbs = right
+	}
+	return strings.EqualFold(filepath.Clean(leftAbs), filepath.Clean(rightAbs))
 }
 
 func (a *App) removeExtensionExclusiveDir(dir string) error {

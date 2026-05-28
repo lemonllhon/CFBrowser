@@ -645,6 +645,7 @@ func (a *App) releaseProfileAuthProxyBridge(profileId string) {
 
 func (a *App) BrowserProfileSwitchProxyNow(profileId string) (*BrowserProfile, error) {
 	a.refreshBrowserProfileConfigCacheFromStore()
+	a.reconcileBrowserProfileRuntimeStates()
 	profileId = strings.TrimSpace(profileId)
 	if profileId == "" {
 		return nil, fmt.Errorf("profile id is required")
@@ -670,6 +671,9 @@ func (a *App) BrowserProfileSwitchProxyNow(profileId string) (*BrowserProfile, e
 	bridge := a.switchBridgeRefs[profileId]
 	a.bridgeMu.Unlock()
 	if bridge == nil {
+		if profile, attempted, err := a.switchProfileProxyNowViaRuntimeBridge(profileId); attempted {
+			return profile, err
+		}
 		return nil, fmt.Errorf("代理切换中转未运行，请先启动实例")
 	}
 

@@ -79,6 +79,85 @@ func TestPrepareSharedExtensionDataBindingLinksProfileStorage(t *testing.T) {
 	}
 }
 
+func TestExtensionDirForBindingSyncsLocalDirectorySourceToLibrary(t *testing.T) {
+	app := NewApp(t.TempDir())
+	sourceDir := filepath.Join(app.appRootAbs(), "source-extension")
+	libraryDir := filepath.Join(app.extensionLibraryRoot(), "extension-1")
+	if err := os.MkdirAll(sourceDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(libraryDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceDir, "manifest.json"), []byte(`{"manifest_version":3,"name":"Local","version":"2.0"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceDir, "content.js"), []byte(`console.log("new")`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(libraryDir, "manifest.json"), []byte(`{"manifest_version":3,"name":"Local","version":"1.0"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := app.extensionDirForBinding(browser.ExtensionBinding{
+		ProfileId:   "profile-1",
+		ExtensionId: "extension-1",
+		Mode:        "shared",
+		Enabled:     true,
+	}, &browser.Extension{
+		ExtensionId: "extension-1",
+		Name:        "Local",
+		SourceType:  "directory",
+		SourceURL:   sourceDir,
+		InstallDir:  filepath.Join("data", "extensions", "library", "extension-1"),
+	})
+	if err != nil {
+		t.Fatalf("extensionDirForBinding returned error: %v", err)
+	}
+	if !strings.EqualFold(filepath.Clean(got), filepath.Clean(libraryDir)) {
+		t.Fatalf("expected stable library dir, got=%s want=%s", got, libraryDir)
+	}
+	if _, err := os.Stat(filepath.Join(libraryDir, "content.js")); err != nil {
+		t.Fatalf("expected local source update to be synced into library dir: %v", err)
+	}
+}
+
+func TestPrepareExtensionExclusiveDirCopiesLocalDirectorySource(t *testing.T) {
+	app := NewApp(t.TempDir())
+	sourceDir := filepath.Join(app.appRootAbs(), "source-extension")
+	libraryDir := filepath.Join(app.extensionLibraryRoot(), "extension-1")
+	if err := os.MkdirAll(sourceDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(libraryDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceDir, "manifest.json"), []byte(`{"manifest_version":3,"name":"Local","version":"2.0"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceDir, "content.js"), []byte(`console.log("new")`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(libraryDir, "manifest.json"), []byte(`{"manifest_version":3,"name":"Local","version":"1.0"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	exclusiveDir, err := app.prepareExtensionExclusiveDir(&browser.Extension{
+		ExtensionId: "extension-1",
+		Name:        "Local",
+		SourceType:  "directory",
+		SourceURL:   sourceDir,
+		InstallDir:  filepath.Join("data", "extensions", "library", "extension-1"),
+	}, "profile-1")
+	if err != nil {
+		t.Fatalf("prepareExtensionExclusiveDir returned error: %v", err)
+	}
+	copied := app.resolveAppPath(filepath.Join(exclusiveDir, "content.js"))
+	if _, err := os.Stat(copied); err != nil {
+		t.Fatalf("expected exclusive dir to include source file: %v", err)
+	}
+}
+
 func base64ForTest(data []byte) string {
 	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 	if len(data) == 0 {

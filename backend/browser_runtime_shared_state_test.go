@@ -127,9 +127,52 @@ func TestBrowserProfileCreateRefreshesBeforeWriting(t *testing.T) {
 	}
 }
 
+func TestBrowserProfileSwitchProxyNowUsesSharedSwitchBridge(t *testing.T) {
+	ln := mustListenLoopback(t)
+	defer ln.Close()
+
+	appRoot := t.TempDir()
+	app1 := newRuntimeStateTestApp(appRoot)
+	app1.config.Browser.Proxies = []BrowserProxy{
+		{ProxyId: "proxy-a", ProxyName: "Proxy A", ProxyConfig: "http://127.0.0.1:18081"},
+		{ProxyId: "proxy-b", ProxyName: "Proxy B", ProxyConfig: "http://127.0.0.1:18082"},
+	}
+	profile := &BrowserProfile{
+		ProfileId:                "profile-1",
+		ProfileName:              "Profile 1",
+		AutoProxySwitchEnabled:   true,
+		AutoProxySwitchMode:      "manual",
+		AutoProxySwitchIntervalM: 5,
+	}
+	app1.browserMgr.Profiles["profile-1"] = profile
+	if _, err := app1.startProfileSwitchBridge(profile); err != nil {
+		t.Fatalf("startProfileSwitchBridge failed: %v", err)
+	}
+	defer app1.releaseProfileSwitchBridge("profile-1")
+	app1.markProfileRunningLocked("profile-1", profile, nil, 0, listenerPort(t, ln), true, "")
+
+	app2 := newRuntimeStateTestApp(appRoot)
+	app2.config.Browser.Proxies = app1.config.Browser.Proxies
+	app2.browserMgr.Profiles["profile-1"] = &BrowserProfile{
+		ProfileId:              "profile-1",
+		ProfileName:            "Profile 1",
+		AutoProxySwitchEnabled: true,
+		AutoProxySwitchMode:    "manual",
+	}
+
+	updated, err := app2.BrowserProfileSwitchProxyNow("profile-1")
+	if err != nil {
+		t.Fatalf("BrowserProfileSwitchProxyNow returned error: %v", err)
+	}
+	if updated == nil || updated.AutoProxySwitchLastProxyId == "" {
+		t.Fatalf("expected remote switch to return current proxy id, got %#v", updated)
+	}
+}
+
 func newRuntimeStateTestApp(appRoot string) *App {
 	app := NewApp(appRoot)
-	app.browserMgr = browser.NewManager(config.DefaultConfig(), appRoot)
+	app.config = config.DefaultConfig()
+	app.browserMgr = browser.NewManager(app.config, appRoot)
 	app.browserMgr.Profiles = map[string]*BrowserProfile{}
 	app.browserMgr.BrowserProcesses = map[string]*exec.Cmd{}
 	return app

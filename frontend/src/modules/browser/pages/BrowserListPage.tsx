@@ -162,9 +162,14 @@ const downloadTextFile = (filename: string, content: string) => {
 }
 
 const getCookieActionTitle = (profile: BrowserProfile, action: 'export' | 'clear') => {
-  if (!profile.running) return '实例启动后才能操作 Cookie'
-  if (!profile.debugReady) return '调试接口就绪后才能操作 Cookie'
-  return action === 'export' ? '导出 Cookie 文本' : '清空全部 Cookie'
+  if (action === 'export') {
+    if (!profile.running) return '实例启动后才能导出 Cookie'
+    if (!profile.debugReady) return '调试接口就绪后才能导出 Cookie'
+    return '导出 Cookie 文本'
+  }
+  if (!profile.running) return '清空用户数据目录'
+  if (!profile.debugReady) return '调试接口就绪后才能清空 Cookie'
+  return '清空全部 Cookie'
 }
 
 const normalizeWindowSyncColor = (value?: string) => {
@@ -826,16 +831,16 @@ export function BrowserListPage() {
   const handleConfirmClearCookies = async () => {
     const target = cookieClearTarget
     if (!target) return
-    if (!target.running || !target.debugReady) {
+    if (target.running && !target.debugReady) {
       toast.warning(getCookieActionTitle(target, 'clear'))
       return
     }
     updatePendingIds(setClearingCookieIds, target.profileId, true)
     try {
       await clearBrowserCookies(target.profileId)
-      toast.success(`Cookie 已清空：${target.profileName || target.profileId}`)
+      toast.success(target.running ? `Cookie 已清空：${target.profileName || target.profileId}` : `用户数据已清空：${target.profileName || target.profileId}`)
     } catch (error: any) {
-      toast.error(error?.message || '清空 Cookie 失败')
+      toast.error(error?.message || (target.running ? '清空 Cookie 失败' : '清空用户数据失败'))
     } finally {
       updatePendingIds(setClearingCookieIds, target.profileId, false)
       setCookieClearTarget(null)
@@ -1345,7 +1350,8 @@ export function BrowserListPage() {
         const isBusy = isProfileBusy(record.profileId)
         const isSyncMaster = isWindowSyncMaster(record.profileId)
         const disabledBySync = isSyncMaster
-        const canOperateCookies = record.running && record.debugReady
+        const canExportCookies = record.running && record.debugReady
+        const canClearCookies = !record.running || record.debugReady
 
         return (
           <div className="flex justify-end gap-1">
@@ -1377,7 +1383,7 @@ export function BrowserListPage() {
               aria-label="导出 Cookie 文本"
               title={getCookieActionTitle(record, 'export')}
               loading={isExportingCookies}
-              disabled={!canOperateCookies || isClearingCookies || (isBusy && !isExportingCookies)}
+              disabled={!canExportCookies || isClearingCookies || (isBusy && !isExportingCookies)}
             >
               {!isExportingCookies && <Download className="w-3.5 h-3.5" />}
             </Button>
@@ -1385,10 +1391,10 @@ export function BrowserListPage() {
               size="sm"
               variant="ghost"
               onClick={() => setCookieClearTarget(record)}
-              aria-label="清空全部 Cookie"
+              aria-label={record.running ? '清空全部 Cookie' : '清空用户数据'}
               title={getCookieActionTitle(record, 'clear')}
               loading={isClearingCookies}
-              disabled={!canOperateCookies || isExportingCookies || (isBusy && !isClearingCookies)}
+              disabled={!canClearCookies || isExportingCookies || (isBusy && !isClearingCookies)}
             >
               {!isClearingCookies && <Eraser className="w-3.5 h-3.5 text-red-500" />}
             </Button>
@@ -1550,7 +1556,8 @@ export function BrowserListPage() {
                 const isBusy = isProfileBusy(record.profileId)
                 const isSyncMaster = isWindowSyncMaster(record.profileId)
                 const disabledBySync = isSyncMaster
-                const canOperateCookies = record.running && record.debugReady
+                const canExportCookies = record.running && record.debugReady
+                const canClearCookies = !record.running || record.debugReady
 
                 return (
                   <div
@@ -1628,7 +1635,7 @@ export function BrowserListPage() {
                           title={getCookieActionTitle(record, 'export')}
                           className="px-3"
                           loading={isExportingCookies}
-                          disabled={!canOperateCookies || isClearingCookies || (isBusy && !isExportingCookies)}
+                          disabled={!canExportCookies || isClearingCookies || (isBusy && !isExportingCookies)}
                         >
                           {!isExportingCookies && <Download className="w-4 h-4" />}
                         </Button>
@@ -1636,11 +1643,11 @@ export function BrowserListPage() {
                           size="sm"
                           variant="ghost"
                           onClick={() => setCookieClearTarget(record)}
-                          aria-label="清空全部 Cookie"
+                          aria-label={record.running ? '清空全部 Cookie' : '清空用户数据'}
                           title={getCookieActionTitle(record, 'clear')}
                           className="px-3 text-red-500 hover:text-red-600 hover:bg-red-50"
                           loading={isClearingCookies}
-                          disabled={!canOperateCookies || isExportingCookies || (isBusy && !isClearingCookies)}
+                          disabled={!canClearCookies || isExportingCookies || (isBusy && !isClearingCookies)}
                         >
                           {!isClearingCookies && <Eraser className="w-4 h-4" />}
                         </Button>
@@ -2172,14 +2179,16 @@ export function BrowserListPage() {
         open={!!cookieClearTarget}
         onClose={() => setCookieClearTarget(null)}
         onConfirm={handleConfirmClearCookies}
-        title="清空 Cookie"
+        title={cookieClearTarget?.running ? '清空 Cookie' : '清空用户数据'}
         content={
           <div className="space-y-2">
-            <p>确定清空实例「{cookieClearTarget?.profileName || ''}」的所有 Cookie？</p>
-            <p className="text-sm text-red-500">该操作会删除当前浏览器会话中的全部 Cookie，无法恢复。</p>
+            <p>{cookieClearTarget?.running ? `确定清空实例「${cookieClearTarget?.profileName || ''}」的所有 Cookie？` : `确定清空实例「${cookieClearTarget?.profileName || ''}」的用户数据目录？`}</p>
+            <p className="text-sm text-red-500">
+              {cookieClearTarget?.running ? '该操作会删除当前浏览器会话中的全部 Cookie，无法恢复。' : '实例未运行时会删除该用户数据目录下的全部文件，无法恢复。'}
+            </p>
           </div>
         }
-        confirmText="清空 Cookie"
+        confirmText={cookieClearTarget?.running ? '清空 Cookie' : '清空用户数据'}
         danger
       />
 

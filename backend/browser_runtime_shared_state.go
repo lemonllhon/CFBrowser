@@ -9,15 +9,17 @@ import (
 )
 
 type browserProfileRuntimeState struct {
-	ProfileID      string `json:"profileId"`
-	Running        bool   `json:"running"`
-	DebugPort      int    `json:"debugPort"`
-	DebugReady     bool   `json:"debugReady"`
-	PID            int    `json:"pid"`
-	RuntimeWarning string `json:"runtimeWarning"`
-	LastStartAt    string `json:"lastStartAt"`
-	LastStopAt     string `json:"lastStopAt"`
-	UpdatedAt      string `json:"updatedAt"`
+	ProfileID        string `json:"profileId"`
+	Running          bool   `json:"running"`
+	DebugPort        int    `json:"debugPort"`
+	DebugReady       bool   `json:"debugReady"`
+	PID              int    `json:"pid"`
+	RuntimeWarning   string `json:"runtimeWarning"`
+	SwitchProxyURL   string `json:"switchProxyUrl,omitempty"`
+	SwitchProxyToken string `json:"switchProxyToken,omitempty"`
+	LastStartAt      string `json:"lastStartAt"`
+	LastStopAt       string `json:"lastStopAt"`
+	UpdatedAt        string `json:"updatedAt"`
 }
 
 func (a *App) reconcileBrowserProfileRuntimeStates() {
@@ -168,16 +170,19 @@ func (a *App) persistBrowserProfileRuntimeState(profile *BrowserProfile) {
 		return
 	}
 
+	switchProxyURL, switchProxyToken := a.profileSwitchBridgeRuntimeControl(profile.ProfileId)
 	state := browserProfileRuntimeState{
-		ProfileID:      profile.ProfileId,
-		Running:        profile.Running,
-		DebugPort:      profile.DebugPort,
-		DebugReady:     profile.DebugReady,
-		PID:            profile.Pid,
-		RuntimeWarning: profile.RuntimeWarning,
-		LastStartAt:    profile.LastStartAt,
-		LastStopAt:     profile.LastStopAt,
-		UpdatedAt:      time.Now().Format(time.RFC3339Nano),
+		ProfileID:        profile.ProfileId,
+		Running:          profile.Running,
+		DebugPort:        profile.DebugPort,
+		DebugReady:       profile.DebugReady,
+		PID:              profile.Pid,
+		RuntimeWarning:   profile.RuntimeWarning,
+		SwitchProxyURL:   switchProxyURL,
+		SwitchProxyToken: switchProxyToken,
+		LastStartAt:      profile.LastStartAt,
+		LastStopAt:       profile.LastStopAt,
+		UpdatedAt:        time.Now().Format(time.RFC3339Nano),
 	}
 	if !state.Running {
 		_ = a.clearBrowserProfileRuntimeState(profile.ProfileId)
