@@ -502,7 +502,7 @@ function CloseConfirmModal() {
           </p>
         ) : (
           <p className="mb-6 text-sm text-center text-[var(--color-text-secondary)]">
-            可仅退出应用，或连同浏览器一起关闭。
+            可仅退出应用，或关闭所有应用、浏览器与代理程序。
           </p>
         )}
 
@@ -546,7 +546,7 @@ function CloseConfirmModal() {
                 loading={quittingAction === 'app-and-browser'}
                 disabled={quitting}
               >
-                退出应用与浏览器
+                退出所有应用与浏览器
               </Button>
             </>
           )}

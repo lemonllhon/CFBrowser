@@ -33,7 +33,7 @@ func Run(cb Callbacks) {
 		mShow := systray.AddMenuItem("显示窗口", "显示主窗口")
 		systray.AddSeparator()
 		mQuitAppOnly := systray.AddMenuItem("仅退出应用", "关闭客户端，保留已打开的浏览器")
-		mQuit := systray.AddMenuItem("退出应用与浏览器", "退出应用并关闭当前打开的浏览器")
+		mQuit := systray.AddMenuItem("退出所有应用与浏览器", "退出所有应用并关闭浏览器和代理程序")
 
 		systray.SetOnClick(func(menu systray.IMenu) {
 			if cb.OnShow != nil {

@@ -23,40 +23,7 @@ func killResidualRuntimeProcesses(appRoot string) error {
 	}
 
 	exePath, _ := os.Executable()
-	psScript := `param([string]$Root, [string]$ExcludePath)
-$ErrorActionPreference = 'SilentlyContinue'
-if ([string]::IsNullOrWhiteSpace($Root) -or -not (Test-Path -LiteralPath $Root)) { exit 0 }
-$root = [System.IO.Path]::GetFullPath($Root).TrimEnd('\') + '\'
-$exclude = ''
-if (-not [string]::IsNullOrWhiteSpace($ExcludePath)) {
-  $exclude = [System.IO.Path]::GetFullPath($ExcludePath)
-}
-function Get-AntChromeResidualProcesses {
-  @(
-    Get-CimInstance Win32_Process | Where-Object {
-      $_.ExecutablePath -and (
-        $_.ExecutablePath.StartsWith(($root + 'bin\'), [System.StringComparison]::OrdinalIgnoreCase) -or
-        $_.ExecutablePath.StartsWith(($root + 'chrome\'), [System.StringComparison]::OrdinalIgnoreCase)
-      ) -and (
-        $exclude -eq '' -or
-        -not $_.ExecutablePath.Equals($exclude, [System.StringComparison]::OrdinalIgnoreCase)
-      )
-    }
-  )
-}
-$targets = @(Get-AntChromeResidualProcesses | Sort-Object ProcessId -Descending)
-foreach ($p in $targets) {
-  try { Stop-Process -Id $p.ProcessId -Force -ErrorAction Stop } catch {}
-}
-Start-Sleep -Milliseconds 400
-$left = @(Get-AntChromeResidualProcesses)
-if ($left.Count -gt 0) {
-  $names = ($left | ForEach-Object { $_.Name + '#' + $_.ProcessId }) -join ', '
-  Write-Host ('still running: ' + $names)
-  exit 1
-}
-exit 0
-`
+	psScript := residualRuntimeCleanupScript()
 
 	tempFile, err := os.CreateTemp("", "ant-chrome-cleanup-*.ps1")
 	if err != nil {
@@ -86,7 +53,7 @@ exit 0
 		}
 	}
 
-	cmd := exec.CommandContext(ctx, powershellPath, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", filepath.Clean(scriptPath), "-Root", appRoot, "-ExcludePath", exePath)
+	cmd := exec.CommandContext(ctx, powershellPath, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", filepath.Clean(scriptPath), "-Root", appRoot, "-CurrentPid", fmt.Sprint(os.Getpid()), "-CurrentExePath", exePath)
 	hideWindow(cmd)
 
 	output, err := cmd.CombinedOutput()
@@ -101,4 +68,67 @@ exit 0
 		return fmt.Errorf("清理残留进程失败: %s", message)
 	}
 	return nil
+}
+
+func residualRuntimeCleanupScript() string {
+	return `param([string]$Root, [int]$CurrentPid, [string]$CurrentExePath)
+$ErrorActionPreference = 'SilentlyContinue'
+if ([string]::IsNullOrWhiteSpace($Root) -or -not (Test-Path -LiteralPath $Root)) { exit 0 }
+$root = [System.IO.Path]::GetFullPath($Root).TrimEnd('\') + '\'
+$currentExe = ''
+if (-not [string]::IsNullOrWhiteSpace($CurrentExePath)) {
+  $currentExe = [System.IO.Path]::GetFullPath($CurrentExePath)
+}
+$proxyNames = @('xray.exe', 'xray', 'sing-box.exe', 'sing-box', 'clash.exe', 'clash', 'clash-meta.exe', 'clash-meta', 'mihomo.exe', 'mihomo')
+function Test-TraceBrowserResidualProcess($process) {
+  if (-not $process -or -not $process.ExecutablePath) { return $false }
+  if ($process.ProcessId -eq $CurrentPid) { return $false }
+
+  $exe = [string]$process.ExecutablePath
+  $name = ([string]$process.Name).ToLowerInvariant()
+  $cmdline = [string]$process.CommandLine
+
+  $isBundledRuntime = (
+    $exe.StartsWith(($root + 'bin\'), [System.StringComparison]::OrdinalIgnoreCase) -or
+    $exe.StartsWith(($root + 'chrome\'), [System.StringComparison]::OrdinalIgnoreCase)
+  )
+  $isCurrentApp = $currentExe -ne '' -and $exe.Equals($currentExe, [System.StringComparison]::OrdinalIgnoreCase)
+  $isRootCommandProxy = (
+    $proxyNames -contains $name -and
+    -not [string]::IsNullOrWhiteSpace($cmdline) -and
+    $cmdline.IndexOf($root, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+  )
+
+  return $isBundledRuntime -or $isCurrentApp -or $isRootCommandProxy
+}
+function Get-TraceBrowserResidualProcesses {
+  @(
+    Get-CimInstance Win32_Process | Where-Object { Test-TraceBrowserResidualProcess $_ }
+  )
+}
+$targets = @(Get-TraceBrowserResidualProcesses | Sort-Object ProcessId -Descending)
+foreach ($p in $targets) {
+  try { Stop-Process -Id $p.ProcessId -Force -ErrorAction Stop } catch {}
+}
+Start-Sleep -Milliseconds 400
+$left = @(Get-TraceBrowserResidualProcesses)
+if ($left.Count -gt 0) {
+  $taskkill = Join-Path $env:SystemRoot 'System32\taskkill.exe'
+  foreach ($p in $left) {
+    try {
+      if (Test-Path -LiteralPath $taskkill) {
+        & $taskkill /F /T /PID $p.ProcessId | Out-Null
+      }
+    } catch {}
+  }
+  Start-Sleep -Milliseconds 400
+}
+$left = @(Get-TraceBrowserResidualProcesses)
+if ($left.Count -gt 0) {
+  $names = ($left | ForEach-Object { $_.Name + '#' + $_.ProcessId }) -join ', '
+  Write-Host ('still running: ' + $names)
+  exit 1
+}
+exit 0
+`
 }
