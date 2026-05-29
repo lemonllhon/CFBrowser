@@ -98,6 +98,14 @@ type extensionDataSyncTarget struct {
 	chromeID string
 }
 
+type extensionDataSyncPath struct {
+	profileRel              string
+	sharedRel               string
+	kind                    extensionSharedDataKind
+	syncSharedBacking       bool
+	removeWhenSourceMissing bool
+}
+
 func (a *App) requireStoppedProfileForExtensionSync(profileId string, role string) (*browser.Profile, error) {
 	profile, err := a.requireProfile(profileId)
 	if err != nil {
@@ -141,24 +149,49 @@ func (a *App) syncExtensionDataFromProfileToProfile(extensionID string, sourceUs
 		return fmt.Errorf("创建副实例默认配置目录失败: %w", err)
 	}
 
-	sourcePaths := sharedExtensionDataPaths(sourceChromeID)
-	targetPaths := sharedExtensionDataPaths(targetChromeID)
+	sourcePaths := extensionDataSyncPaths(sourceChromeID)
+	targetPaths := extensionDataSyncPaths(targetChromeID)
 	for i, sourceItem := range sourcePaths {
 		targetItem := targetPaths[i]
 		sourcePath := filepath.Join(sourceBase, filepath.FromSlash(sourceItem.profileRel))
 		targetPath := filepath.Join(targetBase, filepath.FromSlash(targetItem.profileRel))
-		targetSharedPath := filepath.Join(a.extensionSharedDataDir(extensionID), targetChromeID, filepath.FromSlash(targetItem.sharedRel))
-		if err := a.syncExtensionDataPath(sourceUserDataDir, targetUserDataDir, sourcePath, targetPath, sourceItem.kind); err != nil {
+		if err := a.syncExtensionDataPath(sourceUserDataDir, targetUserDataDir, sourcePath, targetPath, sourceItem.kind, sourceItem.removeWhenSourceMissing); err != nil {
 			return fmt.Errorf("%s: %w", sourceItem.profileRel, err)
 		}
-		if err := a.syncExtensionDataPath(sourceUserDataDir, a.extensionSharedDataRoot(), sourcePath, targetSharedPath, sourceItem.kind); err != nil {
-			return fmt.Errorf("%s: %w", sourceItem.profileRel, err)
+		if targetItem.syncSharedBacking && strings.TrimSpace(targetItem.sharedRel) != "" {
+			targetSharedPath := filepath.Join(a.extensionSharedDataDir(extensionID), targetChromeID, filepath.FromSlash(targetItem.sharedRel))
+			if err := a.syncExtensionDataPath(sourceUserDataDir, a.extensionSharedDataRoot(), sourcePath, targetSharedPath, sourceItem.kind, sourceItem.removeWhenSourceMissing); err != nil {
+				return fmt.Errorf("%s: %w", sourceItem.profileRel, err)
+			}
 		}
 	}
 	return nil
 }
 
-func (a *App) syncExtensionDataPath(sourceUserDataDir string, targetUserDataDir string, sourcePath string, targetPath string, kind extensionSharedDataKind) error {
+func extensionDataSyncPaths(chromeID string) []extensionDataSyncPath {
+	paths := make([]extensionDataSyncPath, 0, len(sharedExtensionDataPaths(chromeID))+8)
+	for _, item := range sharedExtensionDataPaths(chromeID) {
+		paths = append(paths, extensionDataSyncPath{
+			profileRel:              item.profileRel,
+			sharedRel:               item.sharedRel,
+			kind:                    item.kind,
+			syncSharedBacking:       true,
+			removeWhenSourceMissing: true,
+		})
+	}
+	paths = append(paths,
+		extensionDataSyncPath{profileRel: "Storage/ext/" + chromeID, kind: extensionSharedDataDir, removeWhenSourceMissing: true},
+		extensionDataSyncPath{profileRel: "Storage/ext/chrome-extension_" + chromeID, kind: extensionSharedDataDir, removeWhenSourceMissing: true},
+		extensionDataSyncPath{profileRel: "Storage/ext/chrome-extension_" + chromeID + "_0", kind: extensionSharedDataDir, removeWhenSourceMissing: true},
+		extensionDataSyncPath{profileRel: "Local Storage/leveldb", kind: extensionSharedDataDir},
+		extensionDataSyncPath{profileRel: "Session Storage", kind: extensionSharedDataDir},
+		extensionDataSyncPath{profileRel: "Service Worker", kind: extensionSharedDataDir},
+		extensionDataSyncPath{profileRel: "Extension State", kind: extensionSharedDataDir},
+	)
+	return paths
+}
+
+func (a *App) syncExtensionDataPath(sourceUserDataDir string, targetUserDataDir string, sourcePath string, targetPath string, kind extensionSharedDataKind, removeWhenSourceMissing bool) error {
 	sourceRoot, err := filepath.Abs(sourceUserDataDir)
 	if err != nil {
 		return err
@@ -183,6 +216,9 @@ func (a *App) syncExtensionDataPath(sourceUserDataDir string, targetUserDataDir 
 		return err
 	}
 	if !sourceExists {
+		if !removeWhenSourceMissing {
+			return nil
+		}
 		return removeExtensionProfileDataPath(cleanTarget)
 	}
 	if strings.EqualFold(filepath.Clean(cleanSource), filepath.Clean(cleanTarget)) {

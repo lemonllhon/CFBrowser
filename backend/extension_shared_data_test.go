@@ -291,6 +291,35 @@ func TestBrowserExtensionSyncProfileDataCopiesMasterDataToTargets(t *testing.T) 
 	if err := os.WriteFile(sourceLocalStorage, []byte("master-local-storage"), 0644); err != nil {
 		t.Fatal(err)
 	}
+	sourceLocalStorageLevelDB := filepath.Join(sourceUserDataDir, "Default", "Local Storage", "leveldb")
+	targetLocalStorageLevelDB := filepath.Join(targetUserDataDir, "Default", "Local Storage", "leveldb")
+	if err := os.MkdirAll(sourceLocalStorageLevelDB, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceLocalStorageLevelDB, "000003.log"), []byte("master-leveldb"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(targetLocalStorageLevelDB, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(targetLocalStorageLevelDB, "000003.log"), []byte("old-leveldb"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	sourceStorageExt := filepath.Join(sourceUserDataDir, "Default", "Storage", "ext", chromeID, "def")
+	targetStorageExt := filepath.Join(targetUserDataDir, "Default", "Storage", "ext", chromeID, "def")
+	if err := os.MkdirAll(sourceStorageExt, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceStorageExt, "bucket.json"), []byte(`{"source":"master"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	targetSessionStorage := filepath.Join(targetUserDataDir, "Default", "Session Storage")
+	if err := os.MkdirAll(targetSessionStorage, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(targetSessionStorage, "old.log"), []byte("keep-when-source-missing"), 0644); err != nil {
+		t.Fatal(err)
+	}
 	staleTargetIndexedDB := filepath.Join(targetUserDataDir, "Default", "IndexedDB", "chrome-extension_"+chromeID+"_0.indexeddb.leveldb")
 	if err := os.MkdirAll(staleTargetIndexedDB, 0755); err != nil {
 		t.Fatal(err)
@@ -327,6 +356,27 @@ func TestBrowserExtensionSyncProfileDataCopiesMasterDataToTargets(t *testing.T) 
 	}
 	if string(localStorage) != "master-local-storage" {
 		t.Fatalf("unexpected target local storage: %s", localStorage)
+	}
+	levelDBData, err := os.ReadFile(filepath.Join(targetLocalStorageLevelDB, "000003.log"))
+	if err != nil {
+		t.Fatalf("expected target Local Storage leveldb to be copied: %v", err)
+	}
+	if string(levelDBData) != "master-leveldb" {
+		t.Fatalf("unexpected target Local Storage leveldb: %s", levelDBData)
+	}
+	storageExtData, err := os.ReadFile(filepath.Join(targetStorageExt, "bucket.json"))
+	if err != nil {
+		t.Fatalf("expected target Storage/ext data to be copied: %v", err)
+	}
+	if string(storageExtData) != `{"source":"master"}` {
+		t.Fatalf("unexpected target Storage/ext data: %s", storageExtData)
+	}
+	sessionData, err := os.ReadFile(filepath.Join(targetSessionStorage, "old.log"))
+	if err != nil {
+		t.Fatalf("expected target Session Storage to remain when source is missing: %v", err)
+	}
+	if string(sessionData) != "keep-when-source-missing" {
+		t.Fatalf("unexpected target Session Storage data: %s", sessionData)
 	}
 	if _, err := os.Stat(staleTargetIndexedDB); !os.IsNotExist(err) {
 		t.Fatalf("expected stale target IndexedDB to be removed, stat err=%v", err)
