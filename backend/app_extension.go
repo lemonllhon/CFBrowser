@@ -378,6 +378,7 @@ func (a *App) BrowserExtensionDelete(extensionId string) error {
 	if err := dao.Delete(extensionId); err != nil {
 		return err
 	}
+	extensionSharedDataDir := a.extensionSharedDataDir(extensionId)
 	for _, dir := range exclusiveDirs {
 		if err := a.removeExtensionExclusiveDir(dir); err != nil {
 			return err
@@ -387,6 +388,13 @@ func (a *App) BrowserExtensionDelete(extensionId string) error {
 		if err := os.RemoveAll(safeDir); err != nil {
 			return fmt.Errorf("扩展记录已删除，但插件目录删除失败: %w", err)
 		}
+	}
+	if safeSharedDir, err := a.safeExtensionSharedDataDir(extensionSharedDataDir); err == nil && safeSharedDir != "" {
+		if err := os.RemoveAll(safeSharedDir); err != nil {
+			return fmt.Errorf("扩展记录已删除，但共享数据目录删除失败: %w", err)
+		}
+	} else if err != nil {
+		return err
 	}
 	packagePath := strings.TrimSpace(extension.PackagePath)
 	if packagePath != "" {
@@ -776,6 +784,29 @@ func (a *App) safeExtensionPackagePath(target string) (string, error) {
 	}
 	if !isPathInside(cleanTarget, cleanRoot) {
 		return "", fmt.Errorf("扩展原始包不在允许范围内: %s", cleanTarget)
+	}
+	return cleanTarget, nil
+}
+
+func (a *App) safeExtensionSharedDataDir(target string) (string, error) {
+	if strings.TrimSpace(target) == "" {
+		return "", nil
+	}
+	absTarget, err := filepath.Abs(a.resolveAppPath(target))
+	if err != nil {
+		return "", fmt.Errorf("解析扩展共享数据目录失败: %w", err)
+	}
+	absRoot, err := filepath.Abs(a.extensionSharedDataRoot())
+	if err != nil {
+		return "", fmt.Errorf("解析扩展共享数据根目录失败: %w", err)
+	}
+	cleanTarget := filepath.Clean(absTarget)
+	cleanRoot := filepath.Clean(absRoot)
+	if strings.EqualFold(cleanTarget, cleanRoot) {
+		return "", fmt.Errorf("拒绝操作扩展共享数据根目录: %s", cleanTarget)
+	}
+	if !isPathInside(cleanTarget, cleanRoot) {
+		return "", fmt.Errorf("扩展共享数据目录不在允许范围内: %s", cleanTarget)
 	}
 	return cleanTarget, nil
 }

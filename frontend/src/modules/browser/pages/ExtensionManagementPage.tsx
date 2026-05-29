@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
-import { Archive, Eye, EyeOff, FileCode2, FolderOpen, Link2, RefreshCw, Settings2, Trash2, UploadCloud } from 'lucide-react'
+import { Archive, Eye, EyeOff, FileCode2, FolderOpen, Link2, RefreshCw, Settings2, Share2, Trash2, UploadCloud } from 'lucide-react'
 import { Badge, Button, Card, ConfirmModal, FormItem, Input, Modal, Select, Switch, Table, toast } from '../../../shared/components'
 import type { TableColumn } from '../../../shared/components/Table'
 import type { BrowserExtension, BrowserExtensionBinding, BrowserExtensionImportResult, BrowserProfile } from '../types'
@@ -76,10 +76,25 @@ export function ExtensionManagementPage() {
   const [bindingMode, setBindingMode] = useState<'shared' | 'exclusive'>('shared')
   const [bindingEnabled, setBindingEnabled] = useState(true)
   const [bindingSaving, setBindingSaving] = useState(false)
+  const [sharingAllIds, setSharingAllIds] = useState<Set<string>>(new Set())
 
   const selectedProfilesNeedRestart = useMemo(() => (
     profiles.some(profile => selectedProfileIds.has(profile.profileId) && profile.running)
   ), [profiles, selectedProfileIds])
+
+  const updateSharingAllIds = (extensionId: string, pending: boolean) => {
+    setSharingAllIds(prev => {
+      const next = new Set(prev)
+      if (pending) {
+        next.add(extensionId)
+      } else {
+        next.delete(extensionId)
+      }
+      return next
+    })
+  }
+
+  const isSharingAll = (extensionId: string) => sharingAllIds.has(extensionId)
 
   const loadData = async (silent = false) => {
     if (silent) {
@@ -155,6 +170,34 @@ export function ExtensionManagementPage() {
     setAutoBindEnabled(Boolean(record.autoBindEnabled))
     setAutoBindMode(record.autoBindMode === 'exclusive' ? 'exclusive' : 'shared')
     setAutoBindModalOpen(true)
+  }
+
+  const handleEnableSharedForAll = async (record: BrowserExtension) => {
+    const extensionId = record.extensionId
+    if (!extensionId || isSharingAll(extensionId)) return
+    updateSharingAllIds(extensionId, true)
+    try {
+      const detail = await setBrowserExtensionAutoBind({
+        extensionId,
+        enabled: true,
+        mode: 'shared',
+      })
+      if (detail && selectedExtension?.extensionId === extensionId) {
+        setSelectedExtension(detail)
+      }
+      setAutoBindEnabled(true)
+      setAutoBindMode('shared')
+      await loadData(true)
+      if (bindingModalOpen) {
+        await loadBindings(extensionId)
+      }
+      const runningCount = profiles.filter(profile => profile.running).length
+      toast.success(runningCount > 0 ? `已共享到全部实例，${runningCount} 个运行中实例需重启后生效` : '已共享到全部实例')
+    } catch (error: any) {
+      toast.error(errorMessage(error, '共享到全部实例失败'), 6000)
+    } finally {
+      updateSharingAllIds(extensionId, false)
+    }
   }
 
   const loadProfiles = async () => {
@@ -509,10 +552,20 @@ export function ExtensionManagementPage() {
     {
       key: 'actions',
       title: '操作',
-      width: '250px',
+      width: '295px',
       render: (_, record) => (
         <div className="flex items-center gap-1.5" onClick={(event) => event.stopPropagation()}>
           <Button size="sm" variant="ghost" onClick={() => handleOpenDetail(record)}>详情</Button>
+          <Button
+            size="sm"
+            variant={record.autoBindEnabled && record.autoBindMode === 'shared' ? 'primary' : 'secondary'}
+            onClick={() => handleEnableSharedForAll(record)}
+            title="共享到全部实例并自动绑定"
+            loading={isSharingAll(record.extensionId)}
+            disabled={isSharingAll(record.extensionId)}
+          >
+            {!isSharingAll(record.extensionId) && <Share2 className="w-4 h-4" />}
+          </Button>
           <Button size="sm" variant="secondary" onClick={() => handleOpenBinding(record)} title="绑定实例">
             <Eye className="w-4 h-4" />
           </Button>
@@ -535,7 +588,7 @@ export function ExtensionManagementPage() {
         </div>
       ),
     },
-  ], [selectedExtension?.extensionId])
+  ], [selectedExtension?.extensionId, sharingAllIds, profiles, bindingModalOpen])
 
   return (
     <div
@@ -602,7 +655,7 @@ export function ExtensionManagementPage() {
           emptyText="暂无扩展插件，可以从本地压缩包或解压目录导入。"
           onRowClick={handleOpenDetail}
           tableLayout="fixed"
-          tableMinWidth="1060px"
+          tableMinWidth="1110px"
         />
       </Card>
 
@@ -611,7 +664,22 @@ export function ExtensionManagementPage() {
         onClose={() => setDetailOpen(false)}
         title="扩展详情"
         width="860px"
-        footer={<Button variant="secondary" onClick={() => setDetailOpen(false)}>关闭</Button>}
+        footer={(
+          <>
+            {selectedExtension && (
+              <Button
+                variant={selectedExtension.autoBindEnabled && selectedExtension.autoBindMode === 'shared' ? 'primary' : 'secondary'}
+                onClick={() => handleEnableSharedForAll(selectedExtension)}
+                loading={isSharingAll(selectedExtension.extensionId)}
+                disabled={isSharingAll(selectedExtension.extensionId)}
+              >
+                {!isSharingAll(selectedExtension.extensionId) && <Share2 className="w-4 h-4" />}
+                共享到全部
+              </Button>
+            )}
+            <Button variant="secondary" onClick={() => setDetailOpen(false)}>关闭</Button>
+          </>
+        )}
       >
         {detailLoading ? (
           <div className="py-10 text-center text-sm text-[var(--color-text-muted)]">正在加载详情...</div>
