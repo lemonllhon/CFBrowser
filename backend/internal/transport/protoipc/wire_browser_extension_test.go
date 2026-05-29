@@ -118,6 +118,18 @@ func TestBrowserExtensionMutationRoundTrip(t *testing.T) {
 	if unassignRequest.ExtensionID != "extension-1" || len(unassignRequest.ProfileIDs) != 1 {
 		t.Fatalf("extension unassign request was not preserved: %#v", unassignRequest)
 	}
+
+	syncDataRequest, err := DecodeBrowserExtensionSyncDataRequest(EncodeBrowserExtensionSyncDataRequest(BrowserExtensionSyncDataRequest{
+		ExtensionID:      "extension-1",
+		SourceProfileID:  "profile-master",
+		TargetProfileIDs: []string{"profile-a", "profile-b"},
+	}))
+	if err != nil {
+		t.Fatalf("DecodeBrowserExtensionSyncDataRequest failed: %v", err)
+	}
+	if syncDataRequest.ExtensionID != "extension-1" || syncDataRequest.SourceProfileID != "profile-master" || len(syncDataRequest.TargetProfileIDs) != 2 {
+		t.Fatalf("extension sync data request was not preserved: %#v", syncDataRequest)
+	}
 }
 
 func TestBrowserExtensionResultRoundTrip(t *testing.T) {

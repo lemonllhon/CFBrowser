@@ -10,6 +10,7 @@ import {
   METHOD_BROWSER_EXTENSION_LIST_FOR_PROFILE,
   METHOD_BROWSER_EXTENSION_LIST_PROFILE_BINDINGS,
   METHOD_BROWSER_EXTENSION_SET_AUTO_BIND,
+  METHOD_BROWSER_EXTENSION_SYNC_DATA,
   METHOD_BROWSER_EXTENSION_UNASSIGN_PROFILES,
 } from './envelope'
 import {
@@ -90,6 +91,12 @@ export type ProtoBrowserExtensionUnassignInput = {
   profileIds: string[]
 }
 
+export type ProtoBrowserExtensionSyncDataInput = {
+  extensionId: string
+  sourceProfileId: string
+  targetProfileIds: string[]
+}
+
 export async function listBrowserExtensions(): Promise<ProtoBrowserExtension[]> {
   const payload = await browserExtensionProtoClient.request(METHOD_BROWSER_EXTENSION_LIST, new Uint8Array())
   return decodeBrowserExtensionListResponse(payload).extensions
@@ -150,6 +157,11 @@ export async function unassignBrowserExtensionProfiles(input: ProtoBrowserExtens
   return decodeBrowserExtensionBindingListResponse(payload).bindings
 }
 
+export async function syncBrowserExtensionProfileData(input: ProtoBrowserExtensionSyncDataInput): Promise<ProtoBrowserExtensionBinding[]> {
+  const payload = await browserExtensionProtoClient.request(METHOD_BROWSER_EXTENSION_SYNC_DATA, encodeBrowserExtensionSyncDataRequest(input))
+  return decodeBrowserExtensionBindingListResponse(payload).bindings
+}
+
 export function encodeBrowserExtensionIDRequest(message: { extensionId: string }): Uint8Array {
   return concatBytes([encodeStringField(1, message.extensionId)])
 }
@@ -187,6 +199,14 @@ export function encodeBrowserExtensionUnassignRequest(message: ProtoBrowserExten
   return concatBytes([
     encodeStringField(1, message.extensionId),
     ...message.profileIds.map(profileId => encodeStringField(2, profileId)),
+  ])
+}
+
+export function encodeBrowserExtensionSyncDataRequest(message: ProtoBrowserExtensionSyncDataInput): Uint8Array {
+  return concatBytes([
+    encodeStringField(1, message.extensionId),
+    encodeStringField(2, message.sourceProfileId),
+    ...message.targetProfileIds.map(profileId => encodeStringField(3, profileId)),
   ])
 }
 

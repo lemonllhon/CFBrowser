@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
-import { Archive, Eye, EyeOff, FileCode2, FolderOpen, Link2, RefreshCw, Settings2, Share2, Trash2, UploadCloud } from 'lucide-react'
+import { Archive, Eye, EyeOff, FileCode2, FolderOpen, Link2, RefreshCw, Settings2, Trash2, UploadCloud } from 'lucide-react'
 import { Badge, Button, Card, ConfirmModal, FormItem, Input, Modal, Select, Switch, Table, toast } from '../../../shared/components'
 import type { TableColumn } from '../../../shared/components/Table'
 import type { BrowserExtension, BrowserExtensionBinding, BrowserExtensionImportResult, BrowserProfile } from '../types'
-import { assignBrowserExtensionProfiles, chooseBrowserExtensionArchive, chooseBrowserExtensionDirectory, deleteBrowserExtension, fetchBrowserExtension, fetchBrowserExtensionProfileBindings, fetchBrowserExtensions, fetchBrowserProfiles, importBrowserExtensionArchive, importBrowserExtensionDirectory, setBrowserExtensionAutoBind, unassignBrowserExtensionProfiles } from '../api'
+import { assignBrowserExtensionProfiles, chooseBrowserExtensionArchive, chooseBrowserExtensionDirectory, deleteBrowserExtension, fetchBrowserExtension, fetchBrowserExtensionProfileBindings, fetchBrowserExtensions, fetchBrowserProfiles, importBrowserExtensionArchive, importBrowserExtensionDirectory, setBrowserExtensionAutoBind, syncBrowserExtensionData, unassignBrowserExtensionProfiles } from '../api'
 import { clearRuntimeFileDrop, onRuntimeFileDrop } from '../../../shared/backend/runtime'
 
 const sourceTypeText: Record<string, string> = {
@@ -76,25 +76,13 @@ export function ExtensionManagementPage() {
   const [bindingMode, setBindingMode] = useState<'shared' | 'exclusive'>('shared')
   const [bindingEnabled, setBindingEnabled] = useState(true)
   const [bindingSaving, setBindingSaving] = useState(false)
-  const [sharingAllIds, setSharingAllIds] = useState<Set<string>>(new Set())
+  const [syncSourceProfileId, setSyncSourceProfileId] = useState('')
+  const [syncTargetProfileIds, setSyncTargetProfileIds] = useState<Set<string>>(new Set())
+  const [syncingData, setSyncingData] = useState(false)
 
   const selectedProfilesNeedRestart = useMemo(() => (
     profiles.some(profile => selectedProfileIds.has(profile.profileId) && profile.running)
   ), [profiles, selectedProfileIds])
-
-  const updateSharingAllIds = (extensionId: string, pending: boolean) => {
-    setSharingAllIds(prev => {
-      const next = new Set(prev)
-      if (pending) {
-        next.add(extensionId)
-      } else {
-        next.delete(extensionId)
-      }
-      return next
-    })
-  }
-
-  const isSharingAll = (extensionId: string) => sharingAllIds.has(extensionId)
 
   const loadData = async (silent = false) => {
     if (silent) {
@@ -148,6 +136,8 @@ export function ExtensionManagementPage() {
     setSelectedExtension(record)
     setBindingModalOpen(true)
     setSelectedProfileIds(new Set())
+    setSyncSourceProfileId('')
+    setSyncTargetProfileIds(new Set())
     setBindingMode('shared')
     setBindingEnabled(true)
     setBindings([])
@@ -170,34 +160,6 @@ export function ExtensionManagementPage() {
     setAutoBindEnabled(Boolean(record.autoBindEnabled))
     setAutoBindMode(record.autoBindMode === 'exclusive' ? 'exclusive' : 'shared')
     setAutoBindModalOpen(true)
-  }
-
-  const handleEnableSharedForAll = async (record: BrowserExtension) => {
-    const extensionId = record.extensionId
-    if (!extensionId || isSharingAll(extensionId)) return
-    updateSharingAllIds(extensionId, true)
-    try {
-      const detail = await setBrowserExtensionAutoBind({
-        extensionId,
-        enabled: true,
-        mode: 'shared',
-      })
-      if (detail && selectedExtension?.extensionId === extensionId) {
-        setSelectedExtension(detail)
-      }
-      setAutoBindEnabled(true)
-      setAutoBindMode('shared')
-      await loadData(true)
-      if (bindingModalOpen) {
-        await loadBindings(extensionId)
-      }
-      const runningCount = profiles.filter(profile => profile.running).length
-      toast.success(runningCount > 0 ? `已共享到全部实例，${runningCount} 个运行中实例需重启后生效` : '已共享到全部实例')
-    } catch (error: any) {
-      toast.error(errorMessage(error, '共享到全部实例失败'), 6000)
-    } finally {
-      updateSharingAllIds(extensionId, false)
-    }
   }
 
   const loadProfiles = async () => {
@@ -368,6 +330,49 @@ export function ExtensionManagementPage() {
 
   const boundProfileIds = useMemo(() => new Set(bindings.map(item => item.profileId)), [bindings])
 
+  const syncSourceCandidates = useMemo(() => (
+    profiles.filter(profile => {
+      const binding = bindingMap.get(profile.profileId)
+      return Boolean(binding?.enabled) && !profile.running
+    })
+  ), [profiles, bindingMap])
+
+  const syncTargetCandidates = useMemo(() => (
+    profiles.filter(profile => {
+      const binding = bindingMap.get(profile.profileId)
+      return Boolean(binding?.enabled) && binding?.mode === 'shared' && !profile.running && profile.profileId !== syncSourceProfileId
+    })
+  ), [profiles, bindingMap, syncSourceProfileId])
+
+  const syncSourceOptions = useMemo(() => (
+    syncSourceCandidates.length > 0
+      ? syncSourceCandidates.map(profile => ({ value: profile.profileId, label: profile.profileName || profile.profileId }))
+      : [{ value: '', label: '暂无可选主实例' }]
+  ), [syncSourceCandidates])
+
+  const syncTargetCandidateIds = useMemo(() => new Set(syncTargetCandidates.map(profile => profile.profileId)), [syncTargetCandidates])
+
+  useEffect(() => {
+    if (!bindingModalOpen) return
+    setSyncSourceProfileId(prev => (
+      prev && syncSourceCandidates.some(profile => profile.profileId === prev)
+        ? prev
+        : (syncSourceCandidates[0]?.profileId || '')
+    ))
+  }, [bindingModalOpen, syncSourceCandidates])
+
+  useEffect(() => {
+    setSyncTargetProfileIds(prev => {
+      const next = new Set<string>()
+      prev.forEach(profileId => {
+        if (syncTargetCandidateIds.has(profileId)) {
+          next.add(profileId)
+        }
+      })
+      return next
+    })
+  }, [syncTargetCandidateIds])
+
   const toggleProfileSelection = (profileId: string) => {
     if (boundProfileIds.has(profileId)) return
     setSelectedProfileIds(prev => {
@@ -387,6 +392,27 @@ export function ExtensionManagementPage() {
 
   const handleClearProfileSelection = () => {
     setSelectedProfileIds(new Set())
+  }
+
+  const toggleSyncTargetProfile = (profileId: string) => {
+    if (!syncTargetCandidateIds.has(profileId)) return
+    setSyncTargetProfileIds(prev => {
+      const next = new Set(prev)
+      if (next.has(profileId)) {
+        next.delete(profileId)
+      } else {
+        next.add(profileId)
+      }
+      return next
+    })
+  }
+
+  const handleSelectAllSyncTargets = () => {
+    setSyncTargetProfileIds(new Set(syncTargetCandidates.map(profile => profile.profileId)))
+  }
+
+  const handleClearSyncTargets = () => {
+    setSyncTargetProfileIds(new Set())
   }
 
   const refreshSelectedExtension = async () => {
@@ -499,6 +525,34 @@ export function ExtensionManagementPage() {
     }
   }
 
+  const handleSyncExtensionData = async () => {
+    if (!selectedExtension) return
+    const targetProfileIds = Array.from(syncTargetProfileIds).filter(profileId => syncTargetCandidateIds.has(profileId))
+    if (!syncSourceProfileId) {
+      toast.warning('请选择主实例')
+      return
+    }
+    if (targetProfileIds.length === 0) {
+      toast.warning('请选择副实例')
+      return
+    }
+    setSyncingData(true)
+    try {
+      const list = await syncBrowserExtensionData({
+        extensionId: selectedExtension.extensionId,
+        sourceProfileId: syncSourceProfileId,
+        targetProfileIds,
+      })
+      setBindings(list)
+      await refreshSelectedExtension()
+      toast.success(`数据同步完成：${targetProfileIds.length} 个副实例已更新`)
+    } catch (error: any) {
+      toast.error(errorMessage(error, '数据同步失败'), 6000)
+    } finally {
+      setSyncingData(false)
+    }
+  }
+
   const columns: TableColumn<BrowserExtension>[] = useMemo(() => [
     {
       key: 'name',
@@ -552,20 +606,10 @@ export function ExtensionManagementPage() {
     {
       key: 'actions',
       title: '操作',
-      width: '295px',
+      width: '250px',
       render: (_, record) => (
         <div className="flex items-center gap-1.5" onClick={(event) => event.stopPropagation()}>
           <Button size="sm" variant="ghost" onClick={() => handleOpenDetail(record)}>详情</Button>
-          <Button
-            size="sm"
-            variant={record.autoBindEnabled && record.autoBindMode === 'shared' ? 'primary' : 'secondary'}
-            onClick={() => handleEnableSharedForAll(record)}
-            title="共享到全部实例并自动绑定"
-            loading={isSharingAll(record.extensionId)}
-            disabled={isSharingAll(record.extensionId)}
-          >
-            {!isSharingAll(record.extensionId) && <Share2 className="w-4 h-4" />}
-          </Button>
           <Button size="sm" variant="secondary" onClick={() => handleOpenBinding(record)} title="绑定实例">
             <Eye className="w-4 h-4" />
           </Button>
@@ -588,7 +632,7 @@ export function ExtensionManagementPage() {
         </div>
       ),
     },
-  ], [selectedExtension?.extensionId, sharingAllIds, profiles, bindingModalOpen])
+  ], [selectedExtension?.extensionId])
 
   return (
     <div
@@ -655,7 +699,7 @@ export function ExtensionManagementPage() {
           emptyText="暂无扩展插件，可以从本地压缩包或解压目录导入。"
           onRowClick={handleOpenDetail}
           tableLayout="fixed"
-          tableMinWidth="1110px"
+          tableMinWidth="1060px"
         />
       </Card>
 
@@ -664,22 +708,7 @@ export function ExtensionManagementPage() {
         onClose={() => setDetailOpen(false)}
         title="扩展详情"
         width="860px"
-        footer={(
-          <>
-            {selectedExtension && (
-              <Button
-                variant={selectedExtension.autoBindEnabled && selectedExtension.autoBindMode === 'shared' ? 'primary' : 'secondary'}
-                onClick={() => handleEnableSharedForAll(selectedExtension)}
-                loading={isSharingAll(selectedExtension.extensionId)}
-                disabled={isSharingAll(selectedExtension.extensionId)}
-              >
-                {!isSharingAll(selectedExtension.extensionId) && <Share2 className="w-4 h-4" />}
-                共享到全部
-              </Button>
-            )}
-            <Button variant="secondary" onClick={() => setDetailOpen(false)}>关闭</Button>
-          </>
-        )}
+        footer={<Button variant="secondary" onClick={() => setDetailOpen(false)}>关闭</Button>}
       >
         {detailLoading ? (
           <div className="py-10 text-center text-sm text-[var(--color-text-muted)]">正在加载详情...</div>
@@ -718,11 +747,11 @@ export function ExtensionManagementPage() {
       <Modal
         open={bindingModalOpen}
         onClose={() => {
-          if (!bindingSaving) setBindingModalOpen(false)
+          if (!bindingSaving && !syncingData) setBindingModalOpen(false)
         }}
         title="绑定实例"
         width="980px"
-        footer={<Button variant="secondary" onClick={() => setBindingModalOpen(false)} disabled={bindingSaving}>关闭</Button>}
+        footer={<Button variant="secondary" onClick={() => setBindingModalOpen(false)} disabled={bindingSaving || syncingData}>关闭</Button>}
       >
         {selectedExtension ? (
           <div className="space-y-4">
@@ -801,6 +830,70 @@ export function ExtensionManagementPage() {
                     </div>
                   )
                 })}
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] p-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h4 className="text-sm font-semibold text-[var(--color-text-primary)]">数据同步</h4>
+                  <p className="mt-1 text-xs text-[var(--color-text-muted)]">主实例和副实例都需要处于未运行状态</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button size="sm" variant="secondary" onClick={handleSelectAllSyncTargets} disabled={syncingData || syncTargetCandidates.length === 0}>选择副实例</Button>
+                  <Button size="sm" variant="ghost" onClick={handleClearSyncTargets} disabled={syncingData || syncTargetProfileIds.size === 0}>清空</Button>
+                </div>
+              </div>
+
+              <div className="mt-3 grid grid-cols-1 lg:grid-cols-[260px_1fr_auto] gap-3 items-end">
+                <FormItem label="主实例">
+                  <Select
+                    value={syncSourceProfileId}
+                    onChange={(event) => {
+                      const nextSourceId = event.target.value
+                      setSyncSourceProfileId(nextSourceId)
+                      setSyncTargetProfileIds(prev => {
+                        const next = new Set(prev)
+                        next.delete(nextSourceId)
+                        return next
+                      })
+                    }}
+                    disabled={syncingData || syncSourceCandidates.length === 0}
+                    options={syncSourceOptions}
+                  />
+                </FormItem>
+
+                <div>
+                  <p className="mb-1.5 text-sm font-medium text-[var(--color-text-secondary)]">副实例</p>
+                  <div className="min-h-[36px] max-h-28 overflow-auto rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-elevated)] px-2 py-1">
+                    {syncTargetCandidates.length === 0 ? (
+                      <div className="py-2 text-xs text-[var(--color-text-muted)]">暂无可选副实例</div>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {syncTargetCandidates.map(profile => {
+                          const checked = syncTargetProfileIds.has(profile.profileId)
+                          return (
+                            <label key={profile.profileId} className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-md border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] px-2 text-xs text-[var(--color-text-secondary)]">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                disabled={syncingData}
+                                onChange={() => toggleSyncTargetProfile(profile.profileId)}
+                                className="h-3.5 w-3.5"
+                              />
+                              <span className="max-w-[180px] truncate">{profile.profileName || profile.profileId}</span>
+                            </label>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <Button onClick={handleSyncExtensionData} loading={syncingData} disabled={!syncSourceProfileId || syncTargetProfileIds.size === 0}>
+                  {!syncingData && <RefreshCw className="w-4 h-4" />}
+                  执行数据同步
+                </Button>
               </div>
             </div>
 

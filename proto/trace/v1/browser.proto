@@ -437,6 +437,12 @@ message BrowserExtensionUnassignRequest {
   repeated string profile_ids = 2;
 }
 
+message BrowserExtensionSyncDataRequest {
+  string extension_id = 1;
+  string source_profile_id = 2;
+  repeated string target_profile_ids = 3;
+}
+
 message BrowserExtensionBindingListResponse {
   repeated BrowserExtensionBinding bindings = 1;
 }

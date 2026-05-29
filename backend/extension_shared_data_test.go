@@ -5,6 +5,7 @@ import (
 	"ant-chrome/backend/internal/database"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -242,6 +243,124 @@ func TestBrowserExtensionDeleteRemovesSharedDataDir(t *testing.T) {
 	}
 }
 
+func TestBrowserExtensionSyncProfileDataCopiesMasterDataToTargets(t *testing.T) {
+	app, dao := newExtensionSyncTestApp(t)
+	extension := seedExtensionSyncData(t, app, dao)
+	sourceProfile := &browser.Profile{ProfileId: "source", ProfileName: "主实例", UserDataDir: "source"}
+	targetProfile := &browser.Profile{ProfileId: "target", ProfileName: "副实例", UserDataDir: "target"}
+	app.browserMgr.Profiles[sourceProfile.ProfileId] = sourceProfile
+	app.browserMgr.Profiles[targetProfile.ProfileId] = targetProfile
+	for _, profile := range []*browser.Profile{sourceProfile, targetProfile} {
+		if err := dao.UpsertBinding(browser.ExtensionBinding{
+			ProfileId:   profile.ProfileId,
+			ExtensionId: extension.ExtensionId,
+			Mode:        "shared",
+			Enabled:     true,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	chromeID, err := chromeExtensionIDForDirectory(app.resolveAppPath(extension.InstallDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceUserDataDir := app.browserMgr.ResolveUserDataDir(sourceProfile)
+	targetUserDataDir := app.browserMgr.ResolveUserDataDir(targetProfile)
+	sourceStateDir := filepath.Join(sourceUserDataDir, "Default", "Local Extension Settings", chromeID)
+	targetStateDir := filepath.Join(targetUserDataDir, "Default", "Local Extension Settings", chromeID)
+	targetSharedStateDir := filepath.Join(app.extensionSharedDataDir(extension.ExtensionId), chromeID, "local-extension-settings")
+	if err := os.MkdirAll(sourceStateDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceStateDir, "state.json"), []byte(`{"master":true}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(targetSharedStateDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(targetSharedStateDir, "state.json"), []byte(`{"old":true}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	linkDirForTest(t, targetStateDir, targetSharedStateDir)
+	sourceLocalStorage := filepath.Join(sourceUserDataDir, "Default", "Local Storage", "chrome-extension_"+chromeID+"_0.localstorage")
+	targetLocalStorage := filepath.Join(targetUserDataDir, "Default", "Local Storage", "chrome-extension_"+chromeID+"_0.localstorage")
+	if err := os.MkdirAll(filepath.Dir(sourceLocalStorage), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sourceLocalStorage, []byte("master-local-storage"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	staleTargetIndexedDB := filepath.Join(targetUserDataDir, "Default", "IndexedDB", "chrome-extension_"+chromeID+"_0.indexeddb.leveldb")
+	if err := os.MkdirAll(staleTargetIndexedDB, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := app.BrowserExtensionSyncProfileData(BrowserExtensionSyncDataInput{
+		ExtensionId:      extension.ExtensionId,
+		SourceProfileId:  sourceProfile.ProfileId,
+		TargetProfileIds: []string{targetProfile.ProfileId},
+	}); err != nil {
+		t.Fatalf("BrowserExtensionSyncProfileData failed: %v", err)
+	}
+
+	state, err := os.ReadFile(filepath.Join(targetStateDir, "state.json"))
+	if err != nil {
+		t.Fatalf("expected target state to be copied: %v", err)
+	}
+	if string(state) != `{"master":true}` {
+		t.Fatalf("unexpected target state: %s", state)
+	}
+	if !linkedToTarget(targetStateDir, targetSharedStateDir) {
+		t.Fatalf("expected target shared data link to be preserved")
+	}
+	sharedState, err := os.ReadFile(filepath.Join(targetSharedStateDir, "state.json"))
+	if err != nil {
+		t.Fatalf("expected target shared backing data to be copied: %v", err)
+	}
+	if string(sharedState) != `{"master":true}` {
+		t.Fatalf("unexpected target shared backing state: %s", sharedState)
+	}
+	localStorage, err := os.ReadFile(targetLocalStorage)
+	if err != nil {
+		t.Fatalf("expected target local storage to be copied: %v", err)
+	}
+	if string(localStorage) != "master-local-storage" {
+		t.Fatalf("unexpected target local storage: %s", localStorage)
+	}
+	if _, err := os.Stat(staleTargetIndexedDB); !os.IsNotExist(err) {
+		t.Fatalf("expected stale target IndexedDB to be removed, stat err=%v", err)
+	}
+}
+
+func TestBrowserExtensionSyncProfileDataRejectsRunningTarget(t *testing.T) {
+	app, dao := newExtensionSyncTestApp(t)
+	extension := seedExtensionSyncData(t, app, dao)
+	sourceProfile := &browser.Profile{ProfileId: "source", ProfileName: "主实例", UserDataDir: "source"}
+	targetProfile := &browser.Profile{ProfileId: "target", ProfileName: "副实例", UserDataDir: "target", Running: true}
+	app.browserMgr.Profiles[sourceProfile.ProfileId] = sourceProfile
+	app.browserMgr.Profiles[targetProfile.ProfileId] = targetProfile
+	for _, profile := range []*browser.Profile{sourceProfile, targetProfile} {
+		if err := dao.UpsertBinding(browser.ExtensionBinding{
+			ProfileId:   profile.ProfileId,
+			ExtensionId: extension.ExtensionId,
+			Mode:        "shared",
+			Enabled:     true,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	_, err := app.BrowserExtensionSyncProfileData(BrowserExtensionSyncDataInput{
+		ExtensionId:      extension.ExtensionId,
+		SourceProfileId:  sourceProfile.ProfileId,
+		TargetProfileIds: []string{targetProfile.ProfileId},
+	})
+	if err == nil || !strings.Contains(err.Error(), "正在运行") {
+		t.Fatalf("expected running target to be rejected, got %v", err)
+	}
+}
+
 func TestExtensionDirForBindingSyncsLocalDirectorySourceToLibrary(t *testing.T) {
 	app := NewApp(t.TempDir())
 	sourceDir := filepath.Join(app.appRootAbs(), "source-extension")
@@ -352,4 +471,69 @@ func base64ForTest(data []byte) string {
 		}
 	}
 	return builder.String()
+}
+
+func newExtensionSyncTestApp(t *testing.T) (*App, browser.ExtensionDAO) {
+	t.Helper()
+	root := t.TempDir()
+	app := NewApp(root)
+	cfg := config.DefaultConfig()
+	app.config = cfg
+	dbPath := filepath.Join(root, "data", "test.db")
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := database.NewDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := db.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+	app.browserMgr = browser.NewManager(cfg, root)
+	app.browserMgr.ExtensionDAO = browser.NewSQLiteExtensionDAO(db.GetConn())
+	dao, err := app.extensionDAO()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return app, dao
+}
+
+func seedExtensionSyncData(t *testing.T, app *App, dao browser.ExtensionDAO) browser.Extension {
+	t.Helper()
+	extensionDir := filepath.Join(app.extensionLibraryRoot(), "extension-1")
+	if err := os.MkdirAll(extensionDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(extensionDir, "manifest.json"), []byte(`{"manifest_version":3,"name":"Shared","version":"1.0"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	extension := browser.Extension{
+		ExtensionId:     "extension-1",
+		Name:            "Shared",
+		Version:         "1.0",
+		ManifestVersion: 3,
+		SourceType:      "directory",
+		InstallDir:      filepath.Join("data", "extensions", "library", "extension-1"),
+	}
+	if err := dao.Upsert(extension); err != nil {
+		t.Fatal(err)
+	}
+	return extension
+}
+
+func linkDirForTest(t *testing.T, linkPath string, targetPath string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(linkPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(targetPath, linkPath); err == nil {
+		return
+	} else if runtime.GOOS != "windows" {
+		t.Fatalf("create symlink failed: %v", err)
+	}
+	if err := createWindowsJunction(linkPath, targetPath); err != nil {
+		t.Fatalf("create junction failed: %v", err)
+	}
 }

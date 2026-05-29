@@ -199,6 +199,12 @@ export interface BrowserExtensionUnassignInput {
   profileIds: string[]
 }
 
+export interface BrowserExtensionSyncDataInput {
+  extensionId: string
+  sourceProfileId: string
+  targetProfileIds: string[]
+}
+
 export interface CookieInfo {
   name: string
   value: string

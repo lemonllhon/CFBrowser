@@ -71,6 +71,7 @@ export const METHOD_BROWSER_EXTENSION_LIST_FOR_PROFILE = 'trace.browser.Extensio
 export const METHOD_BROWSER_EXTENSION_ASSIGN_PROFILES = 'trace.browser.ExtensionAssignProfiles'
 export const METHOD_BROWSER_EXTENSION_SET_AUTO_BIND = 'trace.browser.ExtensionSetAutoBind'
 export const METHOD_BROWSER_EXTENSION_UNASSIGN_PROFILES = 'trace.browser.ExtensionUnassignProfiles'
+export const METHOD_BROWSER_EXTENSION_SYNC_DATA = 'trace.browser.ExtensionSyncData'
 export const METHOD_WINDOW_SYNC_CANDIDATE_LIST = 'trace.windowSync.CandidateList'
 export const METHOD_WINDOW_SYNC_START = 'trace.windowSync.Start'
 export const METHOD_WINDOW_SYNC_STATE_GET = 'trace.windowSync.StateGet'

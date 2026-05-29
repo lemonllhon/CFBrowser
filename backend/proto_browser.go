@@ -70,6 +70,7 @@ func registerProtoHandlers(app *App, dispatcher *protoipc.Dispatcher) {
 	dispatcher.Register(protoipc.MethodBrowserExtensionAssignProfiles, app.handleProtoBrowserExtensionAssignProfiles)
 	dispatcher.Register(protoipc.MethodBrowserExtensionSetAutoBind, app.handleProtoBrowserExtensionSetAutoBind)
 	dispatcher.Register(protoipc.MethodBrowserExtensionUnassignProfiles, app.handleProtoBrowserExtensionUnassignProfiles)
+	dispatcher.Register(protoipc.MethodBrowserExtensionSyncData, app.handleProtoBrowserExtensionSyncData)
 	registerProtoWindowSyncHandlers(app, dispatcher)
 	registerProtoAppHandlers(app, dispatcher)
 	registerProtoProxyHandlers(app, dispatcher)

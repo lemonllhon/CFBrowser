@@ -1,4 +1,4 @@
-import type { BrowserProfile, BrowserProfileInput, BrowserTab, BrowserSettings, BrowserCore, BrowserCoreInput, BrowserCoreValidateResult, BrowserProxy, BrowserCoreExtended, BrowserExtension, BrowserExtensionAssignInput, BrowserExtensionAutoBindInput, BrowserExtensionBinding, BrowserExtensionImportInput, BrowserExtensionImportResult, BrowserExtensionUnassignInput, CookieInfo, CookieImportResult, SnapshotInfo, BrowserBookmark, BrowserStartURL, BrowserGroup, BrowserGroupInput, BrowserGroupWithCount, ProxyIPHealthResult, DefaultContentRule, WindowSyncActionResult, WindowSyncBatchInputDifferentItem, WindowSyncBatchInputResult, WindowSyncCandidate, WindowSyncLayoutSettings, WindowSyncSettings, WindowSyncStartInput, WindowSyncState } from './types'
+import type { BrowserProfile, BrowserProfileInput, BrowserTab, BrowserSettings, BrowserCore, BrowserCoreInput, BrowserCoreValidateResult, BrowserProxy, BrowserCoreExtended, BrowserExtension, BrowserExtensionAssignInput, BrowserExtensionAutoBindInput, BrowserExtensionBinding, BrowserExtensionImportInput, BrowserExtensionImportResult, BrowserExtensionSyncDataInput, BrowserExtensionUnassignInput, CookieInfo, CookieImportResult, SnapshotInfo, BrowserBookmark, BrowserStartURL, BrowserGroup, BrowserGroupInput, BrowserGroupWithCount, ProxyIPHealthResult, DefaultContentRule, WindowSyncActionResult, WindowSyncBatchInputDifferentItem, WindowSyncBatchInputResult, WindowSyncCandidate, WindowSyncLayoutSettings, WindowSyncSettings, WindowSyncStartInput, WindowSyncState } from './types'
 import {
   applyWindowSyncLayout as applyWindowSyncLayoutProto,
   batchRemoveBrowserProfileTags as batchRemoveBrowserProfileTagsProto,
@@ -89,6 +89,7 @@ import {
   startWindowSync as startWindowSyncProto,
   stopBrowserInstance as stopBrowserInstanceProto,
   stopWindowSync as stopWindowSyncProto,
+  syncBrowserExtensionProfileData as syncBrowserExtensionProfileDataProto,
   switchBrowserProfileProxyNow as switchBrowserProfileProxyNowProto,
   testBrowserProxyBatchSpeed as testBrowserProxyBatchSpeedProto,
   testBrowserProxyPreviewBatchSpeed as testBrowserProxyPreviewBatchSpeedProto,
@@ -382,6 +383,10 @@ export async function setBrowserExtensionAutoBind(input: BrowserExtensionAutoBin
 
 export async function unassignBrowserExtensionProfiles(input: BrowserExtensionUnassignInput): Promise<BrowserExtensionBinding[]> {
   return await unassignBrowserExtensionProfilesProto(input)
+}
+
+export async function syncBrowserExtensionData(input: BrowserExtensionSyncDataInput): Promise<BrowserExtensionBinding[]> {
+  return await syncBrowserExtensionProfileDataProto(input)
 }
 
 // ============================================================================

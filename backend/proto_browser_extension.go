@@ -183,6 +183,23 @@ func (a *App) handleProtoBrowserExtensionUnassignProfiles(ctx context.Context, r
 	}), nil
 }
 
+func (a *App) handleProtoBrowserExtensionSyncData(ctx context.Context, request protoipc.Envelope) ([]byte, *protoipc.RPCError) {
+	if rpcErr := a.ensureProtoBrowserReady(ctx); rpcErr != nil {
+		return nil, rpcErr
+	}
+	input, err := protoipc.DecodeBrowserExtensionSyncDataRequest(request.Payload)
+	if err != nil {
+		return nil, protoDecodeError("BrowserExtensionSyncDataRequest 解码失败", err)
+	}
+	bindings, err := a.BrowserExtensionSyncProfileData(browserExtensionSyncDataInputFromProto(input))
+	if err != nil {
+		return nil, protoBrowserOperationError("同步扩展插件数据失败", err)
+	}
+	return protoipc.EncodeBrowserExtensionBindingListResponse(protoipc.BrowserExtensionBindingListResponse{
+		Bindings: browserExtensionBindingsToProto(bindings),
+	}), nil
+}
+
 func protoDecodeError(message string, err error) *protoipc.RPCError {
 	return &protoipc.RPCError{
 		Code:    protoipc.ErrorCodeInvalidPayload,
@@ -239,6 +256,14 @@ func browserExtensionUnassignInputFromProto(input protoipc.BrowserExtensionUnass
 	return BrowserExtensionUnassignInput{
 		ExtensionId: input.ExtensionID,
 		ProfileIds:  append([]string{}, input.ProfileIDs...),
+	}
+}
+
+func browserExtensionSyncDataInputFromProto(input protoipc.BrowserExtensionSyncDataRequest) BrowserExtensionSyncDataInput {
+	return BrowserExtensionSyncDataInput{
+		ExtensionId:      input.ExtensionID,
+		SourceProfileId:  input.SourceProfileID,
+		TargetProfileIds: append([]string{}, input.TargetProfileIDs...),
 	}
 }
 

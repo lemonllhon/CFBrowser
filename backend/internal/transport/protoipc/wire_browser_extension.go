@@ -19,6 +19,7 @@ const (
 	MethodBrowserExtensionAssignProfiles      = "trace.browser.ExtensionAssignProfiles"
 	MethodBrowserExtensionSetAutoBind         = "trace.browser.ExtensionSetAutoBind"
 	MethodBrowserExtensionUnassignProfiles    = "trace.browser.ExtensionUnassignProfiles"
+	MethodBrowserExtensionSyncData            = "trace.browser.ExtensionSyncData"
 )
 
 type BrowserExtension struct {
@@ -104,6 +105,12 @@ type BrowserExtensionAutoBindRequest struct {
 type BrowserExtensionUnassignRequest struct {
 	ExtensionID string
 	ProfileIDs  []string
+}
+
+type BrowserExtensionSyncDataRequest struct {
+	ExtensionID      string
+	SourceProfileID  string
+	TargetProfileIDs []string
 }
 
 type BrowserExtensionBindingListResponse struct {
@@ -442,6 +449,40 @@ func DecodeBrowserExtensionUnassignRequest(payload []byte) (BrowserExtensionUnas
 	})
 	if err != nil {
 		return BrowserExtensionUnassignRequest{}, err
+	}
+	return result, nil
+}
+
+func EncodeBrowserExtensionSyncDataRequest(message BrowserExtensionSyncDataRequest) []byte {
+	var out []byte
+	out = appendStringField(out, 1, message.ExtensionID)
+	out = appendStringField(out, 2, message.SourceProfileID)
+	out = appendRepeatedStringField(out, 3, message.TargetProfileIDs)
+	return out
+}
+
+func DecodeBrowserExtensionSyncDataRequest(payload []byte) (BrowserExtensionSyncDataRequest, error) {
+	var result BrowserExtensionSyncDataRequest
+	err := consumeFields(payload, func(field protowire.Number, wireType protowire.Type, value []byte) error {
+		switch field {
+		case 1:
+			text, err := consumeStringValue(wireType, value)
+			result.ExtensionID = text
+			return err
+		case 2:
+			text, err := consumeStringValue(wireType, value)
+			result.SourceProfileID = text
+			return err
+		case 3:
+			text, err := consumeStringValue(wireType, value)
+			result.TargetProfileIDs = append(result.TargetProfileIDs, text)
+			return err
+		default:
+			return nil
+		}
+	})
+	if err != nil {
+		return BrowserExtensionSyncDataRequest{}, err
 	}
 	return result, nil
 }
