@@ -205,7 +205,7 @@ func decodeBase64String(raw string) ([]byte, error) {
 // isUnsupportedProtocol 判断是否为不支持的协议（hysteria/hysteria2）
 func isUnsupportedProtocol(src string) bool {
 	l := strings.ToLower(strings.TrimSpace(src))
-	return strings.HasPrefix(l, "hysteria://") || strings.HasPrefix(l, "hysteria2://")
+	return strings.HasPrefix(l, "hysteria://") || strings.HasPrefix(l, "hysteria2://") || strings.HasPrefix(l, "hy2://")
 }
 
 // TestRealConnectivity 通过代理链路发起真实 HTTP 请求测量端到端延迟。

@@ -12,7 +12,7 @@ import (
 // IsSingBoxProtocol 判断是否为 sing-box 支持的协议（hysteria2/tuic/anytls）
 func IsSingBoxProtocol(proxyConfig string) bool {
 	l := strings.ToLower(strings.TrimSpace(proxyConfig))
-	if strings.HasPrefix(l, "hysteria2://") || strings.HasPrefix(l, "hysteria://") ||
+	if strings.HasPrefix(l, "hysteria2://") || strings.HasPrefix(l, "hysteria://") || strings.HasPrefix(l, "hy2://") ||
 		strings.HasPrefix(l, "anytls://") {
 		return true
 	}
@@ -31,7 +31,7 @@ func BuildSingBoxOutbound(node string) (map[string]interface{}, error) {
 	src := strings.TrimSpace(node)
 	l := strings.ToLower(src)
 
-	if strings.HasPrefix(l, "hysteria2://") || strings.HasPrefix(l, "hysteria://") {
+	if strings.HasPrefix(l, "hysteria2://") || strings.HasPrefix(l, "hysteria://") || strings.HasPrefix(l, "hy2://") {
 		return parseHysteria2URI(src)
 	}
 	if strings.HasPrefix(l, "anytls://") {
@@ -49,10 +49,7 @@ func BuildSingBoxOutbound(node string) (map[string]interface{}, error) {
 // parseHysteria2URI 解析 hysteria2:// URI
 // 格式: hysteria2://password@host:port?sni=xxx&insecure=1
 func parseHysteria2URI(node string) (map[string]interface{}, error) {
-	// 统一为 hysteria2://
-	if strings.HasPrefix(strings.ToLower(node), "hysteria://") {
-		node = "hysteria2://" + node[len("hysteria://"):]
-	}
+	node = normalizeHysteria2Scheme(node)
 
 	u, err := url.Parse(node)
 	if err != nil {
@@ -62,19 +59,23 @@ func parseHysteria2URI(node string) (map[string]interface{}, error) {
 	host := u.Hostname()
 	portStr := u.Port()
 	port, _ := strconv.Atoi(portStr)
+	q := u.Query()
 	password := u.User.Username()
 	if password == "" {
-		// 有些格式把密码放在 userinfo 里不带 @
-		password = strings.TrimPrefix(u.Host, "@")
+		password = firstQuery(q, "auth", "password")
 	}
 
-	q := u.Query()
 	sni := q.Get("sni")
 	if sni == "" {
 		sni = q.Get("peer")
 	}
-	insecure := q.Get("insecure") == "1" || strings.ToLower(q.Get("insecure")) == "true"
-	obfsPassword := q.Get("obfs-password")
+	if sni == "" {
+		sni = q.Get("servername")
+	}
+	insecure := isTruthyQuery(q.Get("insecure")) ||
+		isTruthyQuery(q.Get("allowInsecure")) ||
+		isTruthyQuery(q.Get("skip-cert-verify"))
+	obfsPassword := firstQuery(q, "obfs-password", "obfs_password")
 
 	if host == "" || port == 0 {
 		return nil, fmt.Errorf("hysteria2 节点信息不完整: host=%s port=%d", host, port)
@@ -95,6 +96,9 @@ func parseHysteria2URI(node string) (map[string]interface{}, error) {
 	if sni != "" {
 		out["tls"].(map[string]interface{})["server_name"] = sni
 	}
+	if alpn := splitCSV(q.Get("alpn")); len(alpn) > 0 {
+		out["tls"].(map[string]interface{})["alpn"] = alpn
+	}
 
 	if obfsPassword != "" {
 		out["obfs"] = map[string]interface{}{
@@ -102,8 +106,27 @@ func parseHysteria2URI(node string) (map[string]interface{}, error) {
 			"password": obfsPassword,
 		}
 	}
+	if up := firstQuery(q, "up", "upmbps", "up_mbps"); up != "" {
+		out["up_mbps"] = parseBandwidthMbps(up)
+	}
+	if down := firstQuery(q, "down", "downmbps", "down_mbps"); down != "" {
+		out["down_mbps"] = parseBandwidthMbps(down)
+	}
 
 	return out, nil
+}
+
+func normalizeHysteria2Scheme(node string) string {
+	s := strings.TrimSpace(node)
+	lower := strings.ToLower(s)
+	switch {
+	case strings.HasPrefix(lower, "hysteria://"):
+		return "hysteria2://" + s[len("hysteria://"):]
+	case strings.HasPrefix(lower, "hy2://"):
+		return "hysteria2://" + s[len("hy2://"):]
+	default:
+		return s
+	}
 }
 
 // parseAnyTLSURI 解析 anytls:// URI
@@ -202,6 +225,11 @@ func buildSingBoxHysteria2FromClash(node map[string]interface{}) (map[string]int
 	}
 	if sni != "" {
 		tls["server_name"] = sni
+	}
+	if alpnRaw, ok := node["alpn"]; ok {
+		if alpnList := toStringSlice(alpnRaw); len(alpnList) > 0 {
+			tls["alpn"] = alpnList
+		}
 	}
 
 	out := map[string]interface{}{

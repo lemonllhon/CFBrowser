@@ -540,6 +540,39 @@ function parseAnyTLSShareURI(raw: string, index: number): ClashProxy | null {
   return proxy
 }
 
+function parseHysteria2ShareURI(raw: string, index: number): ClashProxy | null {
+  let parsed: URL
+  try {
+    parsed = new URL(raw)
+  } catch {
+    return null
+  }
+
+  const server = parsed.hostname
+  const port = Number(parsed.port)
+  if (!server || !Number.isFinite(port) || port <= 0) return null
+
+  const q = parsed.searchParams
+  const proxy: ClashProxy = {
+    name: shareURLName(parsed, index),
+    type: 'hysteria2',
+    server,
+    port,
+  }
+  setStringField(proxy, 'password', firstText(safeDecodeURIComponent(parsed.username), q.get('auth'), q.get('password')))
+  setStringField(proxy, 'sni', firstText(q.get('sni'), q.get('peer'), q.get('servername')))
+  if (isTruthyParam(q.get('insecure')) || isTruthyParam(q.get('allowInsecure')) || isTruthyParam(q.get('skip-cert-verify'))) {
+    proxy['skip-cert-verify'] = true
+  }
+  setStringField(proxy, 'obfs', q.get('obfs'))
+  setStringField(proxy, 'obfs-password', firstText(q.get('obfs-password'), q.get('obfs_password')))
+  setStringField(proxy, 'up', firstText(q.get('up'), q.get('upmbps'), q.get('up_mbps')))
+  setStringField(proxy, 'down', firstText(q.get('down'), q.get('downmbps'), q.get('down_mbps')))
+  const alpn = (q.get('alpn') || '').split(',').map(item => item.trim()).filter(Boolean)
+  if (alpn.length > 0) proxy.alpn = alpn
+  return proxy
+}
+
 function parseShareURIToClashProxy(raw: string, index: number): ClashProxy | null {
   const value = raw.trim()
   const lower = value.toLowerCase()
@@ -547,6 +580,7 @@ function parseShareURIToClashProxy(raw: string, index: number): ClashProxy | nul
   if (lower.startsWith('vless://')) return parseUserInfoShareURI(value, index, 'vless')
   if (lower.startsWith('trojan://')) return parseUserInfoShareURI(value, index, 'trojan')
   if (lower.startsWith('ss://')) return parseSSShareURI(value, index)
+  if (lower.startsWith('hysteria2://') || lower.startsWith('hysteria://') || lower.startsWith('hy2://')) return parseHysteria2ShareURI(value, index)
   if (lower.startsWith('anytls://')) return parseAnyTLSShareURI(value, index)
   return null
 }
@@ -3291,7 +3325,7 @@ export function ProxyPoolPage() {
                 value={importText}
                 onChange={e => setImportText(e.target.value)}
                 rows={12}
-                placeholder={`proxies:\n  - name: anytls-node\n    type: anytls\n    server: example.com\n    port: 443\n    password: your-password\n    sni: example.com\n\n或粘贴 Base64 订阅 / vless:// / vmess:// / trojan:// / anytls:// 节点`}
+                placeholder={`proxies:\n  - name: hysteria2-node\n    type: hysteria2\n    server: example.com\n    port: 443\n    password: your-password\n    sni: example.com\n\n或粘贴 Base64 订阅 / vless:// / vmess:// / trojan:// / hysteria2:// / hy2:// / anytls:// 节点`}
               />
             </>
           )}

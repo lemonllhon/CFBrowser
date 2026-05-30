@@ -381,7 +381,7 @@ func buildXrayOutbound(node string) (map[string]interface{}, error) {
 	if strings.HasPrefix(l, "ssr://") {
 		return nil, fmt.Errorf("不支持 ShadowsocksR 协议，Xray 不支持 SSR，请使用 SS/vmess/vless/trojan")
 	}
-	if strings.HasPrefix(l, "hysteria2://") || strings.HasPrefix(l, "hysteria://") {
+	if strings.HasPrefix(l, "hysteria2://") || strings.HasPrefix(l, "hysteria://") || strings.HasPrefix(l, "hy2://") {
 		return buildOutboundHysteria2(node)
 	}
 	return nil, fmt.Errorf("不支持的节点协议")

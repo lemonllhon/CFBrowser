@@ -223,6 +223,8 @@ func parseShareURIToClashProxy(raw string, index int) (map[string]interface{}, b
 		return parseUserInfoShareToClashProxy(raw, index, "trojan")
 	case strings.HasPrefix(lower, "ss://"):
 		return parseSSShareToClashProxy(raw, index)
+	case strings.HasPrefix(lower, "hysteria2://"), strings.HasPrefix(lower, "hysteria://"), strings.HasPrefix(lower, "hy2://"):
+		return parseHysteria2ShareToClashProxy(raw, index)
 	case strings.HasPrefix(lower, "anytls://"):
 		return parseAnyTLSShareToClashProxy(raw, index)
 	default:
@@ -363,6 +365,59 @@ func parseAnyTLSShareToClashProxy(raw string, index int) (map[string]interface{}
 	putStringIfNotEmpty(node, "idle-session-check-interval", q.Get("idle_session_check_interval"))
 	putStringIfNotEmpty(node, "idle-session-timeout", q.Get("idle_session_timeout"))
 	putStringIfNotEmpty(node, "min-idle-session", q.Get("min_idle_session"))
+
+	return node, true
+}
+
+func parseHysteria2ShareToClashProxy(raw string, index int) (map[string]interface{}, bool) {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return nil, false
+	}
+
+	server := parsed.Hostname()
+	port, _ := strconv.Atoi(parsed.Port())
+	if server == "" || port <= 0 {
+		return nil, false
+	}
+
+	q := parsed.Query()
+	password := parsed.User.Username()
+	if password == "" {
+		if p, ok := parsed.User.Password(); ok {
+			password = p
+		}
+	}
+	password = firstNonEmpty(password, q.Get("auth"), q.Get("password"))
+
+	node := map[string]interface{}{
+		"name":   shareNodeName(parsed, index),
+		"type":   "hysteria2",
+		"server": server,
+		"port":   port,
+	}
+	putStringIfNotEmpty(node, "password", password)
+	putStringIfNotEmpty(node, "sni", firstNonEmpty(q.Get("sni"), q.Get("peer"), q.Get("servername")))
+	if isTruthyQueryValue(q.Get("insecure")) || isTruthyQueryValue(q.Get("allowInsecure")) || isTruthyQueryValue(q.Get("skip-cert-verify")) {
+		node["skip-cert-verify"] = true
+	}
+	putStringIfNotEmpty(node, "obfs", q.Get("obfs"))
+	putStringIfNotEmpty(node, "obfs-password", firstNonEmpty(q.Get("obfs-password"), q.Get("obfs_password")))
+	putStringIfNotEmpty(node, "up", firstNonEmpty(q.Get("up"), q.Get("upmbps"), q.Get("up_mbps")))
+	putStringIfNotEmpty(node, "down", firstNonEmpty(q.Get("down"), q.Get("downmbps"), q.Get("down_mbps")))
+
+	if alpn := q.Get("alpn"); strings.TrimSpace(alpn) != "" {
+		parts := strings.Split(strings.TrimSpace(alpn), ",")
+		values := make([]interface{}, 0, len(parts))
+		for _, part := range parts {
+			if text := strings.TrimSpace(part); text != "" {
+				values = append(values, text)
+			}
+		}
+		if len(values) > 0 {
+			node["alpn"] = values
+		}
+	}
 
 	return node, true
 }
