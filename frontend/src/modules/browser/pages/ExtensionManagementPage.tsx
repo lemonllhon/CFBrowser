@@ -4,7 +4,7 @@ import { Badge, Button, Card, ConfirmModal, FormItem, Input, Modal, Select, Swit
 import type { TableColumn } from '../../../shared/components/Table'
 import type { BrowserExtension, BrowserExtensionBinding, BrowserExtensionImportResult, BrowserProfile } from '../types'
 import { assignBrowserExtensionProfiles, chooseBrowserExtensionArchive, chooseBrowserExtensionDirectory, deleteBrowserExtension, fetchBrowserExtension, fetchBrowserExtensionProfileBindings, fetchBrowserExtensions, fetchBrowserProfiles, importBrowserExtensionArchive, importBrowserExtensionDirectory, setBrowserExtensionAutoBind, syncBrowserExtensionData, unassignBrowserExtensionProfiles } from '../api'
-import { clearRuntimeFileDrop, onRuntimeFileDrop } from '../../../shared/backend/runtime'
+import { clearRuntimeFileDrop, onRuntimeEvent, onRuntimeFileDrop } from '../../../shared/backend/runtime'
 
 const sourceTypeText: Record<string, string> = {
   zip: '压缩包',
@@ -16,6 +16,13 @@ const sourceTypeText: Record<string, string> = {
 const bindingModeText: Record<string, string> = {
   shared: '共享',
   exclusive: '独享',
+}
+
+type AutoDataSyncPayload = {
+  extensionId?: string
+  sourceProfileId?: string
+  targetProfileIds?: string[]
+  targetCount?: number
 }
 
 function formatTime(value: string) {
@@ -47,6 +54,18 @@ function errorMessage(error: any, fallback: string) {
   } catch {
     return fallback
   }
+}
+
+function profileDisplayLabel(profile: BrowserProfile) {
+  return (profile.profileName || profile.profileId || '').trim()
+}
+
+function compareProfilesByDisplayLabel(a: BrowserProfile, b: BrowserProfile) {
+  const left = profileDisplayLabel(a)
+  const right = profileDisplayLabel(b)
+  const result = left.localeCompare(right, 'zh-CN', { numeric: true, sensitivity: 'base' })
+  if (result !== 0) return result
+  return a.profileId.localeCompare(b.profileId, 'zh-CN', { numeric: true, sensitivity: 'base' })
 }
 
 export function ExtensionManagementPage() {
@@ -84,6 +103,10 @@ export function ExtensionManagementPage() {
     profiles.some(profile => selectedProfileIds.has(profile.profileId) && profile.running)
   ), [profiles, selectedProfileIds])
 
+  const sortedProfiles = useMemo(() => (
+    [...profiles].sort(compareProfilesByDisplayLabel)
+  ), [profiles])
+
   const loadData = async (silent = false) => {
     if (silent) {
       setRefreshing(true)
@@ -115,6 +138,19 @@ export function ExtensionManagementPage() {
       clearRuntimeFileDrop()
     }
   }, [])
+
+  useEffect(() => {
+    return onRuntimeEvent<AutoDataSyncPayload>('browser:extension:auto-data-synced', payload => {
+      const targetCount = payload?.targetCount ?? payload?.targetProfileIds?.length ?? 0
+      if (targetCount > 0) {
+        toast.success(`自动数据同步完成：${targetCount} 个副实例已更新`)
+      }
+      void loadData(true)
+      if (bindingModalOpen && selectedExtension?.extensionId && payload?.extensionId === selectedExtension.extensionId) {
+        void loadBindings(selectedExtension.extensionId)
+      }
+    })
+  }, [bindingModalOpen, selectedExtension?.extensionId])
 
   const handleOpenDetail = async (record: BrowserExtension) => {
     setSelectedExtension(record)
@@ -331,18 +367,18 @@ export function ExtensionManagementPage() {
   const boundProfileIds = useMemo(() => new Set(bindings.map(item => item.profileId)), [bindings])
 
   const syncSourceCandidates = useMemo(() => (
-    profiles.filter(profile => {
+    sortedProfiles.filter(profile => {
       const binding = bindingMap.get(profile.profileId)
       return Boolean(binding?.enabled) && !profile.running
     })
-  ), [profiles, bindingMap])
+  ), [sortedProfiles, bindingMap])
 
   const syncTargetCandidates = useMemo(() => (
-    profiles.filter(profile => {
+    sortedProfiles.filter(profile => {
       const binding = bindingMap.get(profile.profileId)
       return Boolean(binding?.enabled) && binding?.mode === 'shared' && !profile.running && profile.profileId !== syncSourceProfileId
     })
-  ), [profiles, bindingMap, syncSourceProfileId])
+  ), [sortedProfiles, bindingMap, syncSourceProfileId])
 
   const syncSourceOptions = useMemo(() => (
     syncSourceCandidates.length > 0
@@ -351,6 +387,10 @@ export function ExtensionManagementPage() {
   ), [syncSourceCandidates])
 
   const syncTargetCandidateIds = useMemo(() => new Set(syncTargetCandidates.map(profile => profile.profileId)), [syncTargetCandidates])
+
+  const syncSelectedTargetCount = useMemo(() => (
+    Array.from(syncTargetProfileIds).filter(profileId => syncTargetCandidateIds.has(profileId)).length
+  ), [syncTargetProfileIds, syncTargetCandidateIds])
 
   useEffect(() => {
     if (!bindingModalOpen) return
@@ -387,7 +427,7 @@ export function ExtensionManagementPage() {
   }
 
   const handleSelectUnboundProfiles = () => {
-    setSelectedProfileIds(new Set(profiles.filter(profile => !boundProfileIds.has(profile.profileId)).map(profile => profile.profileId)))
+    setSelectedProfileIds(new Set(sortedProfiles.filter(profile => !boundProfileIds.has(profile.profileId)).map(profile => profile.profileId)))
   }
 
   const handleClearProfileSelection = () => {
@@ -557,12 +597,13 @@ export function ExtensionManagementPage() {
     {
       key: 'name',
       title: '扩展名称',
-      width: '220px',
+      width: '32%',
+      headerAlign: 'center',
       render: (_, record) => (
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <FileCode2 className="w-4 h-4 text-[var(--color-text-muted)] shrink-0" />
-            <span className="font-medium text-[var(--color-text-primary)] truncate">{record.name || record.extensionId}</span>
+            <span className="font-medium text-[var(--color-text-primary)] truncate" title={record.name || record.extensionId}>{record.name || record.extensionId}</span>
             {record.autoBindEnabled && (
               <Badge size="sm" variant="success">自动{bindingModeLabel(record.autoBindMode)}</Badge>
             )}
@@ -576,39 +617,45 @@ export function ExtensionManagementPage() {
     {
       key: 'version',
       title: '版本',
-      width: '100px',
+      width: '9%',
+      align: 'center',
       render: (value) => value || '-',
     },
     {
       key: 'manifestVersion',
       title: 'Manifest',
-      width: '95px',
+      width: '10%',
+      align: 'center',
       render: (value) => value ? `MV${value}` : '-',
     },
     {
       key: 'sourceType',
       title: '来源',
-      width: '100px',
+      width: '10%',
+      align: 'center',
       render: (value) => <Badge variant="default">{sourceLabel(value)}</Badge>,
     },
     {
       key: 'boundCount',
       title: '绑定实例',
-      width: '100px',
+      width: '10%',
+      align: 'center',
       render: (value) => <Badge variant={value > 0 ? 'info' : 'default'}>{value || 0}</Badge>,
     },
     {
       key: 'updatedAt',
       title: '更新时间',
-      width: '170px',
+      width: '15%',
+      align: 'center',
       render: (value) => formatTime(value),
     },
     {
       key: 'actions',
       title: '操作',
-      width: '250px',
+      width: '14%',
+      align: 'center',
       render: (_, record) => (
-        <div className="flex items-center gap-1.5" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-center justify-center gap-1.5" onClick={(event) => event.stopPropagation()}>
           <Button size="sm" variant="ghost" onClick={() => handleOpenDetail(record)}>详情</Button>
           <Button size="sm" variant="secondary" onClick={() => handleOpenBinding(record)} title="绑定实例">
             <Eye className="w-4 h-4" />
@@ -775,9 +822,9 @@ export function ExtensionManagementPage() {
                 <span className="text-right">操作</span>
               </div>
               <div className="max-h-80 overflow-auto divide-y divide-[var(--color-border-default)]">
-                {profiles.length === 0 ? (
+                {sortedProfiles.length === 0 ? (
                   <div className="px-3 py-8 text-center text-sm text-[var(--color-text-muted)]">暂无浏览器实例</div>
-                ) : profiles.map(profile => {
+                ) : sortedProfiles.map(profile => {
                   const binding = bindingMap.get(profile.profileId)
                   const checked = selectedProfileIds.has(profile.profileId)
                   return (
@@ -845,7 +892,7 @@ export function ExtensionManagementPage() {
                 </div>
               </div>
 
-              <div className="mt-3 grid grid-cols-1 lg:grid-cols-[260px_1fr_auto] gap-3 items-end">
+              <div className="mt-3 grid grid-cols-1 xl:grid-cols-[280px_minmax(420px,1fr)_auto] gap-3 items-end">
                 <FormItem label="主实例">
                   <Select
                     value={syncSourceProfileId}
@@ -864,24 +911,39 @@ export function ExtensionManagementPage() {
                 </FormItem>
 
                 <div>
-                  <p className="mb-1.5 text-sm font-medium text-[var(--color-text-secondary)]">副实例</p>
-                  <div className="min-h-[36px] max-h-28 overflow-auto rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-elevated)] px-2 py-1">
+                  <div className="mb-1.5 flex items-center justify-between gap-2">
+                    <p className="text-sm font-medium text-[var(--color-text-secondary)]">副实例</p>
+                    <span className="text-xs text-[var(--color-text-muted)]">已选 {syncSelectedTargetCount} / {syncTargetCandidates.length}</span>
+                  </div>
+                  <div className="min-h-[96px] max-h-48 overflow-auto rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-elevated)] p-2">
                     {syncTargetCandidates.length === 0 ? (
-                      <div className="py-2 text-xs text-[var(--color-text-muted)]">暂无可选副实例</div>
+                      <div className="flex min-h-[76px] items-center justify-center text-xs text-[var(--color-text-muted)]">暂无可选副实例</div>
                     ) : (
-                      <div className="flex flex-wrap gap-2">
+                      <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-1.5">
                         {syncTargetCandidates.map(profile => {
                           const checked = syncTargetProfileIds.has(profile.profileId)
+                          const label = profile.profileName || profile.profileId
                           return (
-                            <label key={profile.profileId} className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-md border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] px-2 text-xs text-[var(--color-text-secondary)]">
+                            <label
+                              key={profile.profileId}
+                              title={`${label} (${profile.profileId})`}
+                              className={`grid h-11 min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 rounded-md border px-2 text-xs transition-colors ${
+                                checked
+                                  ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-text-primary)]'
+                                  : 'border-[var(--color-border-default)] bg-[var(--color-bg-surface)] text-[var(--color-text-secondary)]'
+                              }`}
+                            >
                               <input
                                 type="checkbox"
                                 checked={checked}
                                 disabled={syncingData}
                                 onChange={() => toggleSyncTargetProfile(profile.profileId)}
-                                className="h-3.5 w-3.5"
+                                className="h-4 w-4"
                               />
-                              <span className="max-w-[180px] truncate">{profile.profileName || profile.profileId}</span>
+                              <span className="min-w-0">
+                                <span className="block truncate font-medium">{label}</span>
+                                <span className="block truncate text-[10px] text-[var(--color-text-muted)]">{profile.profileId}</span>
+                              </span>
                             </label>
                           )
                         })}
@@ -890,7 +952,7 @@ export function ExtensionManagementPage() {
                   </div>
                 </div>
 
-                <Button onClick={handleSyncExtensionData} loading={syncingData} disabled={!syncSourceProfileId || syncTargetProfileIds.size === 0}>
+                <Button className="xl:self-end" onClick={handleSyncExtensionData} loading={syncingData} disabled={!syncSourceProfileId || syncSelectedTargetCount === 0}>
                   {!syncingData && <RefreshCw className="w-4 h-4" />}
                   执行数据同步
                 </Button>

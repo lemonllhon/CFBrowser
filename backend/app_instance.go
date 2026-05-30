@@ -418,7 +418,13 @@ func (a *App) BrowserInstanceStop(profileId string) (*BrowserProfile, error) {
 	}
 	log := logger.New("Browser")
 	a.browserMgr.Mutex.Lock()
-	defer a.browserMgr.Mutex.Unlock()
+	autoSyncAfterStop := false
+	defer func() {
+		a.browserMgr.Mutex.Unlock()
+		if autoSyncAfterStop {
+			a.scheduleAutoSyncSharedExtensionDataAfterProfileStopped(profileId)
+		}
+	}()
 
 	profile, exists := a.browserMgr.Profiles[profileId]
 	if !exists {
@@ -427,8 +433,10 @@ func (a *App) BrowserInstanceStop(profileId string) (*BrowserProfile, error) {
 
 	cmd := a.browserMgr.BrowserProcesses[profileId]
 	debugPort := profile.DebugPort
+	wasRunning := profile.Running
 	if tryCloseBrowserViaCDP(debugPort, 5*time.Second) {
 		a.markProfileStoppedLocked(profileId, profile)
+		autoSyncAfterStop = wasRunning
 		log.Info("实例停止", logger.F("profile_id", profileId), logger.F("method", "cdp"), logger.F("debug_port", debugPort))
 		return profile, nil
 	}
@@ -449,6 +457,7 @@ func (a *App) BrowserInstanceStop(profileId string) (*BrowserProfile, error) {
 	}
 
 	a.markProfileStoppedLocked(profileId, profile)
+	autoSyncAfterStop = wasRunning
 	log.Info("实例停止", logger.F("profile_id", profileId))
 	return profile, nil
 }
@@ -683,6 +692,10 @@ func (a *App) waitBrowserProcess(profileId string, monitor *browserProcessMonito
 	}
 	a.browserMgr.Mutex.Unlock()
 
+	if wasRunning && err == nil {
+		a.scheduleAutoSyncSharedExtensionDataAfterProfileStopped(profileId)
+	}
+
 	if a.ctx == nil {
 		return
 	}
@@ -735,6 +748,7 @@ func (a *App) waitDetachedBrowser(profileId string, debugPort int) {
 		profileName = profile.ProfileName
 		a.markProfileStoppedLocked(profileId, profile)
 		a.browserMgr.Mutex.Unlock()
+		a.scheduleAutoSyncSharedExtensionDataAfterProfileStopped(profileId)
 
 		log.Info("检测到浏览器调试端口关闭，实例已停止",
 			logger.F("profile_id", profileId),

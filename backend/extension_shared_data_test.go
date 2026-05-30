@@ -527,6 +527,104 @@ func TestBrowserExtensionSyncProfileDataRejectsRunningTarget(t *testing.T) {
 	}
 }
 
+func TestAutoSyncSharedExtensionDataAfterProfileStoppedCopiesToStoppedSharedTargets(t *testing.T) {
+	app, dao := newExtensionSyncTestApp(t)
+	extension := seedExtensionSyncData(t, app, dao)
+	sourceProfile := &browser.Profile{ProfileId: "source", ProfileName: "主实例", UserDataDir: "source"}
+	targetProfile := &browser.Profile{ProfileId: "target", ProfileName: "副实例", UserDataDir: "target"}
+	app.browserMgr.Profiles[sourceProfile.ProfileId] = sourceProfile
+	app.browserMgr.Profiles[targetProfile.ProfileId] = targetProfile
+	for _, profile := range []*browser.Profile{sourceProfile, targetProfile} {
+		if err := dao.UpsertBinding(browser.ExtensionBinding{
+			ProfileId:   profile.ProfileId,
+			ExtensionId: extension.ExtensionId,
+			Mode:        "shared",
+			Enabled:     true,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	chromeID, err := chromeExtensionIDForDirectory(app.resolveAppPath(extension.InstallDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceStateDir := filepath.Join(app.browserMgr.ResolveUserDataDir(sourceProfile), "Default", "Local Extension Settings", chromeID)
+	targetStateDir := filepath.Join(app.browserMgr.ResolveUserDataDir(targetProfile), "Default", "Local Extension Settings", chromeID)
+	if err := os.MkdirAll(sourceStateDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceStateDir, "state.json"), []byte(`{"auto":true}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	app.autoSyncSharedExtensionDataAfterProfileStopped(sourceProfile.ProfileId)
+
+	state, err := os.ReadFile(filepath.Join(targetStateDir, "state.json"))
+	if err != nil {
+		t.Fatalf("expected auto sync to copy target state: %v", err)
+	}
+	if string(state) != `{"auto":true}` {
+		t.Fatalf("unexpected target state: %s", state)
+	}
+}
+
+func TestAutoSyncSharedExtensionDataAfterProfileStoppedSkipsWhenAnotherSharedProfileRuns(t *testing.T) {
+	app, dao := newExtensionSyncTestApp(t)
+	extension := seedExtensionSyncData(t, app, dao)
+	sourceProfile := &browser.Profile{ProfileId: "source", ProfileName: "主实例", UserDataDir: "source"}
+	targetProfile := &browser.Profile{ProfileId: "target", ProfileName: "副实例", UserDataDir: "target"}
+	runningProfile := &browser.Profile{ProfileId: "running", ProfileName: "运行实例", UserDataDir: "running", Running: true}
+	app.browserMgr.Profiles[sourceProfile.ProfileId] = sourceProfile
+	app.browserMgr.Profiles[targetProfile.ProfileId] = targetProfile
+	app.browserMgr.Profiles[runningProfile.ProfileId] = runningProfile
+	for _, profile := range []*browser.Profile{sourceProfile, targetProfile, runningProfile} {
+		if err := dao.UpsertBinding(browser.ExtensionBinding{
+			ProfileId:   profile.ProfileId,
+			ExtensionId: extension.ExtensionId,
+			Mode:        "shared",
+			Enabled:     true,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	chromeID, err := chromeExtensionIDForDirectory(app.resolveAppPath(extension.InstallDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceStateDir := filepath.Join(app.browserMgr.ResolveUserDataDir(sourceProfile), "Default", "Local Extension Settings", chromeID)
+	targetStatePath := filepath.Join(app.browserMgr.ResolveUserDataDir(targetProfile), "Default", "Local Extension Settings", chromeID, "state.json")
+	if err := os.MkdirAll(sourceStateDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceStateDir, "state.json"), []byte(`{"auto":true}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	app.autoSyncSharedExtensionDataAfterProfileStopped(sourceProfile.ProfileId)
+
+	if _, err := os.Stat(targetStatePath); !os.IsNotExist(err) {
+		t.Fatalf("expected auto sync to skip stopped target while another shared profile is running, stat err=%v", err)
+	}
+	runningProfile.Running = false
+	app.autoSyncSharedExtensionDataAfterProfileStopped(runningProfile.ProfileId)
+	if _, err := os.Stat(targetStatePath); !os.IsNotExist(err) {
+		t.Fatalf("expected auto sync to stay blocked until manual sync, stat err=%v", err)
+	}
+
+	if _, err := app.BrowserExtensionSyncProfileData(BrowserExtensionSyncDataInput{
+		ExtensionId:      extension.ExtensionId,
+		SourceProfileId:  sourceProfile.ProfileId,
+		TargetProfileIds: []string{targetProfile.ProfileId},
+	}); err != nil {
+		t.Fatalf("manual BrowserExtensionSyncProfileData failed: %v", err)
+	}
+	if app.isExtensionAutoSyncBlocked(extension.ExtensionId) {
+		t.Fatalf("expected manual data sync to clear auto sync block")
+	}
+}
+
 func TestExtensionDirForBindingSyncsLocalDirectorySourceToLibrary(t *testing.T) {
 	app := NewApp(t.TempDir())
 	sourceDir := filepath.Join(app.appRootAbs(), "source-extension")

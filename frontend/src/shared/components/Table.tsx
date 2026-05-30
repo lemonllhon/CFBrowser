@@ -108,7 +108,7 @@ export function Table<T extends Record<string, any>>({
       className={clsx('overflow-auto', className)}
       style={{ maxHeight }}
     >
-      <table className="min-w-full" style={{ tableLayout, minWidth: tableMinWidth }}>
+      <table className="min-w-full w-full" style={{ tableLayout, minWidth: tableMinWidth, width: '100%' }}>
         <thead className={clsx(stickyHeader && 'sticky top-0 z-10')}>
           <tr>
             {columns.map((col) => (

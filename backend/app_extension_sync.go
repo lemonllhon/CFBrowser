@@ -97,6 +97,7 @@ func (a *App) BrowserExtensionSyncProfileData(input BrowserExtensionSyncDataInpu
 			return nil, fmt.Errorf("同步到副实例「%s」失败: %w", profileDisplayName(target.profile), err)
 		}
 	}
+	a.clearExtensionAutoSyncBlocked(extensionId)
 	return dao.ListBindings(extensionId)
 }
 
