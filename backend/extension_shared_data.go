@@ -75,9 +75,17 @@ func (a *App) prepareSharedExtensionDataBinding(userDataDir string, binding brow
 	if err != nil {
 		return err
 	}
-	chromeID, err := chromeExtensionIDForDirectory(extensionDir)
-	if err != nil {
-		return err
+	chromeID := ""
+	if id, ok, prefErr := chromeExtensionIDFromProfilePreferences(userDataDir, extensionDir); prefErr != nil {
+		return prefErr
+	} else if ok {
+		chromeID = id
+	} else {
+		id, idErr := chromeExtensionIDForDirectory(extensionDir)
+		if idErr != nil {
+			return idErr
+		}
+		chromeID = id
 	}
 
 	for _, item := range sharedExtensionDataPaths(chromeID) {
@@ -131,6 +139,15 @@ func (a *App) chromeExtensionIDsForSharedData(binding browser.ExtensionBinding, 
 		if id, err := chromeExtensionIDForDirectory(exclusiveDir); err == nil {
 			ids = appendUniqueString(ids, id)
 		}
+	}
+	if entries, err := os.ReadDir(a.extensionSharedDataDir(binding.ExtensionId)); err == nil {
+		for _, entry := range entries {
+			if entry.IsDir() && isChromeExtensionID(entry.Name()) {
+				ids = appendUniqueString(ids, entry.Name())
+			}
+		}
+	} else if err != nil && !os.IsNotExist(err) {
+		return nil, err
 	}
 	return ids, nil
 }

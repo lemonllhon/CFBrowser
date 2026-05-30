@@ -134,6 +134,50 @@ func TestPrepareSharedExtensionDataBindingLinksLegacyLocalStorageFile(t *testing
 	}
 }
 
+func TestPrepareSharedExtensionDataBindingUsesSecurePreferencesChromeID(t *testing.T) {
+	app := NewApp(t.TempDir())
+	userDataDir := filepath.Join(app.appRootAbs(), "data", "profile-1")
+	extensionDir := filepath.Join(app.extensionLibraryRoot(), "extension-1")
+	if err := os.MkdirAll(extensionDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(extensionDir, "manifest.json"), []byte(`{"manifest_version":3,"name":"Shared","version":"1.0"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	actualChromeID := strings.Repeat("c", 32)
+	writeProfileExtensionPreferenceFile(t, filepath.Join(userDataDir, "Default", "Secure Preferences"), actualChromeID, extensionDir)
+	actualDataDir := filepath.Join(userDataDir, "Default", "Local Extension Settings", actualChromeID)
+	if err := os.MkdirAll(actualDataDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(actualDataDir, "state.json"), []byte(`{"actual":true}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := app.prepareSharedExtensionDataBinding(userDataDir, browser.ExtensionBinding{
+		ProfileId:   "profile-1",
+		ExtensionId: "extension-1",
+		Mode:        "shared",
+		Enabled:     true,
+	}, &browser.Extension{
+		ExtensionId: "extension-1",
+		Name:        "Shared",
+		InstallDir:  filepath.Join("data", "extensions", "library", "extension-1"),
+	})
+	if err != nil {
+		t.Fatalf("prepareSharedExtensionDataBinding failed: %v", err)
+	}
+
+	sharedData := filepath.Join(app.extensionSharedDataRoot(), "extension-1", actualChromeID, "local-extension-settings", "state.json")
+	if _, err := os.Stat(sharedData); err != nil {
+		t.Fatalf("expected actual chrome ID data to be migrated to shared dir: %v", err)
+	}
+	if !linkedToTarget(actualDataDir, filepath.Dir(sharedData)) {
+		t.Fatalf("expected actual chrome ID profile data to link to shared dir")
+	}
+}
+
 func TestMaterializeSharedExtensionDataBindingRestoresProfileStorage(t *testing.T) {
 	app := NewApp(t.TempDir())
 	userDataDir := filepath.Join(app.appRootAbs(), "data", "profile-1")
@@ -648,7 +692,12 @@ func seedExtensionSyncData(t *testing.T, app *App, dao browser.ExtensionDAO) bro
 func writeProfileExtensionPreference(t *testing.T, app *App, profile *browser.Profile, chromeID string, extensionDir string) {
 	t.Helper()
 	userDataDir := app.browserMgr.ResolveUserDataDir(profile)
-	preferencesPath := filepath.Join(userDataDir, "Default", "Preferences")
+	preferencesPath := filepath.Join(userDataDir, "Default", "Secure Preferences")
+	writeProfileExtensionPreferenceFile(t, preferencesPath, chromeID, extensionDir)
+}
+
+func writeProfileExtensionPreferenceFile(t *testing.T, preferencesPath string, chromeID string, extensionDir string) {
+	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(preferencesPath), 0755); err != nil {
 		t.Fatal(err)
 	}

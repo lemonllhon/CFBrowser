@@ -171,7 +171,16 @@ func (a *App) chromeExtensionIDForProfileBinding(profile *browser.Profile, bindi
 }
 
 func chromeExtensionIDFromProfilePreferences(userDataDir string, extensionDir string) (string, bool, error) {
-	preferencesPath := filepath.Join(userDataDir, "Default", "Preferences")
+	for _, name := range []string{"Preferences", "Secure Preferences"} {
+		id, ok, err := chromeExtensionIDFromPreferenceFile(filepath.Join(userDataDir, "Default", name), extensionDir)
+		if err != nil || ok {
+			return id, ok, err
+		}
+	}
+	return "", false, nil
+}
+
+func chromeExtensionIDFromPreferenceFile(preferencesPath string, extensionDir string) (string, bool, error) {
 	data, err := os.ReadFile(preferencesPath)
 	if err != nil {
 		if os.IsNotExist(err) {
