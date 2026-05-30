@@ -656,7 +656,6 @@ export function ExtensionManagementPage() {
       align: 'center',
       render: (_, record) => (
         <div className="flex items-center justify-center gap-1.5" onClick={(event) => event.stopPropagation()}>
-          <Button size="sm" variant="ghost" onClick={() => handleOpenDetail(record)}>详情</Button>
           <Button size="sm" variant="secondary" onClick={() => handleOpenBinding(record)} title="绑定实例">
             <Eye className="w-4 h-4" />
           </Button>
@@ -737,7 +736,7 @@ export function ExtensionManagementPage() {
         </div>
       </div>
 
-      <Card title="扩展列表" subtitle="支持查看详情、绑定实例、自动绑定和安全删除扩展">
+      <Card title="扩展列表" subtitle="支持绑定实例、自动绑定和安全删除扩展">
         <Table
           columns={columns}
           data={extensions}
@@ -886,29 +885,34 @@ export function ExtensionManagementPage() {
                   <h4 className="text-sm font-semibold text-[var(--color-text-primary)]">数据同步</h4>
                   <p className="mt-1 text-xs text-[var(--color-text-muted)]">主实例和副实例都需要处于未运行状态</p>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Button size="sm" variant="secondary" onClick={handleSelectAllSyncTargets} disabled={syncingData || syncTargetCandidates.length === 0}>选择副实例</Button>
-                  <Button size="sm" variant="ghost" onClick={handleClearSyncTargets} disabled={syncingData || syncTargetProfileIds.size === 0}>清空</Button>
-                </div>
               </div>
 
-              <div className="mt-3 grid grid-cols-1 xl:grid-cols-[280px_minmax(420px,1fr)_auto] gap-3 items-end">
-                <FormItem label="主实例">
-                  <Select
-                    value={syncSourceProfileId}
-                    onChange={(event) => {
-                      const nextSourceId = event.target.value
-                      setSyncSourceProfileId(nextSourceId)
-                      setSyncTargetProfileIds(prev => {
-                        const next = new Set(prev)
-                        next.delete(nextSourceId)
-                        return next
-                      })
-                    }}
-                    disabled={syncingData || syncSourceCandidates.length === 0}
-                    options={syncSourceOptions}
-                  />
-                </FormItem>
+              <div className="mt-3 space-y-3">
+                <div className="grid grid-cols-1 md:grid-cols-[minmax(260px,1fr)_auto_auto_auto] gap-2 items-end">
+                  <FormItem label="主实例">
+                    <Select
+                      value={syncSourceProfileId}
+                      onChange={(event) => {
+                        const nextSourceId = event.target.value
+                        setSyncSourceProfileId(nextSourceId)
+                        setSyncTargetProfileIds(prev => {
+                          const next = new Set(prev)
+                          next.delete(nextSourceId)
+                          return next
+                        })
+                      }}
+                      disabled={syncingData || syncSourceCandidates.length === 0}
+                      options={syncSourceOptions}
+                    />
+                  </FormItem>
+
+                  <Button className="md:self-end" onClick={handleSyncExtensionData} loading={syncingData} disabled={!syncSourceProfileId || syncSelectedTargetCount === 0}>
+                    {!syncingData && <RefreshCw className="w-4 h-4" />}
+                    执行数据同步
+                  </Button>
+                  <Button size="sm" variant="secondary" className="md:self-end" onClick={handleSelectAllSyncTargets} disabled={syncingData || syncTargetCandidates.length === 0}>选择副实例</Button>
+                  <Button size="sm" variant="ghost" className="md:self-end" onClick={handleClearSyncTargets} disabled={syncingData || syncTargetProfileIds.size === 0}>清空</Button>
+                </div>
 
                 <div>
                   <div className="mb-1.5 flex items-center justify-between gap-2">
@@ -951,11 +955,6 @@ export function ExtensionManagementPage() {
                     )}
                   </div>
                 </div>
-
-                <Button className="xl:self-end" onClick={handleSyncExtensionData} loading={syncingData} disabled={!syncSourceProfileId || syncSelectedTargetCount === 0}>
-                  {!syncingData && <RefreshCw className="w-4 h-4" />}
-                  执行数据同步
-                </Button>
               </div>
             </div>
 
