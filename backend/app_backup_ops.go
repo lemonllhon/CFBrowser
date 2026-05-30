@@ -496,13 +496,13 @@ func (a *App) backupClearBusinessTables() error {
 	}
 	defer tx.Rollback()
 
-	tables := []string{"launch_codes", "browser_profiles", "browser_proxies", "browser_cores", "browser_bookmarks", "browser_groups"}
+	tables := []string{"browser_profile_extensions", "browser_extensions", "launch_codes", "browser_profiles", "browser_proxies", "browser_cores", "browser_bookmarks", "browser_groups"}
 	for _, table := range tables {
 		if _, err := tx.Exec("DELETE FROM " + table); err != nil && !backupIsNoSuchTableError(err) {
 			return fmt.Errorf("清空数据表失败(%s): %w", table, err)
 		}
 	}
-	_, _ = tx.Exec(`DELETE FROM sqlite_sequence WHERE name IN ('browser_bookmarks')`)
+	_, _ = tx.Exec(`DELETE FROM sqlite_sequence WHERE name IN ('browser_bookmarks', 'browser_profile_extensions')`)
 	return tx.Commit()
 }
 
@@ -925,87 +925,7 @@ func (a *App) backupMergeDatabaseFromSource(srcDBPath string, resetFirst bool, s
 	}
 	defer tx.Exec(`DETACH DATABASE src`)
 
-	mergeTables := []struct {
-		name       string
-		insertAll  string
-		insertSafe string
-	}{
-		{
-			name: "browser_groups",
-			insertAll: `INSERT INTO browser_groups (group_id, group_name, parent_id, sort_order, created_at, updated_at)
-SELECT group_id, group_name, parent_id, sort_order, created_at, updated_at FROM src.browser_groups`,
-			insertSafe: `INSERT INTO browser_groups (group_id, group_name, parent_id, sort_order, created_at, updated_at)
-SELECT s.group_id, s.group_name, s.parent_id, s.sort_order, s.created_at, s.updated_at
-FROM src.browser_groups s
-WHERE NOT EXISTS (
-  SELECT 1 FROM browser_groups t
-  WHERE t.group_id = s.group_id OR (t.parent_id = s.parent_id AND lower(t.group_name) = lower(s.group_name))
-)`,
-		},
-		{
-			name: "browser_cores",
-			insertAll: `INSERT INTO browser_cores (core_id, core_name, core_path, is_default, sort_order, created_at)
-SELECT core_id, core_name, core_path, is_default, sort_order, created_at FROM src.browser_cores`,
-			insertSafe: `INSERT INTO browser_cores (core_id, core_name, core_path, is_default, sort_order, created_at)
-SELECT s.core_id, s.core_name, s.core_path, s.is_default, s.sort_order, s.created_at
-FROM src.browser_cores s
-WHERE NOT EXISTS (
-  SELECT 1 FROM browser_cores t
-  WHERE t.core_id = s.core_id OR lower(t.core_path) = lower(s.core_path)
-)`,
-		},
-		{
-			name: "browser_proxies",
-			insertAll: `INSERT INTO browser_proxies (proxy_id, proxy_name, proxy_config, dns_servers, group_name, source_id, source_url, source_name_prefix, source_filter_json, source_auto_refresh, source_refresh_interval_m, source_last_refresh_at, last_latency_ms, last_test_ok, last_tested_at, last_ip_health_json, sort_order, created_at)
-SELECT proxy_id, proxy_name, proxy_config, dns_servers, COALESCE(group_name,''), COALESCE(source_id,''), COALESCE(source_url,''), COALESCE(source_name_prefix,''), COALESCE(source_filter_json,''), COALESCE(source_auto_refresh,0), COALESCE(source_refresh_interval_m,0), COALESCE(source_last_refresh_at,''), COALESCE(last_latency_ms,-1), COALESCE(last_test_ok,0), COALESCE(last_tested_at,''), COALESCE(last_ip_health_json,''), sort_order, created_at
-FROM src.browser_proxies`,
-			insertSafe: `INSERT INTO browser_proxies (proxy_id, proxy_name, proxy_config, dns_servers, group_name, source_id, source_url, source_name_prefix, source_filter_json, source_auto_refresh, source_refresh_interval_m, source_last_refresh_at, last_latency_ms, last_test_ok, last_tested_at, last_ip_health_json, sort_order, created_at)
-SELECT s.proxy_id, s.proxy_name, s.proxy_config, s.dns_servers, COALESCE(s.group_name,''), COALESCE(s.source_id,''), COALESCE(s.source_url,''), COALESCE(s.source_name_prefix,''), COALESCE(s.source_filter_json,''), COALESCE(s.source_auto_refresh,0), COALESCE(s.source_refresh_interval_m,0), COALESCE(s.source_last_refresh_at,''), COALESCE(s.last_latency_ms,-1), COALESCE(s.last_test_ok,0), COALESCE(s.last_tested_at,''), COALESCE(s.last_ip_health_json,''), s.sort_order, s.created_at
-FROM src.browser_proxies s
-WHERE NOT EXISTS (
-  SELECT 1 FROM browser_proxies t
-  WHERE t.proxy_id = s.proxy_id OR lower(t.proxy_config) = lower(s.proxy_config)
-)`,
-		},
-		{
-			name: "browser_profiles",
-			insertAll: `INSERT INTO browser_profiles (profile_id, profile_name, user_data_dir, core_id, fingerprint_args, proxy_id, proxy_config, launch_args, tags, keywords, group_id, created_at, updated_at)
-SELECT profile_id, profile_name, user_data_dir, core_id, fingerprint_args, proxy_id, proxy_config, launch_args, tags, keywords, COALESCE(group_id,''), created_at, updated_at
-FROM src.browser_profiles`,
-			insertSafe: `INSERT INTO browser_profiles (profile_id, profile_name, user_data_dir, core_id, fingerprint_args, proxy_id, proxy_config, launch_args, tags, keywords, group_id, created_at, updated_at)
-SELECT s.profile_id, s.profile_name, s.user_data_dir, s.core_id, s.fingerprint_args, s.proxy_id, s.proxy_config, s.launch_args, s.tags, s.keywords, COALESCE(s.group_id,''), s.created_at, s.updated_at
-FROM src.browser_profiles s
-WHERE NOT EXISTS (
-  SELECT 1 FROM browser_profiles t
-  WHERE t.profile_id = s.profile_id OR lower(t.user_data_dir) = lower(s.user_data_dir)
-)`,
-		},
-		{
-			name: "browser_bookmarks",
-			insertAll: `INSERT INTO browser_bookmarks (name, url, sort_order)
-SELECT name, url, sort_order FROM src.browser_bookmarks`,
-			insertSafe: `INSERT INTO browser_bookmarks (name, url, sort_order)
-SELECT s.name, s.url, s.sort_order
-FROM src.browser_bookmarks s
-WHERE NOT EXISTS (
-  SELECT 1 FROM browser_bookmarks t WHERE lower(t.url) = lower(s.url)
-)`,
-		},
-		{
-			name: "launch_codes",
-			insertAll: `INSERT INTO launch_codes (profile_id, code, created_at, updated_at)
-SELECT profile_id, code, created_at, updated_at FROM src.launch_codes`,
-			insertSafe: `INSERT INTO launch_codes (profile_id, code, created_at, updated_at)
-SELECT s.profile_id, s.code, s.created_at, s.updated_at
-FROM src.launch_codes s
-WHERE NOT EXISTS (
-  SELECT 1 FROM launch_codes t
-  WHERE t.profile_id = s.profile_id OR t.code = s.code
-)`,
-		},
-	}
-
-	for _, item := range mergeTables {
+	for _, item := range backupDatabaseMergeTables() {
 		exists, err := backupSrcTableExists(tx, item.name)
 		if err != nil {
 			return err
@@ -1022,9 +942,14 @@ WHERE NOT EXISTS (
 			continue
 		}
 
-		sqlText := item.insertAll
-		if !resetFirst {
-			sqlText = item.insertSafe
+		sourceColumns, err := backupSrcTableColumns(tx, item.name)
+		if err != nil {
+			return err
+		}
+		sqlText := backupBuildDatabaseMergeSQL(item, sourceColumns, resetFirst)
+		if sqlText == "" {
+			stats.Skipped += total
+			continue
 		}
 		res, err := tx.Exec(sqlText)
 		if err != nil {
@@ -1042,6 +967,247 @@ WHERE NOT EXISTS (
 	}
 
 	return tx.Commit()
+}
+
+type backupDatabaseColumn struct {
+	name       string
+	defaultSQL string
+	required   bool
+}
+
+type backupDatabaseMergeTable struct {
+	name      string
+	columns   []backupDatabaseColumn
+	safeWhere func(expr func(string) string) string
+}
+
+func backupDatabaseMergeTables() []backupDatabaseMergeTable {
+	text := func(name string) backupDatabaseColumn {
+		return backupDatabaseColumn{name: name, defaultSQL: "''"}
+	}
+	requiredText := func(name string) backupDatabaseColumn {
+		return backupDatabaseColumn{name: name, defaultSQL: "''", required: true}
+	}
+	intCol := func(name string, defaultSQL string) backupDatabaseColumn {
+		return backupDatabaseColumn{name: name, defaultSQL: defaultSQL}
+	}
+	jsonText := func(name string) backupDatabaseColumn {
+		return backupDatabaseColumn{name: name, defaultSQL: "'[]'"}
+	}
+	ts := func(name string) backupDatabaseColumn {
+		return backupDatabaseColumn{name: name, defaultSQL: "CURRENT_TIMESTAMP"}
+	}
+
+	return []backupDatabaseMergeTable{
+		{
+			name: "browser_groups",
+			columns: []backupDatabaseColumn{
+				requiredText("group_id"),
+				requiredText("group_name"),
+				text("parent_id"),
+				intCol("sort_order", "0"),
+				ts("created_at"),
+				ts("updated_at"),
+			},
+			safeWhere: func(expr func(string) string) string {
+				return fmt.Sprintf(`t.group_id = %s OR (COALESCE(t.parent_id, '') = %s AND lower(t.group_name) = lower(%s))`,
+					expr("group_id"), expr("parent_id"), expr("group_name"))
+			},
+		},
+		{
+			name: "browser_cores",
+			columns: []backupDatabaseColumn{
+				requiredText("core_id"),
+				requiredText("core_name"),
+				requiredText("core_path"),
+				intCol("is_default", "0"),
+				intCol("sort_order", "0"),
+				ts("created_at"),
+			},
+			safeWhere: func(expr func(string) string) string {
+				return fmt.Sprintf(`t.core_id = %s OR lower(t.core_path) = lower(%s)`, expr("core_id"), expr("core_path"))
+			},
+		},
+		{
+			name: "browser_proxies",
+			columns: []backupDatabaseColumn{
+				requiredText("proxy_id"),
+				requiredText("proxy_name"),
+				requiredText("proxy_config"),
+				text("dns_servers"),
+				text("group_name"),
+				text("source_id"),
+				text("source_url"),
+				text("source_name_prefix"),
+				text("source_filter_json"),
+				intCol("source_auto_refresh", "0"),
+				intCol("source_refresh_interval_m", "0"),
+				text("source_last_refresh_at"),
+				intCol("last_latency_ms", "-1"),
+				intCol("last_test_ok", "0"),
+				text("last_tested_at"),
+				text("last_ip_health_json"),
+				intCol("sort_order", "0"),
+				ts("created_at"),
+			},
+			safeWhere: func(expr func(string) string) string {
+				return fmt.Sprintf(`t.proxy_id = %s OR lower(t.proxy_config) = lower(%s)`, expr("proxy_id"), expr("proxy_config"))
+			},
+		},
+		{
+			name: "browser_profiles",
+			columns: []backupDatabaseColumn{
+				requiredText("profile_id"),
+				requiredText("profile_name"),
+				requiredText("user_data_dir"),
+				text("core_id"),
+				jsonText("fingerprint_args"),
+				text("proxy_id"),
+				text("proxy_config"),
+				text("proxy_bind_source_id"),
+				text("proxy_bind_source_url"),
+				text("proxy_bind_name"),
+				text("proxy_bind_updated_at"),
+				intCol("auto_proxy_switch_enabled", "0"),
+				text("auto_proxy_switch_group_name"),
+				{name: "auto_proxy_switch_mode", defaultSQL: "'interval'"},
+				intCol("auto_proxy_switch_interval_m", "0"),
+				intCol("auto_proxy_switch_rotate_by_group", "0"),
+				text("auto_proxy_switch_last_proxy_id"),
+				jsonText("launch_args"),
+				jsonText("tags"),
+				jsonText("keywords"),
+				text("group_id"),
+				ts("created_at"),
+				ts("updated_at"),
+			},
+			safeWhere: func(expr func(string) string) string {
+				return fmt.Sprintf(`t.profile_id = %s OR lower(t.user_data_dir) = lower(%s)`, expr("profile_id"), expr("user_data_dir"))
+			},
+		},
+		{
+			name: "browser_bookmarks",
+			columns: []backupDatabaseColumn{
+				requiredText("name"),
+				requiredText("url"),
+				intCol("sort_order", "0"),
+			},
+			safeWhere: func(expr func(string) string) string {
+				return fmt.Sprintf(`lower(t.url) = lower(%s)`, expr("url"))
+			},
+		},
+		{
+			name: "launch_codes",
+			columns: []backupDatabaseColumn{
+				requiredText("profile_id"),
+				requiredText("code"),
+				ts("created_at"),
+				ts("updated_at"),
+			},
+			safeWhere: func(expr func(string) string) string {
+				return fmt.Sprintf(`t.profile_id = %s OR t.code = %s`, expr("profile_id"), expr("code"))
+			},
+		},
+		{
+			name: "browser_extensions",
+			columns: []backupDatabaseColumn{
+				requiredText("extension_id"),
+				text("name"),
+				text("version"),
+				intCol("manifest_version", "0"),
+				text("description"),
+				text("source_type"),
+				text("source_url"),
+				text("install_dir"),
+				text("package_path"),
+				text("manifest_json"),
+				intCol("auto_bind_enabled", "0"),
+				{name: "auto_bind_mode", defaultSQL: "'shared'"},
+				ts("created_at"),
+				ts("updated_at"),
+			},
+			safeWhere: func(expr func(string) string) string {
+				return fmt.Sprintf(`t.extension_id = %s`, expr("extension_id"))
+			},
+		},
+		{
+			name: "browser_profile_extensions",
+			columns: []backupDatabaseColumn{
+				requiredText("profile_id"),
+				requiredText("extension_id"),
+				{name: "mode", defaultSQL: "'shared'"},
+				intCol("enabled", "1"),
+				text("exclusive_dir"),
+				ts("created_at"),
+				ts("updated_at"),
+			},
+			safeWhere: func(expr func(string) string) string {
+				return fmt.Sprintf(`t.profile_id = %s AND t.extension_id = %s`, expr("profile_id"), expr("extension_id"))
+			},
+		},
+	}
+}
+
+func backupBuildDatabaseMergeSQL(table backupDatabaseMergeTable, sourceColumns map[string]struct{}, resetFirst bool) string {
+	if len(table.columns) == 0 {
+		return ""
+	}
+	for _, column := range table.columns {
+		if column.required && !backupColumnSetHas(sourceColumns, column.name) {
+			return ""
+		}
+	}
+
+	targetColumns := make([]string, 0, len(table.columns))
+	selectExpressions := make([]string, 0, len(table.columns))
+	exprFor := func(columnName string) string {
+		for _, column := range table.columns {
+			if strings.EqualFold(column.name, columnName) {
+				return backupSourceColumnExpr(column, sourceColumns)
+			}
+		}
+		return "''"
+	}
+	for _, column := range table.columns {
+		targetColumns = append(targetColumns, backupQuoteIdent(column.name))
+		selectExpressions = append(selectExpressions, backupSourceColumnExpr(column, sourceColumns))
+	}
+
+	insertVerb := "INSERT INTO"
+	if !resetFirst {
+		insertVerb = "INSERT OR IGNORE INTO"
+	}
+	sqlText := fmt.Sprintf("%s %s (%s)\nSELECT %s\nFROM src.%s s",
+		insertVerb,
+		backupQuoteIdent(table.name),
+		strings.Join(targetColumns, ", "),
+		strings.Join(selectExpressions, ", "),
+		backupQuoteIdent(table.name),
+	)
+	if !resetFirst && table.safeWhere != nil {
+		sqlText += fmt.Sprintf("\nWHERE NOT EXISTS (SELECT 1 FROM %s t WHERE %s)", backupQuoteIdent(table.name), table.safeWhere(exprFor))
+	}
+	return sqlText
+}
+
+func backupSourceColumnExpr(column backupDatabaseColumn, sourceColumns map[string]struct{}) string {
+	defaultSQL := strings.TrimSpace(column.defaultSQL)
+	if defaultSQL == "" {
+		defaultSQL = "''"
+	}
+	if !backupColumnSetHas(sourceColumns, column.name) {
+		return defaultSQL
+	}
+	return fmt.Sprintf("COALESCE(s.%s, %s)", backupQuoteIdent(column.name), defaultSQL)
+}
+
+func backupColumnSetHas(columns map[string]struct{}, column string) bool {
+	_, ok := columns[strings.ToLower(strings.TrimSpace(column))]
+	return ok
+}
+
+func backupQuoteIdent(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
 }
 
 func (a *App) backupImportFileTrees(payloadRoot string, incomingCfg *config.Config, resetFirst bool, stats *backupMergeStats, onIssue func(componentID, componentName string, err error)) {
@@ -1582,6 +1748,32 @@ func backupSrcTableExists(tx *sql.Tx, table string) (bool, error) {
 		return false, err
 	}
 	return cnt > 0, nil
+}
+
+func backupSrcTableColumns(tx *sql.Tx, table string) (map[string]struct{}, error) {
+	rows, err := tx.Query(fmt.Sprintf(`PRAGMA src.table_info(%s)`, backupQuoteIdent(table)))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	columns := make(map[string]struct{})
+	for rows.Next() {
+		var cid int
+		var name string
+		var dataType string
+		var notNull int
+		var defaultValue interface{}
+		var pk int
+		if err := rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &pk); err != nil {
+			return nil, err
+		}
+		name = strings.ToLower(strings.TrimSpace(name))
+		if name != "" {
+			columns[name] = struct{}{}
+		}
+	}
+	return columns, rows.Err()
 }
 
 func backupCountRows(tx *sql.Tx, tableName string) (int, error) {

@@ -2,6 +2,7 @@ package backend
 
 import (
 	"ant-chrome/backend/internal/config"
+	"ant-chrome/backend/internal/database"
 	"os"
 	"path/filepath"
 	"testing"
@@ -125,4 +126,141 @@ func TestBackupSyncDirConflictAndOverwrite(t *testing.T) {
 	if string(got2) != "new-content" {
 		t.Fatalf("覆盖模式应改写目标文件: %s", string(got2))
 	}
+}
+
+func TestBackupMergeDatabaseFromLegacySourceFillsMissingColumns(t *testing.T) {
+	app, db := newBackupMergeDatabaseTestApp(t)
+	srcPath := filepath.Join(t.TempDir(), "legacy.db")
+	src, err := database.NewDB(srcPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srcConn := src.GetConn()
+	legacyStmts := []string{
+		`CREATE TABLE browser_profiles (
+			profile_id TEXT PRIMARY KEY,
+			profile_name TEXT NOT NULL,
+			user_data_dir TEXT NOT NULL DEFAULT '',
+			core_id TEXT NOT NULL DEFAULT '',
+			fingerprint_args TEXT NOT NULL DEFAULT '[]',
+			proxy_id TEXT NOT NULL DEFAULT '',
+			proxy_config TEXT NOT NULL DEFAULT '',
+			launch_args TEXT NOT NULL DEFAULT '[]',
+			tags TEXT NOT NULL DEFAULT '[]',
+			keywords TEXT NOT NULL DEFAULT '[]',
+			created_at DATETIME NOT NULL,
+			updated_at DATETIME NOT NULL
+		)`,
+		`CREATE TABLE browser_proxies (
+			proxy_id TEXT PRIMARY KEY,
+			proxy_name TEXT NOT NULL,
+			proxy_config TEXT NOT NULL,
+			dns_servers TEXT NOT NULL DEFAULT '',
+			sort_order INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE browser_extensions (
+			extension_id TEXT PRIMARY KEY,
+			name TEXT NOT NULL DEFAULT '',
+			version TEXT NOT NULL DEFAULT '',
+			manifest_version INTEGER NOT NULL DEFAULT 0,
+			description TEXT NOT NULL DEFAULT '',
+			source_type TEXT NOT NULL DEFAULT '',
+			source_url TEXT NOT NULL DEFAULT '',
+			install_dir TEXT NOT NULL DEFAULT '',
+			package_path TEXT NOT NULL DEFAULT '',
+			manifest_json TEXT NOT NULL DEFAULT '',
+			created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE browser_profile_extensions (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			profile_id TEXT NOT NULL,
+			extension_id TEXT NOT NULL,
+			mode TEXT NOT NULL DEFAULT 'shared',
+			enabled INTEGER NOT NULL DEFAULT 1,
+			exclusive_dir TEXT NOT NULL DEFAULT '',
+			created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(profile_id, extension_id)
+		)`,
+		`INSERT INTO browser_profiles (profile_id, profile_name, user_data_dir, core_id, fingerprint_args, proxy_id, proxy_config, launch_args, tags, keywords, created_at, updated_at)
+		 VALUES ('profile-old', '旧实例', 'profiles/old', '', '[]', 'proxy-old', 'http://127.0.0.1:7890', '[]', '[]', '[]', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')`,
+		`INSERT INTO browser_proxies (proxy_id, proxy_name, proxy_config, dns_servers, sort_order, created_at)
+		 VALUES ('proxy-old', '旧代理', 'http://127.0.0.1:7890', '', 7, '2024-01-01T00:00:00Z')`,
+		`INSERT INTO browser_extensions (extension_id, name, version, manifest_version, description, source_type, source_url, install_dir, package_path, manifest_json, created_at, updated_at)
+		 VALUES ('extension-old', '旧扩展', '1.0.0', 3, '', 'directory', '', 'data/extensions/library/extension-old', '', '{}', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')`,
+		`INSERT INTO browser_profile_extensions (profile_id, extension_id, mode, enabled, exclusive_dir, created_at, updated_at)
+		 VALUES ('profile-old', 'extension-old', 'shared', 1, '', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')`,
+	}
+	for _, stmt := range legacyStmts {
+		if _, err := srcConn.Exec(stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := src.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	stats := &backupMergeStats{}
+	if err := app.backupMergeDatabaseFromSource(srcPath, false, stats); err != nil {
+		t.Fatalf("backupMergeDatabaseFromSource failed: %v", err)
+	}
+
+	var switchMode string
+	var rotateByGroup int
+	var groupID string
+	if err := db.GetConn().QueryRow(`SELECT auto_proxy_switch_mode, auto_proxy_switch_rotate_by_group, group_id FROM browser_profiles WHERE profile_id = 'profile-old'`).Scan(&switchMode, &rotateByGroup, &groupID); err != nil {
+		t.Fatal(err)
+	}
+	if switchMode != "interval" || rotateByGroup != 0 || groupID != "" {
+		t.Fatalf("legacy profile defaults mismatch: mode=%q rotate=%d group=%q", switchMode, rotateByGroup, groupID)
+	}
+
+	var sourceFilter string
+	var lastLatency int
+	if err := db.GetConn().QueryRow(`SELECT source_filter_json, last_latency_ms FROM browser_proxies WHERE proxy_id = 'proxy-old'`).Scan(&sourceFilter, &lastLatency); err != nil {
+		t.Fatal(err)
+	}
+	if sourceFilter != "" || lastLatency != -1 {
+		t.Fatalf("legacy proxy defaults mismatch: source_filter=%q latency=%d", sourceFilter, lastLatency)
+	}
+
+	var autoBindEnabled int
+	var autoBindMode string
+	if err := db.GetConn().QueryRow(`SELECT auto_bind_enabled, auto_bind_mode FROM browser_extensions WHERE extension_id = 'extension-old'`).Scan(&autoBindEnabled, &autoBindMode); err != nil {
+		t.Fatal(err)
+	}
+	if autoBindEnabled != 0 || autoBindMode != "shared" {
+		t.Fatalf("legacy extension defaults mismatch: enabled=%d mode=%q", autoBindEnabled, autoBindMode)
+	}
+
+	var bindingCount int
+	if err := db.GetConn().QueryRow(`SELECT COUNT(1) FROM browser_profile_extensions WHERE profile_id = 'profile-old' AND extension_id = 'extension-old'`).Scan(&bindingCount); err != nil {
+		t.Fatal(err)
+	}
+	if bindingCount != 1 {
+		t.Fatalf("expected extension binding to be imported, got %d", bindingCount)
+	}
+}
+
+func newBackupMergeDatabaseTestApp(t *testing.T) (*App, *database.DB) {
+	t.Helper()
+	root := t.TempDir()
+	app := NewApp(root)
+	app.config = config.DefaultConfig()
+	dbPath := filepath.Join(root, "data", "app.db")
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := database.NewDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := db.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+	app.db = db
+	return app, db
 }
