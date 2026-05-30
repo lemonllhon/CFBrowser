@@ -1,7 +1,10 @@
 package backend
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -52,7 +55,7 @@ func (a *App) BrowserExtensionSyncProfileData(input BrowserExtensionSyncDataInpu
 	if err != nil {
 		return nil, err
 	}
-	sourceChromeID, err := a.chromeExtensionIDForProfileBinding(sourceBinding, extension)
+	sourceChromeID, sourceExtensionDir, _, err := a.chromeExtensionIDForProfileBinding(sourceProfile, sourceBinding, extension)
 	if err != nil {
 		return nil, err
 	}
@@ -70,12 +73,16 @@ func (a *App) BrowserExtensionSyncProfileData(input BrowserExtensionSyncDataInpu
 		if normalizeExtensionBindingMode(targetBinding.Mode) != "shared" {
 			return nil, fmt.Errorf("副实例「%s」不是共享绑定，请先将绑定模式改为共享", profileDisplayName(targetProfile))
 		}
-		targetChromeID, err := a.chromeExtensionIDForProfileBinding(targetBinding, extension)
+		targetChromeID, targetExtensionDir, targetIDFromProfile, err := a.chromeExtensionIDForProfileBinding(targetProfile, targetBinding, extension)
 		if err != nil {
 			return nil, err
 		}
 		if !strings.EqualFold(sourceChromeID, targetChromeID) {
-			return nil, fmt.Errorf("主实例与副实例「%s」的扩展 ID 不一致，无法安全同步数据", profileDisplayName(targetProfile))
+			if sameCleanPath(sourceExtensionDir, targetExtensionDir) && !targetIDFromProfile {
+				targetChromeID = sourceChromeID
+			} else {
+				return nil, fmt.Errorf("主实例与副实例「%s」的浏览器真实扩展 ID 不一致，无法安全同步数据", profileDisplayName(targetProfile))
+			}
 		}
 		targets = append(targets, extensionDataSyncTarget{
 			profile:  targetProfile,
@@ -106,6 +113,18 @@ type extensionDataSyncPath struct {
 	removeWhenSourceMissing bool
 }
 
+type extensionDataSyncStats struct {
+	sourceFound int
+	copied      int
+	removed     int
+}
+
+type extensionDataSyncPathResult struct {
+	sourceFound bool
+	copied      bool
+	removed     bool
+}
+
 func (a *App) requireStoppedProfileForExtensionSync(profileId string, role string) (*browser.Profile, error) {
 	profile, err := a.requireProfile(profileId)
 	if err != nil {
@@ -134,12 +153,76 @@ func (a *App) requireExtensionBindingForProfile(dao browser.ExtensionDAO, profil
 	return browser.ExtensionBinding{}, fmt.Errorf("%s未绑定当前扩展插件", role)
 }
 
-func (a *App) chromeExtensionIDForProfileBinding(binding browser.ExtensionBinding, extension *browser.Extension) (string, error) {
+func (a *App) chromeExtensionIDForProfileBinding(profile *browser.Profile, binding browser.ExtensionBinding, extension *browser.Extension) (string, string, bool, error) {
 	extensionDir, err := a.extensionDirForBinding(binding, extension)
 	if err != nil {
-		return "", err
+		return "", "", false, err
 	}
-	return chromeExtensionIDForDirectory(extensionDir)
+	if a != nil && a.browserMgr != nil && profile != nil {
+		userDataDir := a.browserMgr.ResolveUserDataDir(profile)
+		if id, ok, err := chromeExtensionIDFromProfilePreferences(userDataDir, extensionDir); err != nil {
+			return "", "", false, err
+		} else if ok {
+			return id, extensionDir, true, nil
+		}
+	}
+	id, err := chromeExtensionIDForDirectory(extensionDir)
+	return id, extensionDir, false, err
+}
+
+func chromeExtensionIDFromProfilePreferences(userDataDir string, extensionDir string) (string, bool, error) {
+	preferencesPath := filepath.Join(userDataDir, "Default", "Preferences")
+	data, err := os.ReadFile(preferencesPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", false, nil
+		}
+		return "", false, fmt.Errorf("读取实例扩展 Preferences 失败: %w", err)
+	}
+	var root map[string]interface{}
+	if err := json.Unmarshal(data, &root); err != nil {
+		return "", false, fmt.Errorf("解析实例扩展 Preferences 失败: %w", err)
+	}
+	extensions, _ := root["extensions"].(map[string]interface{})
+	settings, _ := extensions["settings"].(map[string]interface{})
+	for id, raw := range settings {
+		if !isChromeExtensionID(id) {
+			continue
+		}
+		item, _ := raw.(map[string]interface{})
+		recordedPath, _ := item["path"].(string)
+		if extensionPreferencePathMatches(recordedPath, extensionDir) {
+			return id, true, nil
+		}
+	}
+	return "", false, nil
+}
+
+func extensionPreferencePathMatches(recordedPath string, extensionDir string) bool {
+	recordedPath = strings.TrimSpace(recordedPath)
+	if recordedPath == "" {
+		return false
+	}
+	recordedPath = filepath.FromSlash(recordedPath)
+	if !filepath.IsAbs(recordedPath) {
+		if abs, err := filepath.Abs(recordedPath); err == nil {
+			recordedPath = abs
+		}
+	}
+	return sameCleanPath(recordedPath, extensionDir)
+}
+
+func isChromeExtensionID(id string) bool {
+	id = strings.TrimSpace(id)
+	if len(id) != 32 {
+		return false
+	}
+	for _, char := range id {
+		if char < 'a' || char > 'p' {
+			return false
+		}
+	}
+	return true
 }
 
 func (a *App) syncExtensionDataFromProfileToProfile(extensionID string, sourceUserDataDir string, targetUserDataDir string, sourceChromeID string, targetChromeID string) error {
@@ -150,22 +233,43 @@ func (a *App) syncExtensionDataFromProfileToProfile(extensionID string, sourceUs
 	}
 
 	sourcePaths := extensionDataSyncPaths(sourceChromeID)
-	targetPaths := extensionDataSyncPaths(targetChromeID)
-	for i, sourceItem := range sourcePaths {
-		targetItem := targetPaths[i]
+	sourcePaths = appendDiscoveredExtensionDataSyncPaths(sourcePaths, discoverExtensionDataSyncPaths(sourceBase, sourceChromeID))
+	stats := extensionDataSyncStats{}
+	for _, sourceItem := range sourcePaths {
+		targetItem := sourceItem
+		targetItem.profileRel = extensionDataTargetProfileRel(sourceItem.profileRel, sourceChromeID, targetChromeID)
 		sourcePath := filepath.Join(sourceBase, filepath.FromSlash(sourceItem.profileRel))
 		targetPath := filepath.Join(targetBase, filepath.FromSlash(targetItem.profileRel))
-		if err := a.syncExtensionDataPath(sourceUserDataDir, targetUserDataDir, sourcePath, targetPath, sourceItem.kind, sourceItem.removeWhenSourceMissing); err != nil {
+		result, err := a.syncExtensionDataPath(sourceUserDataDir, targetUserDataDir, sourcePath, targetPath, sourceItem.kind, sourceItem.removeWhenSourceMissing)
+		if err != nil {
 			return fmt.Errorf("%s: %w", sourceItem.profileRel, err)
 		}
+		stats.add(result)
 		if targetItem.syncSharedBacking && strings.TrimSpace(targetItem.sharedRel) != "" {
 			targetSharedPath := filepath.Join(a.extensionSharedDataDir(extensionID), targetChromeID, filepath.FromSlash(targetItem.sharedRel))
-			if err := a.syncExtensionDataPath(sourceUserDataDir, a.extensionSharedDataRoot(), sourcePath, targetSharedPath, sourceItem.kind, sourceItem.removeWhenSourceMissing); err != nil {
+			result, err := a.syncExtensionDataPath(sourceUserDataDir, a.extensionSharedDataRoot(), sourcePath, targetSharedPath, sourceItem.kind, sourceItem.removeWhenSourceMissing)
+			if err != nil {
 				return fmt.Errorf("%s: %w", sourceItem.profileRel, err)
 			}
+			stats.add(result)
 		}
 	}
+	if stats.sourceFound == 0 {
+		return fmt.Errorf("主实例未发现当前扩展的可同步数据，请确认主实例已启动过该插件并已保存插件设置（浏览器真实扩展 ID: %s）", sourceChromeID)
+	}
 	return nil
+}
+
+func (s *extensionDataSyncStats) add(result extensionDataSyncPathResult) {
+	if result.sourceFound {
+		s.sourceFound++
+	}
+	if result.copied {
+		s.copied++
+	}
+	if result.removed {
+		s.removed++
+	}
 }
 
 func extensionDataSyncPaths(chromeID string) []extensionDataSyncPath {
@@ -191,49 +295,262 @@ func extensionDataSyncPaths(chromeID string) []extensionDataSyncPath {
 	return paths
 }
 
-func (a *App) syncExtensionDataPath(sourceUserDataDir string, targetUserDataDir string, sourcePath string, targetPath string, kind extensionSharedDataKind, removeWhenSourceMissing bool) error {
+func appendDiscoveredExtensionDataSyncPaths(paths []extensionDataSyncPath, discovered []extensionDataSyncPath) []extensionDataSyncPath {
+	seen := make(map[string]struct{}, len(paths)+len(discovered))
+	for _, item := range paths {
+		seen[extensionDataSyncPathKey(item.profileRel)] = struct{}{}
+	}
+	for _, item := range discovered {
+		key := extensionDataSyncPathKey(item.profileRel)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		paths = append(paths, item)
+	}
+	return paths
+}
+
+func extensionDataSyncPathKey(profileRel string) string {
+	return strings.ToLower(filepath.ToSlash(filepath.Clean(filepath.FromSlash(profileRel))))
+}
+
+func extensionDataTargetProfileRel(sourceRel string, sourceChromeID string, targetChromeID string) string {
+	if strings.EqualFold(sourceChromeID, targetChromeID) {
+		return sourceRel
+	}
+	return strings.ReplaceAll(sourceRel, sourceChromeID, targetChromeID)
+}
+
+func discoverExtensionDataSyncPaths(sourceBase string, chromeID string) []extensionDataSyncPath {
+	chromeID = strings.TrimSpace(chromeID)
+	if chromeID == "" {
+		return nil
+	}
+	markers := []string{
+		chromeID,
+		"chrome-extension_" + chromeID,
+		"chrome-extension://" + chromeID,
+	}
+	paths := make([]extensionDataSyncPath, 0)
+	seen := map[string]struct{}{}
+	_ = filepath.WalkDir(sourceBase, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil || entry == nil {
+			return nil
+		}
+		rel, err := filepath.Rel(sourceBase, path)
+		if err != nil || rel == "." {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		if shouldSkipExtensionDataDiscoveryPath(rel, entry) {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.Contains(rel, chromeID) {
+			if rootRel, kind, ok := discoveredExtensionDataRoot(rel, entry.IsDir(), chromeID); ok {
+				paths = appendUniqueDiscoveredExtensionDataPath(paths, seen, rootRel, kind, true)
+				if entry.IsDir() && extensionDataSyncPathKey(rootRel) == extensionDataSyncPathKey(rel) {
+					return filepath.SkipDir
+				}
+			}
+		}
+		if !entry.IsDir() && shouldInspectExtensionDataFileContent(rel) && fileContainsAnyMarker(path, markers) {
+			if rootRel, ok := discoveredExtensionDataContentRoot(rel); ok {
+				paths = appendUniqueDiscoveredExtensionDataPath(paths, seen, rootRel, extensionSharedDataDir, false)
+			}
+		}
+		return nil
+	})
+	return paths
+}
+
+func appendUniqueDiscoveredExtensionDataPath(paths []extensionDataSyncPath, seen map[string]struct{}, profileRel string, kind extensionSharedDataKind, removeWhenSourceMissing bool) []extensionDataSyncPath {
+	profileRel = filepath.ToSlash(filepath.Clean(filepath.FromSlash(profileRel)))
+	key := extensionDataSyncPathKey(profileRel)
+	if _, ok := seen[key]; ok {
+		return paths
+	}
+	seen[key] = struct{}{}
+	return append(paths, extensionDataSyncPath{
+		profileRel:              profileRel,
+		kind:                    kind,
+		removeWhenSourceMissing: removeWhenSourceMissing,
+	})
+}
+
+func shouldSkipExtensionDataDiscoveryPath(rel string, entry fs.DirEntry) bool {
+	parts := strings.Split(filepath.ToSlash(rel), "/")
+	if len(parts) == 0 {
+		return false
+	}
+	name := strings.ToLower(parts[len(parts)-1])
+	if entry.IsDir() {
+		switch name {
+		case "cache", "code cache", "gpucache", "grshadercache", "shadercache", "crashpad", "browsermetrics", "optimization hints":
+			return true
+		}
+	}
+	return false
+}
+
+func shouldInspectExtensionDataFileContent(rel string) bool {
+	rel = filepath.ToSlash(rel)
+	prefixes := []string{
+		"Local Storage/leveldb/",
+		"Session Storage/",
+		"Service Worker/",
+		"Extension State/",
+		"Storage/",
+		"IndexedDB/",
+		"File System/",
+		"databases/",
+	}
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(rel, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func discoveredExtensionDataRoot(rel string, isDir bool, chromeID string) (string, extensionSharedDataKind, bool) {
+	parts := strings.Split(filepath.ToSlash(rel), "/")
+	if len(parts) == 0 {
+		return "", extensionSharedDataDir, false
+	}
+	if len(parts) >= 2 {
+		switch parts[0] {
+		case "Local Extension Settings", "Sync Extension Settings", "IndexedDB", "File System", "databases", "Extension Rules", "Extension Scripts", "DNR Extension Rules", "Managed Extension Settings":
+			if strings.Contains(parts[1], chromeID) {
+				return strings.Join(parts[:2], "/"), extensionSharedDataDir, true
+			}
+		case "Local Storage":
+			if strings.Contains(parts[1], chromeID) {
+				return strings.Join(parts[:2], "/"), extensionSharedDataFile, true
+			}
+		}
+	}
+	if len(parts) >= 3 && parts[0] == "Storage" && parts[1] == "ext" && strings.Contains(parts[2], chromeID) {
+		return strings.Join(parts[:3], "/"), extensionSharedDataDir, true
+	}
+	for i, part := range parts {
+		if !strings.Contains(part, chromeID) {
+			continue
+		}
+		kind := extensionSharedDataDir
+		if !isDir && i == len(parts)-1 {
+			kind = extensionSharedDataFile
+		}
+		return strings.Join(parts[:i+1], "/"), kind, true
+	}
+	return "", extensionSharedDataDir, false
+}
+
+func discoveredExtensionDataContentRoot(rel string) (string, bool) {
+	rel = filepath.ToSlash(rel)
+	switch {
+	case strings.HasPrefix(rel, "Local Storage/leveldb/"):
+		return "Local Storage/leveldb", true
+	case strings.HasPrefix(rel, "Session Storage/"):
+		return "Session Storage", true
+	case strings.HasPrefix(rel, "Service Worker/"):
+		return "Service Worker", true
+	case strings.HasPrefix(rel, "Extension State/"):
+		return "Extension State", true
+	case strings.HasPrefix(rel, "Storage/"):
+		return "Storage", true
+	case strings.HasPrefix(rel, "IndexedDB/"):
+		return "IndexedDB", true
+	case strings.HasPrefix(rel, "File System/"):
+		return "File System", true
+	case strings.HasPrefix(rel, "databases/"):
+		return "databases", true
+	default:
+		return "", false
+	}
+}
+
+func fileContainsAnyMarker(path string, markers []string) bool {
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() || info.Size() > 16*1024*1024 {
+		return false
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return false
+	}
+	text := string(data)
+	for _, marker := range markers {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *App) syncExtensionDataPath(sourceUserDataDir string, targetUserDataDir string, sourcePath string, targetPath string, kind extensionSharedDataKind, removeWhenSourceMissing bool) (extensionDataSyncPathResult, error) {
 	sourceRoot, err := filepath.Abs(sourceUserDataDir)
 	if err != nil {
-		return err
+		return extensionDataSyncPathResult{}, err
 	}
 	targetRoot, err := filepath.Abs(targetUserDataDir)
 	if err != nil {
-		return err
+		return extensionDataSyncPathResult{}, err
 	}
 	sharedRoot, err := filepath.Abs(a.extensionSharedDataRoot())
 	if err != nil {
-		return err
+		return extensionDataSyncPathResult{}, err
 	}
 	sourceAllowedRoots := []string{filepath.Clean(sourceRoot), filepath.Clean(sharedRoot)}
 	targetAllowedRoots := []string{filepath.Clean(targetRoot), filepath.Clean(sharedRoot)}
 
 	cleanSource, sourceInfo, sourceExists, err := resolveExtensionDataSyncSource(sourcePath, sourceAllowedRoots)
 	if err != nil {
-		return err
+		return extensionDataSyncPathResult{}, err
 	}
 	cleanTarget, err := resolveExtensionDataSyncTarget(targetPath, targetAllowedRoots)
 	if err != nil {
-		return err
+		return extensionDataSyncPathResult{}, err
 	}
 	if !sourceExists {
 		if !removeWhenSourceMissing {
-			return nil
+			return extensionDataSyncPathResult{}, nil
 		}
-		return removeExtensionProfileDataPath(cleanTarget)
+		removed := pathExists(cleanTarget)
+		if err := removeExtensionProfileDataPath(cleanTarget); err != nil {
+			return extensionDataSyncPathResult{}, err
+		}
+		return extensionDataSyncPathResult{removed: removed}, nil
 	}
 	if strings.EqualFold(filepath.Clean(cleanSource), filepath.Clean(cleanTarget)) {
-		return nil
+		return extensionDataSyncPathResult{sourceFound: true}, nil
 	}
 	if kind == extensionSharedDataFile {
 		if sourceInfo.IsDir() {
-			return fmt.Errorf("主实例扩展数据应为文件，实际是目录: %s", cleanSource)
+			return extensionDataSyncPathResult{}, fmt.Errorf("主实例扩展数据应为文件，实际是目录: %s", cleanSource)
 		}
-		return replaceExtensionProfileDataFile(cleanSource, cleanTarget)
+		return extensionDataSyncPathResult{sourceFound: true, copied: true}, replaceExtensionProfileDataFile(cleanSource, cleanTarget)
 	}
 	if !sourceInfo.IsDir() {
-		return fmt.Errorf("主实例扩展数据应为目录，实际是文件: %s", cleanSource)
+		return extensionDataSyncPathResult{}, fmt.Errorf("主实例扩展数据应为目录，实际是文件: %s", cleanSource)
 	}
-	return replaceExtensionProfileDataDir(cleanSource, cleanTarget)
+	return extensionDataSyncPathResult{sourceFound: true, copied: true}, replaceExtensionProfileDataDir(cleanSource, cleanTarget)
+}
+
+func pathExists(target string) bool {
+	if strings.TrimSpace(target) == "" {
+		return false
+	}
+	_, err := os.Lstat(target)
+	return err == nil
 }
 
 func resolveExtensionDataSyncSource(sourcePath string, allowedRoots []string) (string, os.FileInfo, bool, error) {

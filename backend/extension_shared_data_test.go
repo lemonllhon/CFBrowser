@@ -1,6 +1,8 @@
 package backend
 
 import (
+	"encoding/json"
+
 	"ant-chrome/backend/internal/config"
 	"ant-chrome/backend/internal/database"
 	"os"
@@ -313,6 +315,14 @@ func TestBrowserExtensionSyncProfileDataCopiesMasterDataToTargets(t *testing.T) 
 	if err := os.WriteFile(filepath.Join(sourceStorageExt, "bucket.json"), []byte(`{"source":"master"}`), 0644); err != nil {
 		t.Fatal(err)
 	}
+	sourceDiscoveredStore := filepath.Join(sourceUserDataDir, "Default", "Discovered Store", chromeID, "state")
+	targetDiscoveredStore := filepath.Join(targetUserDataDir, "Default", "Discovered Store", chromeID, "state")
+	if err := os.MkdirAll(sourceDiscoveredStore, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceDiscoveredStore, "value.json"), []byte(`{"dynamic":true}`), 0644); err != nil {
+		t.Fatal(err)
+	}
 	targetSessionStorage := filepath.Join(targetUserDataDir, "Default", "Session Storage")
 	if err := os.MkdirAll(targetSessionStorage, 0755); err != nil {
 		t.Fatal(err)
@@ -371,6 +381,13 @@ func TestBrowserExtensionSyncProfileDataCopiesMasterDataToTargets(t *testing.T) 
 	if string(storageExtData) != `{"source":"master"}` {
 		t.Fatalf("unexpected target Storage/ext data: %s", storageExtData)
 	}
+	discoveredData, err := os.ReadFile(filepath.Join(targetDiscoveredStore, "value.json"))
+	if err != nil {
+		t.Fatalf("expected discovered extension data to be copied: %v", err)
+	}
+	if string(discoveredData) != `{"dynamic":true}` {
+		t.Fatalf("unexpected discovered extension data: %s", discoveredData)
+	}
 	sessionData, err := os.ReadFile(filepath.Join(targetSessionStorage, "old.log"))
 	if err != nil {
 		t.Fatalf("expected target Session Storage to remain when source is missing: %v", err)
@@ -380,6 +397,61 @@ func TestBrowserExtensionSyncProfileDataCopiesMasterDataToTargets(t *testing.T) 
 	}
 	if _, err := os.Stat(staleTargetIndexedDB); !os.IsNotExist(err) {
 		t.Fatalf("expected stale target IndexedDB to be removed, stat err=%v", err)
+	}
+}
+
+func TestBrowserExtensionSyncProfileDataUsesChromeIDFromPreferences(t *testing.T) {
+	app, dao := newExtensionSyncTestApp(t)
+	extension := seedExtensionSyncData(t, app, dao)
+	sourceProfile := &browser.Profile{ProfileId: "source", ProfileName: "主实例", UserDataDir: "source"}
+	targetProfile := &browser.Profile{ProfileId: "target", ProfileName: "副实例", UserDataDir: "target"}
+	app.browserMgr.Profiles[sourceProfile.ProfileId] = sourceProfile
+	app.browserMgr.Profiles[targetProfile.ProfileId] = targetProfile
+	for _, profile := range []*browser.Profile{sourceProfile, targetProfile} {
+		if err := dao.UpsertBinding(browser.ExtensionBinding{
+			ProfileId:   profile.ProfileId,
+			ExtensionId: extension.ExtensionId,
+			Mode:        "shared",
+			Enabled:     true,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	extensionDir := app.resolveAppPath(extension.InstallDir)
+	actualChromeID := strings.Repeat("b", 32)
+	if computedChromeID, err := chromeExtensionIDForDirectory(extensionDir); err != nil {
+		t.Fatal(err)
+	} else if computedChromeID == actualChromeID {
+		t.Fatalf("test setup expected actual chrome ID to differ from computed ID")
+	}
+	writeProfileExtensionPreference(t, app, sourceProfile, actualChromeID, extensionDir)
+
+	sourceUserDataDir := app.browserMgr.ResolveUserDataDir(sourceProfile)
+	targetUserDataDir := app.browserMgr.ResolveUserDataDir(targetProfile)
+	sourceStateDir := filepath.Join(sourceUserDataDir, "Default", "Local Extension Settings", actualChromeID)
+	targetStateDir := filepath.Join(targetUserDataDir, "Default", "Local Extension Settings", actualChromeID)
+	if err := os.MkdirAll(sourceStateDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceStateDir, "state.json"), []byte(`{"actualChromeId":true}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := app.BrowserExtensionSyncProfileData(BrowserExtensionSyncDataInput{
+		ExtensionId:      extension.ExtensionId,
+		SourceProfileId:  sourceProfile.ProfileId,
+		TargetProfileIds: []string{targetProfile.ProfileId},
+	}); err != nil {
+		t.Fatalf("BrowserExtensionSyncProfileData failed: %v", err)
+	}
+
+	state, err := os.ReadFile(filepath.Join(targetStateDir, "state.json"))
+	if err != nil {
+		t.Fatalf("expected target data under actual chrome ID to be copied: %v", err)
+	}
+	if string(state) != `{"actualChromeId":true}` {
+		t.Fatalf("unexpected target state: %s", state)
 	}
 }
 
@@ -571,6 +643,30 @@ func seedExtensionSyncData(t *testing.T, app *App, dao browser.ExtensionDAO) bro
 		t.Fatal(err)
 	}
 	return extension
+}
+
+func writeProfileExtensionPreference(t *testing.T, app *App, profile *browser.Profile, chromeID string, extensionDir string) {
+	t.Helper()
+	userDataDir := app.browserMgr.ResolveUserDataDir(profile)
+	preferencesPath := filepath.Join(userDataDir, "Default", "Preferences")
+	if err := os.MkdirAll(filepath.Dir(preferencesPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(map[string]interface{}{
+		"extensions": map[string]interface{}{
+			"settings": map[string]interface{}{
+				chromeID: map[string]interface{}{
+					"path": extensionDir,
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(preferencesPath, data, 0644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func linkDirForTest(t *testing.T, linkPath string, targetPath string) {
