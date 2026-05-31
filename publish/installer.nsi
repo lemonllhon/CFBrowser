@@ -61,7 +61,9 @@ retry_powershell:
   FileClose $1
 
   DetailPrint "正在关闭安装目录中的残留进程: $INSTDIR"
-  ExecWait '"${POWERSHELL_EXE}" -NoProfile -ExecutionPolicy Bypass -File "$0" -InstallDir "$INSTDIR" -ExcludePath ""' $2
+  nsExec::ExecToStack '"${POWERSHELL_EXE}" -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "$0" -InstallDir "$INSTDIR" -ExcludePath ""'
+  Pop $2
+  Pop $3
   Delete $0
 
   ${If} $2 == 0
@@ -75,9 +77,15 @@ install_abort:
 
 fallback_taskkill:
   DetailPrint "PowerShell 不可用，回退到 taskkill 清理主进程和代理进程..."
-  ExecWait '"$SYSDIR\taskkill.exe" /F /T /IM ${PRODUCT_EXE}' $2
-  ExecWait '"$SYSDIR\taskkill.exe" /F /T /IM xray.exe' $2
-  ExecWait '"$SYSDIR\taskkill.exe" /F /T /IM sing-box.exe' $2
+  nsExec::ExecToStack '"$SYSDIR\taskkill.exe" /F /T /IM ${PRODUCT_EXE}'
+  Pop $2
+  Pop $3
+  nsExec::ExecToStack '"$SYSDIR\taskkill.exe" /F /T /IM xray.exe'
+  Pop $2
+  Pop $3
+  nsExec::ExecToStack '"$SYSDIR\taskkill.exe" /F /T /IM sing-box.exe'
+  Pop $2
+  Pop $3
   Sleep 1500
 
 done:
@@ -97,7 +105,9 @@ retry_powershell:
   FileClose $1
 
   DetailPrint "正在关闭安装目录中的残留进程: $INSTDIR"
-  ExecWait '"${POWERSHELL_EXE}" -NoProfile -ExecutionPolicy Bypass -File "$0" -InstallDir "$INSTDIR" -ExcludePath "$INSTDIR\Uninstall.exe"' $2
+  nsExec::ExecToStack '"${POWERSHELL_EXE}" -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "$0" -InstallDir "$INSTDIR" -ExcludePath "$INSTDIR\Uninstall.exe"'
+  Pop $2
+  Pop $3
   Delete $0
 
   ${If} $2 == 0
@@ -111,9 +121,15 @@ uninstall_abort:
 
 fallback_taskkill:
   DetailPrint "PowerShell 不可用，回退到 taskkill 清理主进程和代理进程..."
-  ExecWait '"$SYSDIR\taskkill.exe" /F /T /IM ${PRODUCT_EXE}' $2
-  ExecWait '"$SYSDIR\taskkill.exe" /F /T /IM xray.exe' $2
-  ExecWait '"$SYSDIR\taskkill.exe" /F /T /IM sing-box.exe' $2
+  nsExec::ExecToStack '"$SYSDIR\taskkill.exe" /F /T /IM ${PRODUCT_EXE}'
+  Pop $2
+  Pop $3
+  nsExec::ExecToStack '"$SYSDIR\taskkill.exe" /F /T /IM xray.exe'
+  Pop $2
+  Pop $3
+  nsExec::ExecToStack '"$SYSDIR\taskkill.exe" /F /T /IM sing-box.exe'
+  Pop $2
+  Pop $3
   Sleep 1500
 
 done:
