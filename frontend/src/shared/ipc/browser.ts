@@ -78,6 +78,8 @@ export type ProtoBrowserProfile = {
   updatedAt: string
   lastStartAt?: string
   lastStopAt?: string
+  instanceMarkerIndex?: number
+  instanceMarker?: string
 }
 
 export type ProtoBrowserProfileInput = {
@@ -768,6 +770,9 @@ function decodeBrowserProfile(payload: Uint8Array): ProtoBrowserProfile {
         case 31:
           profile.lastStopAt = text
           break
+        case 34:
+          profile.instanceMarker = text
+          break
       }
       continue
     }
@@ -795,6 +800,9 @@ function decodeBrowserProfile(payload: Uint8Array): ProtoBrowserProfile {
           break
         case 32:
           profile.autoProxySwitchRotateByGroup = number !== 0
+          break
+        case 33:
+          profile.instanceMarkerIndex = number
           break
       }
     }

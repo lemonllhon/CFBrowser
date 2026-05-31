@@ -47,6 +47,8 @@ func TestBrowserProfileListRoundTrip(t *testing.T) {
 				UpdatedAt:                    "2026-05-24T00:01:00Z",
 				LastStartAt:                  "2026-05-24T00:02:00Z",
 				LastStopAt:                   "2026-05-24T00:03:00Z",
+				InstanceMarkerIndex:          2,
+				InstanceMarker:               "[Trace #02] 测试实例",
 			},
 		},
 	}
@@ -70,6 +72,9 @@ func TestBrowserProfileListRoundTrip(t *testing.T) {
 	}
 	if profile.DebugPort != 9222 || profile.PID != 12345 {
 		t.Fatalf("numeric fields were not preserved: %#v", profile)
+	}
+	if profile.InstanceMarkerIndex != 2 || profile.InstanceMarker != "[Trace #02] 测试实例" {
+		t.Fatalf("instance marker fields were not preserved: %#v", profile)
 	}
 }
 

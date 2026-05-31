@@ -31,6 +31,8 @@ export interface BrowserProfile {
   lastStartAt?: string
   lastStopAt?: string
   launchCode?: string
+  instanceMarkerIndex?: number
+  instanceMarker?: string
 }
 
 export interface BrowserProfileInput {

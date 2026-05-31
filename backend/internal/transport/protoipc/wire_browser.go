@@ -69,6 +69,8 @@ type BrowserProfile struct {
 	UpdatedAt                    string
 	LastStartAt                  string
 	LastStopAt                   string
+	InstanceMarkerIndex          int32
+	InstanceMarker               string
 }
 
 type BrowserProfileListRequest struct {
@@ -1360,6 +1362,8 @@ func EncodeBrowserProfile(message BrowserProfile) []byte {
 	out = appendStringField(out, 29, message.UpdatedAt)
 	out = appendStringField(out, 30, message.LastStartAt)
 	out = appendStringField(out, 31, message.LastStopAt)
+	out = appendInt32Field(out, 33, message.InstanceMarkerIndex)
+	out = appendStringField(out, 34, message.InstanceMarker)
 	return out
 }
 
@@ -1494,6 +1498,14 @@ func DecodeBrowserProfile(payload []byte) (BrowserProfile, error) {
 		case 31:
 			text, err := consumeStringValue(wireType, value)
 			result.LastStopAt = text
+			return err
+		case 33:
+			number, err := consumeVarintValue(wireType, value)
+			result.InstanceMarkerIndex = int32(number)
+			return err
+		case 34:
+			text, err := consumeStringValue(wireType, value)
+			result.InstanceMarker = text
 			return err
 		default:
 			return nil

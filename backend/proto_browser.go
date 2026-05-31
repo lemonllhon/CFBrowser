@@ -99,7 +99,7 @@ func (a *App) handleProtoBrowserProfileList(ctx context.Context, request protoip
 	}
 
 	return protoipc.EncodeBrowserProfileListResponse(protoipc.BrowserProfileListResponse{
-		Profiles: browserProfilesToProto(profiles),
+		Profiles: a.browserProfilesToProto(profiles),
 	}), nil
 }
 
@@ -120,7 +120,7 @@ func (a *App) handleProtoBrowserProfileCreate(ctx context.Context, request proto
 	if err != nil {
 		return nil, protoBrowserOperationError("创建浏览器实例失败", err)
 	}
-	return encodeProtoBrowserProfileResponse(profile)
+	return a.encodeProtoBrowserProfileResponse(profile)
 }
 
 func (a *App) handleProtoBrowserProfileUpdate(ctx context.Context, request protoipc.Envelope) ([]byte, *protoipc.RPCError) {
@@ -140,7 +140,7 @@ func (a *App) handleProtoBrowserProfileUpdate(ctx context.Context, request proto
 	if err != nil {
 		return nil, protoBrowserOperationError("更新浏览器实例失败", err)
 	}
-	return encodeProtoBrowserProfileResponse(profile)
+	return a.encodeProtoBrowserProfileResponse(profile)
 }
 
 func (a *App) handleProtoBrowserProfileDelete(ctx context.Context, request protoipc.Envelope) ([]byte, *protoipc.RPCError) {
@@ -179,7 +179,7 @@ func (a *App) handleProtoBrowserProfileCopy(ctx context.Context, request protoip
 	if err != nil {
 		return nil, protoBrowserOperationError("复制浏览器实例失败", err)
 	}
-	return encodeProtoBrowserProfileResponse(profile)
+	return a.encodeProtoBrowserProfileResponse(profile)
 }
 
 func (a *App) handleProtoBrowserInstanceStart(ctx context.Context, request protoipc.Envelope) ([]byte, *protoipc.RPCError) {
@@ -199,7 +199,7 @@ func (a *App) handleProtoBrowserInstanceStart(ctx context.Context, request proto
 	if err != nil {
 		return nil, protoBrowserOperationError("启动浏览器实例失败", err)
 	}
-	return encodeProtoBrowserProfileResponse(profile)
+	return a.encodeProtoBrowserProfileResponse(profile)
 }
 
 func (a *App) handleProtoBrowserInstanceStop(ctx context.Context, request protoipc.Envelope) ([]byte, *protoipc.RPCError) {
@@ -219,7 +219,7 @@ func (a *App) handleProtoBrowserInstanceStop(ctx context.Context, request protoi
 	if err != nil {
 		return nil, protoBrowserOperationError("停止浏览器实例失败", err)
 	}
-	return encodeProtoBrowserProfileResponse(profile)
+	return a.encodeProtoBrowserProfileResponse(profile)
 }
 
 func (a *App) handleProtoBrowserInstanceRestart(ctx context.Context, request protoipc.Envelope) ([]byte, *protoipc.RPCError) {
@@ -239,7 +239,7 @@ func (a *App) handleProtoBrowserInstanceRestart(ctx context.Context, request pro
 	if err != nil {
 		return nil, protoBrowserOperationError("重启浏览器实例失败", err)
 	}
-	return encodeProtoBrowserProfileResponse(profile)
+	return a.encodeProtoBrowserProfileResponse(profile)
 }
 
 func (a *App) handleProtoBrowserInstanceStartByCode(ctx context.Context, request protoipc.Envelope) ([]byte, *protoipc.RPCError) {
@@ -259,7 +259,7 @@ func (a *App) handleProtoBrowserInstanceStartByCode(ctx context.Context, request
 	if err != nil {
 		return nil, protoBrowserOperationError("通过 LaunchCode 启动浏览器实例失败", err)
 	}
-	return encodeProtoBrowserProfileResponse(profile)
+	return a.encodeProtoBrowserProfileResponse(profile)
 }
 
 func (a *App) handleProtoBrowserTagList(ctx context.Context, request protoipc.Envelope) ([]byte, *protoipc.RPCError) {
@@ -288,7 +288,7 @@ func (a *App) handleProtoBrowserProfileSetKeywords(ctx context.Context, request 
 	if err != nil {
 		return nil, protoBrowserOperationError("设置浏览器实例关键字失败", err)
 	}
-	return encodeProtoBrowserProfileResponse(profile)
+	return a.encodeProtoBrowserProfileResponse(profile)
 }
 
 func (a *App) handleProtoBrowserProfileBatchSetTags(ctx context.Context, request protoipc.Envelope) ([]byte, *protoipc.RPCError) {
@@ -471,7 +471,7 @@ func (a *App) handleProtoBrowserProfileSwitchProxyNow(ctx context.Context, reque
 	if err != nil {
 		return nil, protoBrowserOperationError("浏览器实例即时切换代理失败", err)
 	}
-	return encodeProtoBrowserProfileResponse(profile)
+	return a.encodeProtoBrowserProfileResponse(profile)
 }
 
 func (a *App) handleProtoBrowserInstanceOpenURL(ctx context.Context, request protoipc.Envelope) ([]byte, *protoipc.RPCError) {
@@ -610,7 +610,7 @@ func protoBrowserOperationError(message string, err error) *protoipc.RPCError {
 	}
 }
 
-func encodeProtoBrowserProfileResponse(profile *BrowserProfile) ([]byte, *protoipc.RPCError) {
+func (a *App) encodeProtoBrowserProfileResponse(profile *BrowserProfile) ([]byte, *protoipc.RPCError) {
 	if profile == nil {
 		return nil, &protoipc.RPCError{
 			Code:    protoipc.ErrorCodeInternal,
@@ -618,7 +618,7 @@ func encodeProtoBrowserProfileResponse(profile *BrowserProfile) ([]byte, *protoi
 		}
 	}
 	return protoipc.EncodeBrowserProfileResponse(protoipc.BrowserProfileResponse{
-		Profile: browserProfileToProto(*profile),
+		Profile: a.browserProfileToProto(*profile),
 	}), nil
 }
 
@@ -662,10 +662,11 @@ func encodeProtoBrowserGroupResponse(group *BrowserGroup) ([]byte, *protoipc.RPC
 	}), nil
 }
 
-func browserProfilesToProto(profiles []BrowserProfile) []protoipc.BrowserProfile {
+func (a *App) browserProfilesToProto(profiles []BrowserProfile) []protoipc.BrowserProfile {
 	out := make([]protoipc.BrowserProfile, 0, len(profiles))
+	identities := a.browserInstanceIdentityMap()
 	for _, profile := range profiles {
-		out = append(out, browserProfileToProto(profile))
+		out = append(out, browserProfileToProto(profile, identities[profile.ProfileId]))
 	}
 	return out
 }
@@ -758,8 +759,13 @@ func int32FromInterface(value interface{}) int32 {
 	}
 }
 
-func browserProfileToProto(profile BrowserProfile) protoipc.BrowserProfile {
-	return protoipc.BrowserProfile{
+func (a *App) browserProfileToProto(profile BrowserProfile) protoipc.BrowserProfile {
+	identity, _ := a.browserInstanceIdentityForProfileID(profile.ProfileId)
+	return browserProfileToProto(profile, identity)
+}
+
+func browserProfileToProto(profile BrowserProfile, identity browserInstanceIdentity) protoipc.BrowserProfile {
+	result := protoipc.BrowserProfile{
 		ProfileID:                    profile.ProfileId,
 		ProfileName:                  profile.ProfileName,
 		UserDataDir:                  profile.UserDataDir,
@@ -793,4 +799,9 @@ func browserProfileToProto(profile BrowserProfile) protoipc.BrowserProfile {
 		LastStartAt:                  profile.LastStartAt,
 		LastStopAt:                   profile.LastStopAt,
 	}
+	if identity.Index > 0 {
+		result.InstanceMarkerIndex = int32(identity.Index)
+		result.InstanceMarker = identity.Marker
+	}
+	return result
 }

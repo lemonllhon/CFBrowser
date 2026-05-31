@@ -23,6 +23,14 @@ func TestBrowserInstanceIdentityUsesStableProfileOrder(t *testing.T) {
 	if !strings.HasPrefix(identity.Marker, "[Trace #02] Beta") {
 		t.Fatalf("unexpected marker: %q", identity.Marker)
 	}
+
+	protoProfile := app.browserProfileToProto(*app.browserMgr.Profiles["profile-b"])
+	if protoProfile.InstanceMarkerIndex != 2 {
+		t.Fatalf("expected proto profile marker index 2, got %d", protoProfile.InstanceMarkerIndex)
+	}
+	if protoProfile.InstanceMarker != identity.Marker {
+		t.Fatalf("expected proto profile marker %q, got %q", identity.Marker, protoProfile.InstanceMarker)
+	}
 }
 
 func TestRenderBrowserInstanceIconWritesICOHeader(t *testing.T) {

@@ -58,9 +58,46 @@ func (a *App) browserInstanceIdentityForProfileID(profileId string) (browserInst
 	return a.browserInstanceIdentityLocked(profile), true
 }
 
+func (a *App) browserInstanceIdentityMap() map[string]browserInstanceIdentity {
+	out := make(map[string]browserInstanceIdentity)
+	if a == nil || a.browserMgr == nil {
+		return out
+	}
+	a.browserMgr.Mutex.Lock()
+	defer a.browserMgr.Mutex.Unlock()
+	indexes := a.browserInstanceDisplayIndexMapLocked()
+	for profileId, profile := range a.browserMgr.Profiles {
+		if profile == nil {
+			continue
+		}
+		index := indexes[profileId]
+		if index <= 0 {
+			index = 1
+		}
+		name := browserInstanceMarkerName(profile.ProfileName, profile.ProfileId)
+		out[profileId] = browserInstanceIdentity{
+			ProfileId: profile.ProfileId,
+			Marker:    fmt.Sprintf("[Trace #%02d] %s", index, name),
+			Index:     index,
+			DebugPort: profile.DebugPort,
+			Pid:       profile.Pid,
+		}
+	}
+	return out
+}
+
 func (a *App) browserInstanceDisplayIndexLocked(profileId string) int {
+	indexes := a.browserInstanceDisplayIndexMapLocked()
+	if index := indexes[profileId]; index > 0 {
+		return index
+	}
+	return 1
+}
+
+func (a *App) browserInstanceDisplayIndexMapLocked() map[string]int {
+	out := make(map[string]int)
 	if a == nil || a.browserMgr == nil || len(a.browserMgr.Profiles) == 0 {
-		return 1
+		return out
 	}
 	type profileOrderItem struct {
 		id        string
@@ -88,11 +125,9 @@ func (a *App) browserInstanceDisplayIndexLocked(profileId string) int {
 		return items[i].id < items[j].id
 	})
 	for i, item := range items {
-		if item.id == profileId {
-			return i + 1
-		}
+		out[item.id] = i + 1
 	}
-	return 1
+	return out
 }
 
 func browserInstanceMarkerName(profileName string, profileId string) string {

@@ -54,6 +54,7 @@ type ColumnOption = {
 
 const PROFILE_COLUMN_OPTIONS: ColumnOption[] = [
   { key: 'selection', label: '选择', locked: true },
+  { key: 'instanceMarkerIndex', label: '窗口标识' },
   { key: 'profileName', label: '实例名称' },
   { key: 'running', label: '状态' },
   { key: 'coreId', label: '核心' },
@@ -64,8 +65,8 @@ const PROFILE_COLUMN_OPTIONS: ColumnOption[] = [
   { key: 'actions', label: '操作', locked: true },
 ]
 
-const DEFAULT_PROFILE_COLUMN_KEYS = ['selection', 'profileName', 'running', 'coreId', 'proxyId', 'launchCode', 'actions']
-const PROFILE_COLUMNS_STORAGE_KEY = 'browser:profileTableColumns:v1'
+const DEFAULT_PROFILE_COLUMN_KEYS = ['selection', 'instanceMarkerIndex', 'profileName', 'running', 'coreId', 'proxyId', 'launchCode', 'actions']
+const PROFILE_COLUMNS_STORAGE_KEY = 'browser:profileTableColumns:v2'
 function readStoredColumnKeys(storageKey: string, defaults: string[], allowedKeys: readonly string[]) {
   try {
     const parsed = JSON.parse(localStorage.getItem(storageKey) || '[]')
@@ -133,6 +134,16 @@ const resolveProfileStatus = (running: boolean, debugReady: boolean, starting: b
   }
   return { variant: 'warning' as const, label: '已停止' }
 }
+
+const formatInstanceMarkerLabel = (profile: BrowserProfile) => {
+  const index = Number(profile.instanceMarkerIndex || 0)
+  if (index > 0) {
+    return `#${String(index).padStart(2, '0')}`
+  }
+  const match = String(profile.instanceMarker || '').match(/#(\d{1,3})/)
+  return match ? `#${match[1].padStart(2, '0')}` : '-'
+}
+
 const formatTime = (value?: string) => {
   if (!value) return '-'
   const date = new Date(value)
@@ -1274,6 +1285,23 @@ export function BrowserListPage() {
       ),
     },
     {
+      key: 'instanceMarkerIndex',
+      title: '标识',
+      width: 76,
+      align: 'center',
+      render: (_, record) => {
+        const label = formatInstanceMarkerLabel(record)
+        return (
+          <span
+            className="inline-flex h-6 min-w-[3.25rem] items-center justify-center rounded-md border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] px-2 font-mono text-xs font-semibold text-[var(--color-text-primary)]"
+            title={record.instanceMarker || `Trace ${label}`}
+          >
+            {label}
+          </span>
+        )
+      },
+    },
+    {
       key: 'profileName',
       title: '实例名称',
       render: (value, record) => (
@@ -1577,6 +1605,12 @@ export function BrowserListPage() {
                             checked={isSelected}
                             onChange={() => toggleSelect(record.profileId)}
                           />
+                          <span
+                            className="inline-flex h-6 min-w-[3.25rem] items-center justify-center rounded-md border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] px-2 font-mono text-xs font-semibold text-[var(--color-text-primary)]"
+                            title={record.instanceMarker || `Trace ${formatInstanceMarkerLabel(record)}`}
+                          >
+                            {formatInstanceMarkerLabel(record)}
+                          </span>
                           <div className="flex items-center gap-1.5 min-w-0">
                             <Link className="text-[var(--color-accent)] font-medium text-sm hover:text-[var(--color-accent)] transition-colors truncate max-w-[200px]" to={`/browser/detail/${record.profileId}`}>
                               {record.profileName}
