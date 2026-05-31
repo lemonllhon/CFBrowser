@@ -21,6 +21,12 @@ Unicode True
 !include "MUI2.nsh"
 !include "LogicLib.nsh"
 
+!ifdef BESTCOMPRESSION
+  SetCompressor /SOLID lzma
+!else
+  SetCompressor lzma
+!endif
+
 !macro RunCleanupHelper HELPER_PATH EXCLUDE_PATH RETRY_LABEL
   DetailPrint "正在关闭安装目录中的残留进程: $INSTDIR"
   ExecWait '"${HELPER_PATH}" -install-dir "$INSTDIR" -exclude "${EXCLUDE_PATH}" -timeout 10' $2
@@ -63,11 +69,6 @@ OutFile "..\publish\output\TraceBrowser-Setup-${VERSION}.exe"
 InstallDir "${INSTALL_DIR}"
 InstallDirRegKey HKLM "${UNINSTALL_KEY}" "InstallLocation"
 RequestExecutionLevel admin
-!ifdef BESTCOMPRESSION
-  SetCompressor /SOLID lzma
-!else
-  SetCompressor lzma
-!endif
 
 !define MUI_ICON "..\build\windows\icon.ico"
 !define MUI_UNICON "..\build\windows\icon.ico"

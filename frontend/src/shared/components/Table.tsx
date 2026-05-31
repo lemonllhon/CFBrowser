@@ -1,4 +1,4 @@
-import { ReactNode } from 'react'
+import type { HTMLAttributes, MouseEvent, ReactNode } from 'react'
 import clsx from 'clsx'
 import { ArrowUp, ArrowDown } from 'lucide-react'
 
@@ -34,6 +34,7 @@ interface TableProps<T> {
   sortOrder?: SortOrder // 当前排序方式
   tableLayout?: 'auto' | 'fixed'
   tableMinWidth?: string
+  getRowProps?: (record: T, index: number) => HTMLAttributes<HTMLTableRowElement>
 }
 
 export function Table<T extends Record<string, any>>({
@@ -51,6 +52,7 @@ export function Table<T extends Record<string, any>>({
   sortOrder,
   tableLayout = 'auto',
   tableMinWidth,
+  getRowProps,
 }: TableProps<T>) {
   const getRowKey = (record: T, index: number): string => {
     if (typeof rowKey === 'function') {
@@ -153,31 +155,47 @@ export function Table<T extends Record<string, any>>({
               </td>
             </tr>
           ) : (
-            data.map((record, index) => (
-              <tr
-                key={getRowKey(record, index)}
-                className={clsx(
-                  'hover:bg-[var(--color-bg-muted)]/50 transition-colors duration-150',
-                  onRowClick && 'cursor-pointer'
-                )}
-                onClick={() => onRowClick?.(record)}
-              >
-                {columns.map((col) => (
-                  <td
-                    key={col.key}
-                    className={clsx(
-                      'px-4 py-3.5 text-sm text-[var(--color-text-secondary)]',
-                      col.align === 'center' && 'text-center',
-                      col.align === 'right' && 'text-right'
-                    )}
-                  >
-                    {col.render
-                      ? col.render(record[col.key], record, index)
-                      : record[col.key]}
-                  </td>
-                ))}
-              </tr>
-            ))
+            data.map((record, index) => {
+              const rowProps = getRowProps?.(record, index) || {}
+              const {
+                className: rowClassName,
+                onClick: rowOnClick,
+                ...restRowProps
+              } = rowProps
+
+              return (
+                <tr
+                  key={getRowKey(record, index)}
+                  {...restRowProps}
+                  className={clsx(
+                    'hover:bg-[var(--color-bg-muted)]/50 transition-colors duration-150',
+                    onRowClick && 'cursor-pointer',
+                    rowClassName
+                  )}
+                  onClick={(event: MouseEvent<HTMLTableRowElement>) => {
+                    rowOnClick?.(event)
+                    if (!event.defaultPrevented) {
+                      onRowClick?.(record)
+                    }
+                  }}
+                >
+                  {columns.map((col) => (
+                    <td
+                      key={col.key}
+                      className={clsx(
+                        'px-4 py-3.5 text-sm text-[var(--color-text-secondary)]',
+                        col.align === 'center' && 'text-center',
+                        col.align === 'right' && 'text-right'
+                      )}
+                    >
+                      {col.render
+                        ? col.render(record[col.key], record, index)
+                        : record[col.key]}
+                    </td>
+                  ))}
+                </tr>
+              )
+            })
           )}
         </tbody>
       </table>

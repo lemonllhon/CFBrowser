@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Activity, CheckCircle, ChevronDown, ChevronRight, ChevronUp, Copy, Download, Edit2, Eraser, FileText, Focus, Key, Layers, Pencil, Play, Plus, RefreshCw, RotateCcw, Settings, Shuffle, Sliders, Square, Star, Trash2, XCircle, LayoutGrid, List, MonitorUp } from 'lucide-react'
+import { Activity, CheckCircle, ChevronDown, ChevronRight, ChevronUp, Copy, Download, Edit2, Eraser, FileText, Focus, GripVertical, Key, Layers, Pencil, Play, Plus, RefreshCw, RotateCcw, Settings, Shuffle, Sliders, Square, Star, Trash2, XCircle, LayoutGrid, List, MonitorUp } from 'lucide-react'
 import { Badge, Button, Card, ConfirmModal, FormItem, Input, Modal, StatCard, Switch, Table, Textarea, toast } from '../../../shared/components'
 import type { TableColumn } from '../../../shared/components/Table'
 import type { BrowserCore, BrowserCoreInput, BrowserProfile, BrowserProxy, BrowserSettings, BrowserGroupWithCount, WindowSyncCandidate, WindowSyncLayoutSettings, WindowSyncSettings, WindowSyncState } from '../types'
@@ -54,6 +54,7 @@ type ColumnOption = {
 
 const PROFILE_COLUMN_OPTIONS: ColumnOption[] = [
   { key: 'selection', label: '选择', locked: true },
+  { key: 'dragHandle', label: '排序', locked: true },
   { key: 'instanceMarkerIndex', label: '窗口标识' },
   { key: 'profileName', label: '实例名称' },
   { key: 'running', label: '状态' },
@@ -65,8 +66,9 @@ const PROFILE_COLUMN_OPTIONS: ColumnOption[] = [
   { key: 'actions', label: '操作', locked: true },
 ]
 
-const DEFAULT_PROFILE_COLUMN_KEYS = ['selection', 'instanceMarkerIndex', 'profileName', 'running', 'coreId', 'proxyId', 'launchCode', 'actions']
+const DEFAULT_PROFILE_COLUMN_KEYS = ['selection', 'dragHandle', 'instanceMarkerIndex', 'profileName', 'running', 'coreId', 'proxyId', 'launchCode', 'actions']
 const PROFILE_COLUMNS_STORAGE_KEY = 'browser:profileTableColumns:v2'
+const PROFILE_ORDER_STORAGE_KEY = 'browser:profileOrder:v1'
 function readStoredColumnKeys(storageKey: string, defaults: string[], allowedKeys: readonly string[]) {
   try {
     const parsed = JSON.parse(localStorage.getItem(storageKey) || '[]')
@@ -76,6 +78,40 @@ function readStoredColumnKeys(storageKey: string, defaults: string[], allowedKey
     }
   } catch { /* ignore */ }
   return defaults
+}
+
+function readStoredProfileOrder() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PROFILE_ORDER_STORAGE_KEY) || '[]')
+    if (Array.isArray(parsed)) {
+      return Array.from(new Set(parsed.filter((item): item is string => typeof item === 'string' && item.length > 0)))
+    }
+  } catch { /* ignore */ }
+  return []
+}
+
+const areStringArraysEqual = (left: string[], right: string[]) => {
+  if (left.length !== right.length) return false
+  return left.every((item, index) => item === right[index])
+}
+
+const naturalCompareText = (a: string, b: string): number => {
+  const re = /(\d+)|(\D+)/g
+  const partsA = a.match(re) || []
+  const partsB = b.match(re) || []
+  for (let i = 0; i < Math.max(partsA.length, partsB.length); i++) {
+    if (i >= partsA.length) return -1
+    if (i >= partsB.length) return 1
+    const pa = partsA[i], pb = partsB[i]
+    const na = Number(pa), nb = Number(pb)
+    if (!isNaN(na) && !isNaN(nb)) {
+      if (na !== nb) return na - nb
+    } else {
+      const cmp = pa.localeCompare(pb, 'zh-CN')
+      if (cmp !== 0) return cmp
+    }
+  }
+  return 0
 }
 
 // 批量操作工具栏
@@ -336,8 +372,15 @@ export function BrowserListPage() {
     return (localStorage.getItem('browser:viewMode') as 'card' | 'table') || 'table'
   })
   const [visibleColumnKeys, setVisibleColumnKeys] = useState<string[]>(() => (
-    readStoredColumnKeys(PROFILE_COLUMNS_STORAGE_KEY, DEFAULT_PROFILE_COLUMN_KEYS, PROFILE_COLUMN_OPTIONS.map(item => item.key))
+    Array.from(new Set([
+      ...PROFILE_COLUMN_OPTIONS.filter(item => item.locked).map(item => item.key),
+      ...readStoredColumnKeys(PROFILE_COLUMNS_STORAGE_KEY, DEFAULT_PROFILE_COLUMN_KEYS, PROFILE_COLUMN_OPTIONS.map(item => item.key)),
+    ]))
   ))
+  const [profileOrder, setProfileOrder] = useState<string[]>(readStoredProfileOrder)
+  const [draggingProfileId, setDraggingProfileId] = useState<string | null>(null)
+  const [dragOverProfileId, setDragOverProfileId] = useState<string | null>(null)
+  const [dragOverPlacement, setDragOverPlacement] = useState<'before' | 'after'>('before')
 
   // 勾选状态
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -367,6 +410,10 @@ export function BrowserListPage() {
   useEffect(() => {
     localStorage.setItem('browser:viewMode', viewMode)
   }, [viewMode])
+
+  useEffect(() => {
+    localStorage.setItem(PROFILE_ORDER_STORAGE_KEY, JSON.stringify(profileOrder))
+  }, [profileOrder])
 
   useEffect(() => {
     const lockedKeys = PROFILE_COLUMN_OPTIONS.filter(item => item.locked).map(item => item.key)
@@ -477,6 +524,20 @@ export function BrowserListPage() {
     setProfiles(next)
   }
 
+  const reconcileProfileOrder = (items: BrowserProfile[]) => {
+    setProfileOrder(prev => {
+      const existingIds = new Set(items.map(item => item.profileId))
+      const keptIds = prev.filter(id => existingIds.has(id))
+      const keptSet = new Set(keptIds)
+      const appendedIds = items
+        .filter(item => !keptSet.has(item.profileId))
+        .sort((a, b) => naturalCompareText(a.profileName, b.profileName))
+        .map(item => item.profileId)
+      const next = [...keptIds, ...appendedIds]
+      return areStringArraysEqual(prev, next) ? prev : next
+    })
+  }
+
   const mergeProfileState = (profile: BrowserProfile | null | undefined) => {
     if (!profile) return
     updateProfilesState(prev => prev.map(item => (
@@ -500,6 +561,7 @@ export function BrowserListPage() {
       })
     }
     replaceProfilesState(items)
+    reconcileProfileOrder(items)
   }
 
   const loadProfiles = async ({ silent = false, syncRuntimeState = false }: { silent?: boolean; syncRuntimeState?: boolean } = {}) => {
@@ -670,24 +732,7 @@ export function BrowserListPage() {
   )
 
   const filteredProfiles = useMemo(() => {
-    const naturalCompare = (a: string, b: string): number => {
-      const re = /(\d+)|(\D+)/g
-      const partsA = a.match(re) || []
-      const partsB = b.match(re) || []
-      for (let i = 0; i < Math.max(partsA.length, partsB.length); i++) {
-        if (i >= partsA.length) return -1
-        if (i >= partsB.length) return 1
-        const pa = partsA[i], pb = partsB[i]
-        const na = Number(pa), nb = Number(pb)
-        if (!isNaN(na) && !isNaN(nb)) {
-          if (na !== nb) return na - nb
-        } else {
-          const cmp = pa.localeCompare(pb, 'zh-CN')
-          if (cmp !== 0) return cmp
-        }
-      }
-      return 0
-    }
+    const profileOrderIndex = new Map(profileOrder.map((profileId, index) => [profileId, index]))
     return profiles.filter(p => {
       // 分组筛选
       if (filters.groupId === '__ungrouped__' && p.groupId) return false
@@ -709,8 +754,17 @@ export function BrowserListPage() {
         if (!hit) return false
       }
       return true
-    }).sort((a, b) => naturalCompare(a.profileName, b.profileName))
-  }, [profiles, filters, defaultCore, cores])
+    }).sort((a, b) => {
+      const orderA = profileOrderIndex.get(a.profileId)
+      const orderB = profileOrderIndex.get(b.profileId)
+      if (orderA !== undefined || orderB !== undefined) {
+        if (orderA === undefined) return 1
+        if (orderB === undefined) return -1
+        if (orderA !== orderB) return orderA - orderB
+      }
+      return naturalCompareText(a.profileName, b.profileName)
+    })
+  }, [profiles, filters, defaultCore, cores, profileOrder])
 
   const handleStart = async (profileId: string) => {
     const profile = profiles.find(p => p.profileId === profileId)
@@ -1054,7 +1108,120 @@ export function BrowserListPage() {
     })
   }
 
+  const getProfileDragPlacement = (event: React.DragEvent<HTMLElement>, layout: 'table' | 'card'): 'before' | 'after' => {
+    const rect = event.currentTarget.getBoundingClientRect()
+    if (layout === 'card' && rect.width > rect.height) {
+      const verticalDistance = Math.abs(event.clientY - (rect.top + rect.height / 2))
+      if (verticalDistance < rect.height * 0.35) {
+        return event.clientX > rect.left + rect.width / 2 ? 'after' : 'before'
+      }
+    }
+    return event.clientY > rect.top + rect.height / 2 ? 'after' : 'before'
+  }
 
+  const reorderProfileOrder = (sourceId: string, targetId: string, placement: 'before' | 'after') => {
+    if (sourceId === targetId) return
+    const visibleIds = filteredProfiles.map(item => item.profileId)
+    if (!visibleIds.includes(sourceId) || !visibleIds.includes(targetId)) return
+
+    const visibleWithoutSource = visibleIds.filter(id => id !== sourceId)
+    const targetIndex = visibleWithoutSource.indexOf(targetId)
+    if (targetIndex < 0) return
+
+    const insertIndex = placement === 'after' ? targetIndex + 1 : targetIndex
+    const nextVisibleIds = [
+      ...visibleWithoutSource.slice(0, insertIndex),
+      sourceId,
+      ...visibleWithoutSource.slice(insertIndex),
+    ]
+    const visibleSet = new Set(nextVisibleIds)
+
+    setProfileOrder(prev => {
+      const currentProfiles = profilesRef.current
+      const currentIds = currentProfiles.map(item => item.profileId)
+      const currentIdSet = new Set(currentIds)
+      const prevSet = new Set(prev)
+      const appendedIds = currentProfiles
+        .filter(item => !prevSet.has(item.profileId))
+        .sort((a, b) => naturalCompareText(a.profileName, b.profileName))
+        .map(item => item.profileId)
+      const fullOrder = [
+        ...prev.filter(id => currentIdSet.has(id)),
+        ...appendedIds,
+      ]
+
+      let visibleIndex = 0
+      const next = fullOrder.map(id => {
+        if (!visibleSet.has(id)) return id
+        return nextVisibleIds[visibleIndex++]
+      })
+      return areStringArraysEqual(prev, next) ? prev : next
+    })
+  }
+
+  const handleProfileDragStart = (event: React.DragEvent<HTMLElement>, profileId: string) => {
+    event.stopPropagation()
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('application/x-trace-profile-id', profileId)
+    event.dataTransfer.setData('text/plain', profileId)
+    setDraggingProfileId(profileId)
+    setDragOverProfileId(null)
+  }
+
+  const handleProfileDragOver = (event: React.DragEvent<HTMLElement>, targetId: string, layout: 'table' | 'card') => {
+    if (!draggingProfileId || draggingProfileId === targetId) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+    const placement = getProfileDragPlacement(event, layout)
+    setDragOverProfileId(prev => prev === targetId ? prev : targetId)
+    setDragOverPlacement(prev => prev === placement ? prev : placement)
+  }
+
+  const handleProfileDragLeave = (event: React.DragEvent<HTMLElement>, targetId: string) => {
+    const relatedTarget = event.relatedTarget as Node | null
+    if (relatedTarget && event.currentTarget.contains(relatedTarget)) return
+    setDragOverProfileId(prev => prev === targetId ? null : prev)
+  }
+
+  const handleProfileDrop = (event: React.DragEvent<HTMLElement>, targetId: string, layout: 'table' | 'card') => {
+    event.preventDefault()
+    const sourceId = event.dataTransfer.getData('application/x-trace-profile-id') || event.dataTransfer.getData('text/plain') || draggingProfileId
+    if (sourceId) {
+      reorderProfileOrder(sourceId, targetId, getProfileDragPlacement(event, layout))
+    }
+    handleProfileDragEnd()
+  }
+
+  const handleProfileDragEnd = () => {
+    setDraggingProfileId(null)
+    setDragOverProfileId(null)
+  }
+
+  const getProfileDragClassName = (profileId: string) => {
+    const classes: string[] = []
+    if (draggingProfileId === profileId) {
+      classes.push('opacity-60')
+    }
+    if (dragOverProfileId === profileId) {
+      classes.push('bg-[var(--color-accent)]/5')
+      classes.push(dragOverPlacement === 'before' ? 'shadow-[inset_0_3px_0_var(--color-accent)]' : 'shadow-[inset_0_-3px_0_var(--color-accent)]')
+    }
+    return classes.join(' ')
+  }
+
+  const renderProfileDragHandle = (record: BrowserProfile) => (
+    <button
+      type="button"
+      draggable
+      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--color-text-muted)] hover:bg-[var(--color-bg-secondary)] hover:text-[var(--color-text-primary)] cursor-grab active:cursor-grabbing"
+      title="拖动排序"
+      aria-label={`拖动排序 ${record.profileName}`}
+      onDragStart={(event) => handleProfileDragStart(event, record.profileId)}
+      onDragEnd={handleProfileDragEnd}
+    >
+      <GripVertical className="h-4 w-4" />
+    </button>
+  )
 
   const handleSelectAll = () => {
     setSelectedIds(new Set(filteredProfiles.map(p => p.profileId)))
@@ -1283,6 +1450,13 @@ export function BrowserListPage() {
           onChange={() => toggleSelect(record.profileId)}
         />
       ),
+    },
+    {
+      key: 'dragHandle',
+      title: <span className="sr-only">排序</span>,
+      width: 44,
+      align: 'center',
+      render: (_, record) => renderProfileDragHandle(record),
     },
     {
       key: 'instanceMarkerIndex',
@@ -1568,6 +1742,12 @@ export function BrowserListPage() {
               columns={columns}
               data={filteredProfiles}
               rowKey="profileId"
+              getRowProps={(record) => ({
+                onDragOver: (event) => handleProfileDragOver(event, record.profileId, 'table'),
+                onDragLeave: (event) => handleProfileDragLeave(event, record.profileId),
+                onDrop: (event) => handleProfileDrop(event, record.profileId, 'table'),
+                className: getProfileDragClassName(record.profileId),
+              })}
             />
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 min-h-[500px] p-4 items-start content-start">
@@ -1590,8 +1770,12 @@ export function BrowserListPage() {
                 return (
                   <div
                     key={record.profileId}
+                    onDragOver={(event) => handleProfileDragOver(event, record.profileId, 'card')}
+                    onDragLeave={(event) => handleProfileDragLeave(event, record.profileId)}
+                    onDrop={(event) => handleProfileDrop(event, record.profileId, 'card')}
                     className={`flex flex-col border rounded-xl bg-[var(--color-bg-surface)] p-3 shadow-[0_1px_4px_rgba(0,0,0,0.08)] transition-all duration-200 h-[320px] overflow-hidden
                         ${isSelected ? 'border-[var(--color-accent)] ring-1 ring-[var(--color-accent)]/20' : 'border-[var(--color-border-default)] hover:border-[var(--color-accent)]'}
+                        ${getProfileDragClassName(record.profileId)}
                       `}
                   >
                     {/* Header Row: Title, Status, Checkbox, Actions */}
@@ -1599,6 +1783,7 @@ export function BrowserListPage() {
 
                       <div className="flex justify-between items-start gap-2">
                         <div className="flex items-center gap-2 flex-wrap">
+                          {renderProfileDragHandle(record)}
                           <input
                             type="checkbox"
                             className="w-4 h-4 rounded cursor-pointer accent-[var(--color-accent)] mt-0.5 shrink-0"
