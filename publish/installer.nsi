@@ -14,107 +14,46 @@ Unicode True
 !define PRODUCT_EXE     "trace-browser.exe"
 !define UNINSTALL_KEY   "Software\Microsoft\Windows\CurrentVersion\Uninstall\TraceBrowser"
 !define INSTALL_DIR     "$PROGRAMFILES64\Trace Browser"
-!define POWERSHELL_EXE  "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe"
+!ifndef CLEANUPHELPER
+  !define CLEANUPHELPER "..\publish\output\trace-installer-cleanup.exe"
+!endif
 
 !include "MUI2.nsh"
 !include "LogicLib.nsh"
 
-!macro WriteCloseProcessScript HANDLE
-  FileWrite ${HANDLE} "param([string]$$InstallDir, [string]$$ExcludePath)$\r$\n"
-  FileWrite ${HANDLE} "$$ErrorActionPreference = 'SilentlyContinue'$\r$\n"
-  FileWrite ${HANDLE} "if ([string]::IsNullOrWhiteSpace($$InstallDir) -or -not (Test-Path -LiteralPath $$InstallDir)) { exit 0 }$\r$\n"
-  FileWrite ${HANDLE} "$$root = [System.IO.Path]::GetFullPath($$InstallDir).TrimEnd('\') + '\'$\r$\n"
-  FileWrite ${HANDLE} "$$exclude = ''$\r$\n"
-  FileWrite ${HANDLE} "if (-not [string]::IsNullOrWhiteSpace($$ExcludePath)) { $$exclude = [System.IO.Path]::GetFullPath($$ExcludePath) }$\r$\n"
-  FileWrite ${HANDLE} "function Get-TraceBrowserProcesses {$\r$\n"
-  FileWrite ${HANDLE} "  @(Get-CimInstance Win32_Process | Where-Object {$\r$\n"
-  FileWrite ${HANDLE} "    $$_.ExecutablePath -and $$_.ExecutablePath.StartsWith($$root, [System.StringComparison]::OrdinalIgnoreCase) -and ($$exclude -eq '' -or -not $$_.ExecutablePath.Equals($$exclude, [System.StringComparison]::OrdinalIgnoreCase))$\r$\n"
-  FileWrite ${HANDLE} "  })$\r$\n"
-  FileWrite ${HANDLE} "}$\r$\n"
-  FileWrite ${HANDLE} "$$deadline = (Get-Date).AddSeconds(10)$\r$\n"
-  FileWrite ${HANDLE} "do {$\r$\n"
-  FileWrite ${HANDLE} "  $$procs = Get-TraceBrowserProcesses$\r$\n"
-  FileWrite ${HANDLE} "  if (-not $$procs -or $$procs.Count -eq 0) { exit 0 }$\r$\n"
-  FileWrite ${HANDLE} "  foreach ($$p in $$procs) { try { Stop-Process -Id $$p.ProcessId -Force -ErrorAction Stop } catch {} }$\r$\n"
-  FileWrite ${HANDLE} "  Start-Sleep -Milliseconds 400$\r$\n"
-  FileWrite ${HANDLE} "} while ((Get-Date) -lt $$deadline)$\r$\n"
-  FileWrite ${HANDLE} "$$left = Get-TraceBrowserProcesses$\r$\n"
-  FileWrite ${HANDLE} "if ($$left -and $$left.Count -gt 0) {$\r$\n"
-  FileWrite ${HANDLE} "  $$names = ($$left | ForEach-Object { $$_.Name + '#' + $$_.ProcessId }) -join ', '$\r$\n"
-  FileWrite ${HANDLE} "  Write-Host ('still running: ' + $$names)$\r$\n"
-  FileWrite ${HANDLE} "  exit 1$\r$\n"
-  FileWrite ${HANDLE} "}$\r$\n"
-  FileWrite ${HANDLE} "exit 0$\r$\n"
+!macro RunCleanupHelper HELPER_PATH EXCLUDE_PATH RETRY_LABEL
+  DetailPrint "正在关闭安装目录中的残留进程: $INSTDIR"
+  ExecWait '"${HELPER_PATH}" -install-dir "$INSTDIR" -exclude "${EXCLUDE_PATH}" -timeout 10' $2
+
+  ${If} $2 == 0
+    Goto done
+  ${EndIf}
+
+  MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "检测到旧版本仍有进程占用安装目录。$\r$\n$\r$\n目录：$INSTDIR$\r$\n$\r$\n点击“重试”将再次尝试关闭残留进程，点击“取消”将终止本次操作。" IDRETRY ${RETRY_LABEL} IDCANCEL cleanup_abort
+
+cleanup_abort:
+  Abort "操作已取消：安装目录中的旧进程仍未退出。"
 !macroend
 
 Function CloseInstalledProcesses
   IfFileExists "$INSTDIR" 0 done
+  InitPluginsDir
+  SetOverwrite on
+  File /oname=$PLUGINSDIR\trace-installer-cleanup.exe "${CLEANUPHELPER}"
 
-retry_powershell:
-  IfFileExists "${POWERSHELL_EXE}" 0 fallback_taskkill
-
-  GetTempFileName $0
-  Delete $0
-  StrCpy $0 "$0.ps1"
-  FileOpen $1 $0 w
-  !insertmacro WriteCloseProcessScript $1
-  FileClose $1
-
-  DetailPrint "正在关闭安装目录中的残留进程: $INSTDIR"
-  ExecWait '"${POWERSHELL_EXE}" -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "$0" -InstallDir "$INSTDIR" -ExcludePath ""' $2
-  Delete $0
-
-  ${If} $2 == 0
-    Goto done
-  ${EndIf}
-
-  MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "检测到旧版本仍有进程占用安装目录。$\r$\n$\r$\n目录：$INSTDIR$\r$\n$\r$\n点击“重试”将再次尝试关闭残留进程，点击“取消”将终止本次安装。" IDRETRY retry_powershell IDCANCEL install_abort
-
-install_abort:
-  Abort "安装已取消：安装目录中的旧进程仍未退出。"
-
-fallback_taskkill:
-  DetailPrint "PowerShell 不可用，回退到 taskkill 清理主进程和代理进程..."
-  ExecWait '"$SYSDIR\taskkill.exe" /F /T /IM ${PRODUCT_EXE}' $2
-  ExecWait '"$SYSDIR\taskkill.exe" /F /T /IM xray.exe' $2
-  ExecWait '"$SYSDIR\taskkill.exe" /F /T /IM sing-box.exe' $2
-  Sleep 1500
+retry_cleanup:
+  !insertmacro RunCleanupHelper "$PLUGINSDIR\trace-installer-cleanup.exe" "" retry_cleanup
 
 done:
+  Delete "$PLUGINSDIR\trace-installer-cleanup.exe"
 FunctionEnd
 
 Function un.CloseInstalledProcesses
   IfFileExists "$INSTDIR" 0 done
+  IfFileExists "$INSTDIR\trace-installer-cleanup.exe" 0 done
 
-retry_powershell:
-  IfFileExists "${POWERSHELL_EXE}" 0 fallback_taskkill
-
-  GetTempFileName $0
-  Delete $0
-  StrCpy $0 "$0.ps1"
-  FileOpen $1 $0 w
-  !insertmacro WriteCloseProcessScript $1
-  FileClose $1
-
-  DetailPrint "正在关闭安装目录中的残留进程: $INSTDIR"
-  ExecWait '"${POWERSHELL_EXE}" -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "$0" -InstallDir "$INSTDIR" -ExcludePath "$INSTDIR\Uninstall.exe"' $2
-  Delete $0
-
-  ${If} $2 == 0
-    Goto done
-  ${EndIf}
-
-  MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "检测到安装目录中仍有旧进程占用文件。$\r$\n$\r$\n目录：$INSTDIR$\r$\n$\r$\n点击“重试”将再次尝试关闭残留进程，点击“取消”将终止本次卸载。" IDRETRY retry_powershell IDCANCEL uninstall_abort
-
-uninstall_abort:
-  Abort "卸载已取消：安装目录中的旧进程仍未退出。"
-
-fallback_taskkill:
-  DetailPrint "PowerShell 不可用，回退到 taskkill 清理主进程和代理进程..."
-  ExecWait '"$SYSDIR\taskkill.exe" /F /T /IM ${PRODUCT_EXE}' $2
-  ExecWait '"$SYSDIR\taskkill.exe" /F /T /IM xray.exe' $2
-  ExecWait '"$SYSDIR\taskkill.exe" /F /T /IM sing-box.exe' $2
-  Sleep 1500
+retry_cleanup:
+  !insertmacro RunCleanupHelper "$INSTDIR\trace-installer-cleanup.exe" "$INSTDIR\Uninstall.exe" retry_cleanup
 
 done:
 FunctionEnd
@@ -152,6 +91,7 @@ Section "Trace Browser (required)" SecMain
   Call CloseInstalledProcesses
   SetOutPath "$INSTDIR"
   File "${STAGINGDIR}\${PRODUCT_EXE}"
+  File /oname=trace-installer-cleanup.exe "${CLEANUPHELPER}"
 !if /FileExists "${STAGINGDIR}\config.yaml"
   IfFileExists "$INSTDIR\config.yaml" +2 0
     File "${STAGINGDIR}\config.yaml"
@@ -199,6 +139,7 @@ Section "Uninstall"
   Call un.CloseInstalledProcesses
 
   Delete /REBOOTOK "$INSTDIR\${PRODUCT_EXE}"
+  Delete /REBOOTOK "$INSTDIR\trace-installer-cleanup.exe"
   Delete /REBOOTOK "$INSTDIR\config.yaml"
   Delete /REBOOTOK "$INSTDIR\proxies.yaml"
   Delete /REBOOTOK "$INSTDIR\Uninstall.exe"

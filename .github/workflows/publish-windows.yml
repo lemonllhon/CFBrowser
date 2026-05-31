@@ -154,7 +154,17 @@ jobs:
           Push-Location frontend
           npm run build
           Pop-Location
-          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-wails3-windows.ps1 -Output build/bin/trace-browser.exe
+          & ./scripts/build-wails3-windows.ps1 -Output build/bin/trace-browser.exe
+
+      - name: Build installer cleanup helper
+        env:
+          GOPROXY: https://proxy.golang.org,direct
+        run: |
+          New-Item -ItemType Directory -Path "publish/output" -Force | Out-Null
+          go build -trimpath -buildvcs=false -ldflags "-H windowsgui" -o "publish/output/trace-installer-cleanup.exe" ./tools/installer-cleanup
+          if (-not (Test-Path -LiteralPath "publish/output/trace-installer-cleanup.exe" -PathType Leaf)) {
+            throw "Installer cleanup helper was not created"
+          }
 
       - name: Verify runtime binaries
         run: |
@@ -224,7 +234,8 @@ jobs:
         run: |
           $makensis = (Get-Command makensis.exe).Source
           $staging = (Resolve-Path "publish/staging").Path
-          & $makensis /NOCONFIG "/DVERSION=$env:VERSION" "/DSTAGINGDIR=$staging" "publish/installer.nsi"
+          $cleanupHelper = (Resolve-Path "publish/output/trace-installer-cleanup.exe").Path
+          & $makensis /NOCONFIG "/DVERSION=$env:VERSION" "/DSTAGINGDIR=$staging" "/DCLEANUPHELPER=$cleanupHelper" "publish/installer.nsi"
           if ($LASTEXITCODE -ne 0) {
             throw "makensis failed with exit code $LASTEXITCODE"
           }
