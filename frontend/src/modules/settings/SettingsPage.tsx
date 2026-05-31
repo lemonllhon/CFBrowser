@@ -3,13 +3,11 @@ import { Save, RotateCcw, Upload, Download, RefreshCw, ExternalLink } from 'luci
 import { Card, Button, FormItem, Input, Select, Switch, ThemeSwitcher, toast, Modal, Progress } from '../../shared/components'
 import {
   checkAppUpdate,
-  downloadAndExtractPortableUpdate,
   downloadAppUpdate,
   fetchAppConfig,
   fetchSettings,
   initializeSystemData,
   installDownloadedAppUpdate,
-  openPath,
   openAppReleasePage,
   resetSettings,
   saveSettings,
@@ -48,9 +46,8 @@ export function SettingsPage() {
   const [checkingUpdate, setCheckingUpdate] = useState(false)
   const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null)
   const [updateProgress, setUpdateProgress] = useState<AppUpdateDownloadProgress | null>(null)
-  const [portablePath, setPortablePath] = useState('')
   const [updateModalOpen, setUpdateModalOpen] = useState(false)
-  const [updateAction, setUpdateAction] = useState<'none' | 'download-now' | 'download-next' | 'download-portable'>('none')
+  const [updateAction, setUpdateAction] = useState<'none' | 'download-now'>('none')
   const exportLogsRef = useRef<HTMLDivElement | null>(null)
   const setImportState = useBackupStore((s) => s.setImportState)
   const clearImportState = useBackupStore((s) => s.clearImportState)
@@ -219,7 +216,6 @@ export function SettingsPage() {
   const handleCheckUpdate = async (silent = false) => {
     setCheckingUpdate(true)
     setUpdateProgress(null)
-    setPortablePath('')
     try {
       const info = await checkAppUpdate()
       setUpdateInfo(info)
@@ -242,39 +238,18 @@ export function SettingsPage() {
 
   const handleDownloadUpdate = async (installOnRestart: boolean) => {
     if (!updateInfo) return
-    const selfUpdate = updateInfo.recommendedPackageKind === 'selfupdate'
-    setUpdateProgress({ phase: 'starting', progress: 0, message: selfUpdate ? '准备通过 Wails3 官方 updater 下载更新...' : '准备下载更新安装包...' })
-    setUpdateAction(installOnRestart ? 'download-next' : 'download-now')
+    if (installOnRestart || updateInfo.recommendedPackageKind !== 'selfupdate') {
+      await openAppReleasePage(updateInfo.releaseUrl || appConfig.projectGithubUrl)
+      return
+    }
+    setUpdateProgress({ phase: 'starting', progress: 0, message: '准备通过 Wails3 官方 updater 下载更新...' })
+    setUpdateAction('download-now')
     try {
       const res = await downloadAppUpdate(updateInfo, installOnRestart)
-      toast.success(res.message || (selfUpdate ? '官方更新包已下载' : '更新安装包已下载'))
-      if (installOnRestart) {
-        setUpdateModalOpen(false)
-        setUpdateProgress(null)
-        return
-      }
-      await installDownloadedAppUpdate(res.installerPath)
+      toast.success(res.message || '官方更新包已下载')
+      await installDownloadedAppUpdate(res.installerPath || '')
     } catch (error: any) {
       toast.error(error?.message || '更新失败')
-    } finally {
-      setUpdateAction('none')
-    }
-  }
-
-  const handleDownloadPortableUpdate = async () => {
-    if (!updateInfo) return
-    setPortablePath('')
-    setUpdateProgress({ phase: 'starting', progress: 0, message: '准备下载 ZIP 便携包...' })
-    setUpdateAction('download-portable')
-    try {
-      const res = await downloadAndExtractPortableUpdate(updateInfo)
-      setPortablePath(res.extractedPath || '')
-      toast.success(res.message || 'ZIP 便携包已下载并解压')
-      if (res.restartScheduled) {
-        setUpdateModalOpen(false)
-      }
-    } catch (error: any) {
-      toast.error(error?.message || '下载或解压 ZIP 便携包失败')
     } finally {
       setUpdateAction('none')
     }
@@ -393,6 +368,8 @@ export function SettingsPage() {
   }
 
   const importRunning = actionLoading === 'import-reset' || actionLoading === 'import-merge'
+  const isManualUpdate = updateInfo?.recommendedPackageKind === 'manual'
+  const canApplyOfficialUpdate = updateInfo?.recommendedPackageKind === 'selfupdate' && !!updateInfo?.installerAsset
 
   if (loading) {
     return (
@@ -759,29 +736,15 @@ export function SettingsPage() {
             <Button variant="secondary" onClick={() => setUpdateModalOpen(false)} disabled={updateAction !== 'none'}>
               稍后
             </Button>
-            <Button variant="secondary" onClick={() => openAppReleasePage(updateInfo?.releaseUrl || appConfig.projectGithubUrl)} disabled={updateAction !== 'none'}>
+            <Button variant={isManualUpdate ? 'primary' : 'secondary'} onClick={() => openAppReleasePage(updateInfo?.releaseUrl || appConfig.projectGithubUrl)} disabled={updateAction !== 'none'}>
               <ExternalLink className="w-4 h-4" />
               打开下载页
             </Button>
-            <Button
-              variant={updateInfo?.recommendedPackageKind === 'portable' ? 'danger' : 'secondary'}
-              onClick={handleDownloadPortableUpdate}
-              loading={updateAction === 'download-portable'}
-              disabled={updateInfo?.recommendedPackageKind === 'selfupdate' || !updateInfo?.portableAsset || (updateAction !== 'none' && updateAction !== 'download-portable')}
-            >
-              {updateInfo?.canSelfUpdatePortable ? '下载 ZIP 并重启更新' : '下载 ZIP 并解压'}
-            </Button>
-            <Button
-              variant={updateInfo?.recommendedPackageKind === 'portable' ? 'secondary' : 'primary'}
-              onClick={() => handleDownloadUpdate(true)}
-              loading={updateAction === 'download-next'}
-              disabled={updateInfo?.recommendedPackageKind === 'selfupdate' || !updateInfo?.installerAsset || (updateAction !== 'none' && updateAction !== 'download-next')}
-            >
-              下载后下次启动安装
-            </Button>
-            <Button variant="danger" onClick={() => handleDownloadUpdate(false)} loading={updateAction === 'download-now'} disabled={!updateInfo?.installerAsset || (updateAction !== 'none' && updateAction !== 'download-now')}>
-              {updateInfo?.recommendedPackageKind === 'selfupdate' ? '下载并应用官方更新' : '下载安装包并安装'}
-            </Button>
+            {!isManualUpdate && (
+              <Button variant="danger" onClick={() => handleDownloadUpdate(false)} loading={updateAction === 'download-now'} disabled={!canApplyOfficialUpdate || (updateAction !== 'none' && updateAction !== 'download-now')}>
+                下载并应用官方更新
+              </Button>
+            )}
           </>
         }
       >
@@ -798,38 +761,22 @@ export function SettingsPage() {
                   {updateInfo.installerAsset.size > 0 ? `（${(updateInfo.installerAsset.size / 1024 / 1024).toFixed(1)} MB）` : ''}
                 </p>
               )}
-              {updateInfo?.portableAsset && (
-                <p>
-                  ZIP 便携包：{updateInfo.portableAsset.name}
-                  {updateInfo.portableAsset.size > 0 ? `（${(updateInfo.portableAsset.size / 1024 / 1024).toFixed(1)} MB）` : ''}
-                </p>
-              )}
             </div>
           </div>
           <p className="text-xs text-[var(--color-text-muted)]">
-            {updateInfo?.canSelfUpdatePortable
-              ? updateInfo.recommendedPackageKind === 'selfupdate'
-                ? '当前使用 Wails3 官方 updater：下载后会校验并替换当前程序，然后自动重启。'
-                : '当前为 ZIP 便携版：ZIP 更新会保留 data、logs 和已有配置，退出后替换程序文件并自动重启。'
-              : '安装包会启动安装程序；ZIP 便携包会解压到更新目录，适合不覆盖当前安装直接使用。'}
+            {isManualUpdate
+              ? '当前为解压版或开发版，请打开下载页手动下载 ZIP 解压包并自行解压使用。'
+              : '当前使用 Wails3 官方 updater：下载后会校验并替换当前程序，然后自动重启。'}
           </p>
           {updateInfo?.body && (
             <div className="max-h-36 overflow-y-auto rounded border border-[var(--color-border-muted)] bg-[var(--color-bg-primary)] px-3 py-2 text-xs whitespace-pre-wrap">
               {updateInfo.body}
             </div>
           )}
-          {!updateInfo?.asset && (
+          {!updateInfo?.asset && !isManualUpdate && (
             <p className="text-xs text-[var(--color-warning)]">
               未找到匹配当前系统的安装包，可打开下载页手动选择。
             </p>
-          )}
-          {portablePath && (
-            <div className="rounded-md border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] px-3 py-2 space-y-2">
-              <p className="text-xs text-[var(--color-text-secondary)]">ZIP 已解压：{portablePath}</p>
-              <Button size="sm" variant="secondary" onClick={() => openPath(portablePath)}>
-                打开解压目录
-              </Button>
-            </div>
           )}
           {updateProgress && (
             <div className="rounded-md border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] px-3 py-2 space-y-2">

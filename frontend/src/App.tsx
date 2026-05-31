@@ -11,13 +11,11 @@ import { forceQuitApp, quitAppOnly, saveWindowState } from './shared/backend/cli
 import {
   checkAppUpdate,
   downloadAppUpdate,
-  downloadAndExtractPortableUpdate,
   installDownloadedAppUpdate,
   onAppUpdateDownloadProgress,
   onAppUpdatePending,
   onAppUpdatePendingInstallFailed,
   onAppUpdatePendingNotification,
-  openPath,
   openAppReleasePage,
   type AppUpdateDownloadProgress,
   type AppUpdateInfo,
@@ -160,9 +158,8 @@ function useAutoUpdateCheck() {
   const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null)
   const [pendingUpdate, setPendingUpdate] = useState<PendingUpdateInfo | null>(null)
   const [updateProgress, setUpdateProgress] = useState<UpdateProgressInfo | null>(null)
-  const [portablePath, setPortablePath] = useState('')
   const [open, setOpen] = useState(false)
-  const [action, setAction] = useState<'none' | 'download-now' | 'download-next' | 'download-portable'>('none')
+  const [action, setAction] = useState<'none' | 'download-now'>('none')
 
   useEffect(() => {
     let cancelled = false
@@ -175,10 +172,13 @@ function useAutoUpdateCheck() {
         if (cancelled || !info?.hasUpdate) return
         setUpdateInfo(info)
         setOpen(true)
+        const manual = info.recommendedPackageKind === 'manual'
         addNotification({
           type: 'info',
           title: '发现新版本',
-          message: `Trace Browser ${info.latestVersion} 已发布，可选择现在更新或下次启动安装`,
+          message: manual
+            ? `Trace Browser ${info.latestVersion} 已发布，可打开下载页手动下载解压版`
+            : `Trace Browser ${info.latestVersion} 已发布，可通过官方 updater 更新`,
         })
       } catch (error) {
         console.warn('Auto update check failed', error)
@@ -221,63 +221,29 @@ function useAutoUpdateCheck() {
 
   const handleDownload = async (installOnRestart: boolean) => {
     if (!updateInfo) return
-    const selfUpdate = updateInfo.recommendedPackageKind === 'selfupdate'
+    if (installOnRestart || updateInfo.recommendedPackageKind !== 'selfupdate') {
+      await openAppReleasePage(updateInfo.releaseUrl || '')
+      return
+    }
     setUpdateProgress({
       phase: 'starting',
       progress: 0,
-      message: selfUpdate ? '准备通过 Wails3 官方 updater 下载更新...' : '准备下载更新安装包...',
+      message: '准备通过 Wails3 官方 updater 下载更新...',
     })
-    setAction(installOnRestart ? 'download-next' : 'download-now')
+    setAction('download-now')
     try {
       const res = await downloadAppUpdate(updateInfo, installOnRestart)
       addNotification({
         type: 'success',
-        title: selfUpdate ? '官方更新包已准备好' : '更新下载完成',
-        message: installOnRestart
-          ? '下次打开软件时会自动启动安装程序'
-          : selfUpdate ? '应用即将重启完成更新' : '安装程序即将启动',
+        title: '官方更新包已准备好',
+        message: '应用即将重启完成更新',
       })
-      if (installOnRestart) {
-        setOpen(false)
-        setUpdateProgress(null)
-        return
-      }
       await installDownloadedAppUpdate(res?.installerPath || '')
     } catch (error) {
       addNotification({
         type: 'error',
         title: '更新失败',
         message: error instanceof Error ? error.message : '下载或安装更新失败',
-      })
-    } finally {
-      setAction('none')
-    }
-  }
-
-  const handleDownloadPortable = async () => {
-    if (!updateInfo) return
-    setPortablePath('')
-    setUpdateProgress({ phase: 'starting', progress: 0, message: '准备下载 ZIP 便携包...' })
-    setAction('download-portable')
-    try {
-      const res = await downloadAndExtractPortableUpdate(updateInfo)
-      const extractedPath = res?.extractedPath || ''
-      setPortablePath(extractedPath)
-      addNotification({
-        type: 'success',
-        title: res?.restartScheduled ? 'ZIP 更新已准备好' : '便携包已解压',
-        message: res?.restartScheduled
-          ? '应用即将退出，替换程序文件后会自动重启'
-          : extractedPath ? `ZIP 便携包已解压到 ${extractedPath}` : 'ZIP 便携包已下载并解压',
-      })
-      if (res?.restartScheduled) {
-        setOpen(false)
-      }
-    } catch (error) {
-      addNotification({
-        type: 'error',
-        title: '便携包更新失败',
-        message: error instanceof Error ? error.message : '下载或解压 ZIP 便携包失败',
       })
     } finally {
       setAction('none')
@@ -298,6 +264,9 @@ function useAutoUpdateCheck() {
     }
   }
 
+  const isManualUpdate = updateInfo?.recommendedPackageKind === 'manual'
+  const canApplyOfficialUpdate = updateInfo?.recommendedPackageKind === 'selfupdate' && !!updateInfo?.installerAsset
+
   const modal = (
     <Modal
       open={open}
@@ -312,7 +281,7 @@ function useAutoUpdateCheck() {
           <Button variant="secondary" onClick={() => setOpen(false)} disabled={action !== 'none'}>
             稍后
           </Button>
-          <Button variant="secondary" onClick={() => openAppReleasePage(updateInfo?.releaseUrl || pendingUpdate?.releaseUrl || '')} disabled={action !== 'none'}>
+          <Button variant={isManualUpdate ? 'primary' : 'secondary'} onClick={() => openAppReleasePage(updateInfo?.releaseUrl || pendingUpdate?.releaseUrl || '')} disabled={action !== 'none'}>
             下载页
           </Button>
           {pendingUpdate ? (
@@ -321,25 +290,11 @@ function useAutoUpdateCheck() {
             </Button>
           ) : (
             <>
-              <Button
-                variant={updateInfo?.recommendedPackageKind === 'portable' ? 'danger' : 'secondary'}
-                onClick={handleDownloadPortable}
-                loading={action === 'download-portable'}
-                disabled={updateInfo?.recommendedPackageKind === 'selfupdate' || !updateInfo?.portableAsset || (action !== 'none' && action !== 'download-portable')}
-              >
-                {updateInfo?.canSelfUpdatePortable ? '下载 ZIP 并重启更新' : '下载 ZIP 并解压'}
-              </Button>
-              <Button
-                variant={updateInfo?.recommendedPackageKind === 'portable' ? 'secondary' : 'primary'}
-                onClick={() => handleDownload(true)}
-                loading={action === 'download-next'}
-                disabled={updateInfo?.recommendedPackageKind === 'selfupdate' || !updateInfo?.installerAsset || (action !== 'none' && action !== 'download-next')}
-              >
-                下次启动自动安装
-              </Button>
-              <Button variant="danger" onClick={() => handleDownload(false)} loading={action === 'download-now'} disabled={!updateInfo?.installerAsset || (action !== 'none' && action !== 'download-now')}>
-                {updateInfo?.recommendedPackageKind === 'selfupdate' ? '下载并应用官方更新' : '下载安装包并安装'}
-              </Button>
+              {!isManualUpdate && (
+                <Button variant="danger" onClick={() => handleDownload(false)} loading={action === 'download-now'} disabled={!canApplyOfficialUpdate || (action !== 'none' && action !== 'download-now')}>
+                  下载并应用官方更新
+                </Button>
+              )}
             </>
           )}
         </>
@@ -355,29 +310,22 @@ function useAutoUpdateCheck() {
             </p>
             {updateInfo?.asset ? (
               <div className="space-y-1 text-xs text-[var(--color-text-muted)]">
-                {updateInfo.installerAsset && <p>安装包：{updateInfo.installerAsset.name}</p>}
-                {updateInfo.portableAsset && <p>ZIP 便携包：{updateInfo.portableAsset.name}</p>}
+                {updateInfo.installerAsset && <p>官方自更新包：{updateInfo.installerAsset.name}</p>}
               </div>
-            ) : (
+            ) : !isManualUpdate ? (
               <p className="text-xs text-[var(--color-warning)]">未匹配到当前系统安装包，可打开下载页手动下载。</p>
+            ) : (
+              <p className="text-xs text-[var(--color-warning)]">当前为解压版，请打开下载页手动下载 ZIP 并自行解压。</p>
             )}
           </>
         )}
         <p className="text-xs text-[var(--color-text-muted)]">
           {pendingUpdate
             ? '安装程序启动后应用会自动退出，方便更新文件完成替换。'
-            : updateInfo?.canSelfUpdatePortable
-              ? '当前为 ZIP 便携版：ZIP 更新会保留 data、logs 和已有配置，退出后替换程序文件并自动重启。'
-              : '安装包会启动安装程序；ZIP 便携包会解压到更新目录，适合不覆盖当前安装直接使用。'}
+            : isManualUpdate
+              ? '解压版不在应用内自动下载或替换文件，下载 ZIP 后自行解压即可。'
+              : '当前使用 Wails3 官方 updater：下载后会校验并替换当前程序，然后自动重启。'}
         </p>
-        {portablePath && (
-          <div className="rounded-md border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] px-3 py-2 space-y-2">
-            <p className="text-xs text-[var(--color-text-secondary)]">ZIP 已解压：{portablePath}</p>
-            <Button size="sm" variant="secondary" onClick={() => openPath(portablePath)}>
-              打开解压目录
-            </Button>
-          </div>
-        )}
         {updateProgress && (
           <div className="rounded-md border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] px-3 py-2 space-y-2">
             <div className="flex items-center justify-between text-xs">

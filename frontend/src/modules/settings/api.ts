@@ -73,7 +73,7 @@ export interface AppUpdateInfo {
   installerAsset?: AppUpdateAsset
   portableAsset?: AppUpdateAsset
   distributionKind?: 'dev' | 'installer' | 'portable' | string
-  recommendedPackageKind?: 'installer' | 'portable' | string
+  recommendedPackageKind?: 'selfupdate' | 'manual' | 'installer' | 'portable' | string
   canSelfUpdatePortable?: boolean
   message: string
 }
