@@ -54,7 +54,6 @@ type ColumnOption = {
 
 const PROFILE_COLUMN_OPTIONS: ColumnOption[] = [
   { key: 'selection', label: '选择', locked: true },
-  { key: 'dragHandle', label: '排序', locked: true },
   { key: 'instanceMarkerIndex', label: '窗口标识' },
   { key: 'profileName', label: '实例名称' },
   { key: 'running', label: '状态' },
@@ -66,9 +65,10 @@ const PROFILE_COLUMN_OPTIONS: ColumnOption[] = [
   { key: 'actions', label: '操作', locked: true },
 ]
 
-const DEFAULT_PROFILE_COLUMN_KEYS = ['selection', 'dragHandle', 'instanceMarkerIndex', 'profileName', 'running', 'coreId', 'proxyId', 'launchCode', 'actions']
+const DEFAULT_PROFILE_COLUMN_KEYS = ['selection', 'instanceMarkerIndex', 'profileName', 'running', 'coreId', 'proxyId', 'launchCode', 'actions']
 const PROFILE_COLUMNS_STORAGE_KEY = 'browser:profileTableColumns:v2'
 const PROFILE_ORDER_STORAGE_KEY = 'browser:profileOrder:v1'
+const PROFILE_ORDER_CHANNEL_NAME = 'browser:profileOrder:changed'
 function readStoredColumnKeys(storageKey: string, defaults: string[], allowedKeys: readonly string[]) {
   try {
     const parsed = JSON.parse(localStorage.getItem(storageKey) || '[]')
@@ -80,14 +80,21 @@ function readStoredColumnKeys(storageKey: string, defaults: string[], allowedKey
   return defaults
 }
 
-function readStoredProfileOrder() {
+function sanitizeProfileOrder(value: unknown) {
+  if (!Array.isArray(value)) return []
+  return Array.from(new Set(value.filter((item): item is string => typeof item === 'string' && item.length > 0)))
+}
+
+function parseProfileOrderValue(value: string | null) {
   try {
-    const parsed = JSON.parse(localStorage.getItem(PROFILE_ORDER_STORAGE_KEY) || '[]')
-    if (Array.isArray(parsed)) {
-      return Array.from(new Set(parsed.filter((item): item is string => typeof item === 'string' && item.length > 0)))
-    }
-  } catch { /* ignore */ }
-  return []
+    return sanitizeProfileOrder(JSON.parse(value || '[]'))
+  } catch {
+    return []
+  }
+}
+
+function readStoredProfileOrder() {
+  return parseProfileOrderValue(localStorage.getItem(PROFILE_ORDER_STORAGE_KEY))
 }
 
 const areStringArraysEqual = (left: string[], right: string[]) => {
@@ -413,7 +420,37 @@ export function BrowserListPage() {
 
   useEffect(() => {
     localStorage.setItem(PROFILE_ORDER_STORAGE_KEY, JSON.stringify(profileOrder))
+    profileOrderChannelRef.current?.postMessage(profileOrder)
   }, [profileOrder])
+
+  useEffect(() => {
+    const applyExternalProfileOrder = (nextOrder: string[]) => {
+      setProfileOrder(prev => areStringArraysEqual(prev, nextOrder) ? prev : nextOrder)
+    }
+
+    let channel: BroadcastChannel | null = null
+    if (typeof BroadcastChannel !== 'undefined') {
+      channel = new BroadcastChannel(PROFILE_ORDER_CHANNEL_NAME)
+      profileOrderChannelRef.current = channel
+      channel.onmessage = (event) => {
+        applyExternalProfileOrder(sanitizeProfileOrder(event.data))
+      }
+    }
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== PROFILE_ORDER_STORAGE_KEY) return
+      applyExternalProfileOrder(parseProfileOrderValue(event.newValue))
+    }
+    window.addEventListener('storage', handleStorage)
+
+    return () => {
+      window.removeEventListener('storage', handleStorage)
+      channel?.close()
+      if (profileOrderChannelRef.current === channel) {
+        profileOrderChannelRef.current = null
+      }
+    }
+  }, [])
 
   useEffect(() => {
     const lockedKeys = PROFILE_COLUMN_OPTIONS.filter(item => item.locked).map(item => item.key)
@@ -437,6 +474,7 @@ export function BrowserListPage() {
   const [clearingCookieIds, setClearingCookieIds] = useState<Set<string>>(new Set())
   const [cookieClearTarget, setCookieClearTarget] = useState<BrowserProfile | null>(null)
   const profilesRef = useRef<BrowserProfile[]>([])
+  const profileOrderChannelRef = useRef<BroadcastChannel | null>(null)
   const silentRefreshInFlightRef = useRef(false)
 
   // 窗口同步
@@ -1430,33 +1468,33 @@ export function BrowserListPage() {
     {
       key: 'selection',
       title: (
-        <input
-          type="checkbox"
-          className="w-4 h-4 rounded cursor-pointer accent-[var(--color-accent)]"
-          checked={selectedIds.size > 0 && selectedIds.size === filteredProfiles.length}
-          ref={(input) => { if (input) input.indeterminate = selectedIds.size > 0 && selectedIds.size < filteredProfiles.length }}
-          onChange={(e) => {
-            if (e.target.checked) handleSelectAll()
-            else handleDeselectAll()
-          }}
-        />
+        <div className="flex items-center justify-center gap-1">
+          <span className="h-7 w-7 shrink-0" aria-hidden="true" />
+          <input
+            type="checkbox"
+            className="w-4 h-4 rounded cursor-pointer accent-[var(--color-accent)]"
+            checked={selectedIds.size > 0 && selectedIds.size === filteredProfiles.length}
+            ref={(input) => { if (input) input.indeterminate = selectedIds.size > 0 && selectedIds.size < filteredProfiles.length }}
+            onChange={(e) => {
+              if (e.target.checked) handleSelectAll()
+              else handleDeselectAll()
+            }}
+          />
+        </div>
       ),
-      width: 40,
-      render: (_, record) => (
-        <input
-          type="checkbox"
-          className="w-4 h-4 rounded cursor-pointer accent-[var(--color-accent)]"
-          checked={selectedIds.has(record.profileId)}
-          onChange={() => toggleSelect(record.profileId)}
-        />
-      ),
-    },
-    {
-      key: 'dragHandle',
-      title: <span className="sr-only">排序</span>,
-      width: 44,
+      width: 76,
       align: 'center',
-      render: (_, record) => renderProfileDragHandle(record),
+      render: (_, record) => (
+        <div className="flex items-center justify-center gap-1">
+          {renderProfileDragHandle(record)}
+          <input
+            type="checkbox"
+            className="w-4 h-4 rounded cursor-pointer accent-[var(--color-accent)]"
+            checked={selectedIds.has(record.profileId)}
+            onChange={() => toggleSelect(record.profileId)}
+          />
+        </div>
+      ),
     },
     {
       key: 'instanceMarkerIndex',
