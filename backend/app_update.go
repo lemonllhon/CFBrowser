@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"ant-chrome/backend/internal/logger"
 	"context"
 	"encoding/hex"
 	"encoding/json"
@@ -23,6 +24,7 @@ const PROJECT_GITHUB_URL = "https://github.com/lemon-casino/trace-browser-releas
 const defaultWailsChecksumAssetName = "SHA256SUMS"
 
 const (
+	appUpdatePackageInstaller  = "installer"
 	appUpdatePackageSelfUpdate = "selfupdate"
 	appUpdatePackageManual     = "manual"
 )
@@ -117,7 +119,7 @@ func (a *App) checkAppUpdateFromOfficialWailsRuntime(ctx context.Context, curren
 		return nil, fmt.Errorf("Wails3 官方 updater 检查失败: %w", err)
 	}
 	distributionKind := a.currentUpdateDistributionKind()
-	recommendedPackageKind := appUpdatePackageSelfUpdate
+	recommendedPackageKind := appUpdatePackageInstaller
 	if shouldUseManualPackageUpdate(distributionKind) {
 		recommendedPackageKind = appUpdatePackageManual
 	}
@@ -161,9 +163,9 @@ func (a *App) checkAppUpdateFromOfficialWailsRuntime(ctx context.Context, curren
 	} else if shouldUseManualPackageUpdate(distributionKind) {
 		info.Message = manualPackageUpdateMessage(distributionKind)
 	} else if asset == nil {
-		info.Message = "检测到新版本，但没有找到官方 Wails3 自更新资产"
+		info.Message = "检测到新版本，但没有找到官方安装版 EXE"
 	} else {
-		info.Message = "检测到新版本，可使用 Wails3 官方 updater 直接更新"
+		info.Message = "检测到新版本，可下载官方安装包进行更新"
 	}
 	return info, nil
 }
@@ -177,7 +179,7 @@ func appUpdateAssetFromOfficialRelease(release *updater.Release) *AppUpdateAsset
 		return nil
 	}
 	return &AppUpdateAsset{
-		Name:        firstNonEmpty(release.Artifact.Filename, fileNameFromURL(downloadURL), "trace-browser-selfupdate"),
+		Name:        firstNonEmpty(release.Artifact.Filename, fileNameFromURL(downloadURL), "TraceBrowser-Setup.exe"),
 		Size:        release.Artifact.Size,
 		DownloadURL: downloadURL,
 		Checksum:    officialReleaseChecksum(release.Verification),
@@ -248,7 +250,7 @@ func (a *App) officialWailsUpdateRuntime(ctx context.Context) (*wailsUpdateRunti
 		Repository:    owner + "/" + repo,
 		Token:         strings.TrimSpace(os.Getenv("TRACE_BROWSER_UPDATE_TOKEN")),
 		ChecksumAsset: checksumAsset,
-		AssetMatcher:  matchOfficialSelfUpdateAsset,
+		AssetMatcher:  matchOfficialInstallerAsset,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("初始化 Wails3 GitHub updater provider 失败: %w", err)
@@ -303,18 +305,18 @@ func (a *App) DownloadAppUpdate(info AppUpdateInfo, installOnRestart bool) (*App
 	if shouldUseManualPackageUpdate(a.currentUpdateDistributionKind()) {
 		return nil, fmt.Errorf("当前为解压版或开发版，请打开官方下载页手动下载并解压")
 	}
-	if !strings.EqualFold(info.RecommendedPackageKind, appUpdatePackageSelfUpdate) {
+	if !isOfficialInstallablePackageKind(info.RecommendedPackageKind) {
 		return nil, fmt.Errorf("当前版本不走应用内更新，请打开官方下载页手动下载并解压/安装")
 	}
-	return a.downloadOfficialWailsUpdate(info, installOnRestart)
+	return a.downloadOfficialInstallerUpdate(info, installOnRestart)
 }
 
-func (a *App) downloadOfficialWailsUpdate(info AppUpdateInfo, installOnRestart bool) (*AppUpdateDownloadResult, error) {
+func (a *App) downloadOfficialInstallerUpdate(info AppUpdateInfo, installOnRestart bool) (*AppUpdateDownloadResult, error) {
 	if shouldUseManualPackageUpdate(a.currentUpdateDistributionKind()) {
 		return nil, fmt.Errorf("当前为解压版或开发版，请打开官方下载页手动下载并解压")
 	}
 	if installOnRestart {
-		return nil, fmt.Errorf("Wails3 官方 updater 不支持跨进程保留下次启动安装，请选择立即下载并应用更新")
+		return nil, fmt.Errorf("官方安装包更新不支持保留下次启动安装，请选择立即下载并应用更新")
 	}
 	runtime, err := a.officialWailsUpdateRuntime(context.Background())
 	if err != nil {
@@ -322,19 +324,25 @@ func (a *App) downloadOfficialWailsUpdate(info AppUpdateInfo, installOnRestart b
 	}
 	if normalizeVersion(info.LatestVersion) != "" {
 		if _, err := runtime.app.Updater.Check(context.Background()); err != nil {
-			return nil, fmt.Errorf("Wails3 官方 updater 刷新版本信息失败: %w", err)
+			return nil, fmt.Errorf("官方 updater 刷新版本信息失败: %w", err)
 		}
 	}
-	a.emitAppUpdateDownloadProgress("starting", 0, "准备通过 Wails3 官方 updater 下载并准备更新...")
+	a.emitAppUpdateDownloadProgress("starting", 0, "准备通过官方 updater 下载安装包...")
 	if err := runtime.app.Updater.DownloadAndInstall(context.Background()); err != nil {
 		a.emitAppUpdateDownloadProgress("error", 0, err.Error())
-		return nil, fmt.Errorf("Wails3 官方 updater 下载或准备更新失败: %w", err)
+		return nil, fmt.Errorf("官方安装包下载或校验失败: %w", err)
 	}
-	a.emitAppUpdateDownloadProgress("done", 100, "官方更新包已准备完成，等待重启应用")
+	installerPath, err := a.officialDownloadedInstallerPath("")
+	if err != nil {
+		a.emitAppUpdateDownloadProgress("error", 0, err.Error())
+		return nil, err
+	}
+	a.emitAppUpdateDownloadProgress("done", 100, "官方安装包已下载，等待启动安装程序")
 	return &AppUpdateDownloadResult{
-		Message:     "官方更新包已准备完成，正在准备重启应用",
-		Version:     resolveUpdateVersion(info),
-		PackageKind: "selfupdate",
+		Message:       "官方安装包已下载，正在启动安装程序",
+		Version:       resolveUpdateVersion(info),
+		InstallerPath: installerPath,
+		PackageKind:   appUpdatePackageInstaller,
 	}, nil
 }
 
@@ -365,36 +373,75 @@ func (a *App) OpenPath(path string) error {
 }
 
 func (a *App) InstallDownloadedAppUpdate(installerPath string) error {
-	target := strings.TrimSpace(installerPath)
-	if target != "" {
-		return fmt.Errorf("安装包直装已停用，请使用 Wails3 官方 updater 或打开官方下载页手动安装")
-	}
-	return a.installOfficialWailsUpdate()
+	return a.installOfficialDownloadedInstallerUpdate(installerPath)
 }
 
-func (a *App) installOfficialWailsUpdate() error {
+func (a *App) installOfficialDownloadedInstallerUpdate(installerPath string) error {
 	if shouldUseManualPackageUpdate(a.currentUpdateDistributionKind()) {
 		return fmt.Errorf("当前为解压版或开发版，请打开官方下载页手动下载并解压")
+	}
+	target, err := a.officialDownloadedInstallerPath(installerPath)
+	if err != nil {
+		return err
+	}
+	if err := launchOfficialUpdateInstaller(target); err != nil {
+		a.emitAppUpdatePendingEvent("app:update:pending:install-failed", map[string]interface{}{
+			"version": "",
+			"error":   err.Error(),
+		})
+		return fmt.Errorf("启动官方安装包失败: %w", err)
+	}
+	a.clearPendingAppUpdate()
+	a.emitAppUpdateDownloadProgress("done", 100, "官方安装包已启动，应用即将退出")
+	a.setQuitMode(quitModeFull)
+	go func(ctx context.Context) {
+		time.Sleep(600 * time.Millisecond)
+		if ctx != nil {
+			if err := a.saveCurrentWindowState(ctx); err != nil {
+				logger.New("App").Warn("保存窗口尺寸失败", logger.F("error", err.Error()))
+			}
+			a.appRuntime().Quit(ctx)
+		}
+	}(a.ctx)
+	return nil
+}
+
+func (a *App) officialDownloadedInstallerPath(installerPath string) (string, error) {
+	if a == nil {
+		return "", fmt.Errorf("app is nil")
 	}
 	a.updateRuntimeMu.Lock()
 	runtime := a.updateRuntime
 	a.updateRuntimeMu.Unlock()
 	if runtime == nil || runtime.app == nil || !runtime.initialized {
-		return fmt.Errorf("Wails3 官方 updater 尚未下载更新")
+		return "", fmt.Errorf("官方 updater 尚未下载更新")
 	}
-	a.clearPendingAppUpdate()
-	a.emitAppUpdateDownloadProgress("done", 100, "更新已应用，应用即将重启")
-	go func(wailsApp *application.App) {
-		time.Sleep(600 * time.Millisecond)
-		if err := wailsApp.Updater.Restart(context.Background()); err != nil {
-			a.emitAppUpdatePendingEvent("app:update:pending:install-failed", map[string]interface{}{
-				"version": "",
-				"error":   err.Error(),
-			})
-			a.ForceQuit()
-		}
-	}(runtime.app)
-	return nil
+	stagedPath := strings.TrimSpace(runtime.app.Updater.DownloadedPath())
+	target := strings.TrimSpace(installerPath)
+	if target == "" {
+		target = stagedPath
+	}
+	if target == "" {
+		return "", fmt.Errorf("官方安装包尚未下载")
+	}
+	targetAbs, err := filepath.Abs(target)
+	if err != nil {
+		return "", err
+	}
+	if stagedPath == "" {
+		return "", fmt.Errorf("官方安装包尚未下载")
+	}
+	stagedAbs, err := filepath.Abs(stagedPath)
+	if err != nil {
+		return "", err
+	}
+	if !sameUpdatePath(targetAbs, stagedAbs) {
+		return "", fmt.Errorf("安装包路径不是官方 updater 本次下载的文件")
+	}
+	if !looksLikeOfficialInstallerAsset(filepath.Base(targetAbs)) {
+		return "", fmt.Errorf("官方安装版更新包必须是 TraceBrowser-Setup-*.exe")
+	}
+	return targetAbs, nil
 }
 
 func (a *App) emitAppUpdateDownloadProgress(phase string, progress int, message string) {
@@ -419,7 +466,7 @@ func (a *App) registerOfficialWailsUpdateEvents(wailsApp *application.App) {
 		return
 	}
 	wailsApp.Event.On(updater.EventDownloadStarted, func(event *application.CustomEvent) {
-		a.emitAppUpdateDownloadProgress("started", 0, "Wails3 官方 updater 已开始下载")
+		a.emitAppUpdateDownloadProgress("started", 0, "官方 updater 已开始下载安装包")
 	})
 	wailsApp.Event.On(updater.EventDownloadProgress, func(event *application.CustomEvent) {
 		written, total := officialProgressBytes(event)
@@ -430,14 +477,14 @@ func (a *App) registerOfficialWailsUpdateEvents(wailsApp *application.App) {
 		a.emitAppUpdateDownloadProgress("downloading", progress, formatDownloadProgress(written, total))
 	})
 	wailsApp.Event.On(updater.EventDownloadComplete, func(event *application.CustomEvent) {
-		a.emitAppUpdateDownloadProgress("downloaded", 100, "Wails3 官方 updater 下载完成")
+		a.emitAppUpdateDownloadProgress("downloaded", 100, "官方安装包下载完成")
 	})
 	wailsApp.Event.On(updater.EventError, func(event *application.CustomEvent) {
-		a.emitAppUpdateDownloadProgress("error", 0, firstNonEmpty(officialEventMessage(event), "Wails3 官方 updater 更新失败"))
+		a.emitAppUpdateDownloadProgress("error", 0, firstNonEmpty(officialEventMessage(event), "官方 updater 更新失败"))
 	})
 }
 
-func matchOfficialSelfUpdateAsset(req updater.CheckRequest, assets []updatergithub.ReleaseAsset) int {
+func matchOfficialInstallerAsset(req updater.CheckRequest, assets []updatergithub.ReleaseAsset) int {
 	if len(assets) == 0 {
 		return -1
 	}
@@ -464,27 +511,14 @@ func matchOfficialSelfUpdateAsset(req updater.CheckRequest, assets []updatergith
 	bestScore := 0
 	for i, asset := range assets {
 		name := strings.ToLower(strings.TrimSpace(asset.Name))
-		if name == "" || strings.Contains(name, "sha256sums") || strings.HasSuffix(name, ".json") || strings.HasSuffix(name, ".txt") {
+		if shouldSkipOfficialUpdateAsset(name) {
 			continue
 		}
 		score := 0
-		if strings.Contains(name, "selfupdate") || strings.Contains(name, "self-update") {
-			score += 100
-		}
-		for _, alias := range platformAliases {
-			if alias != "" && strings.Contains(name, alias) {
-				score += 25
-				break
-			}
-		}
-		for _, alias := range archAliases {
-			if alias != "" && strings.Contains(name, alias) {
-				score += 25
-				break
-			}
-		}
-		if strings.HasSuffix(name, ".zip") || strings.HasSuffix(name, ".exe") || strings.HasSuffix(name, ".tar.gz") {
-			score += 10
+		if platform == "windows" {
+			score = windowsInstallerAssetScore(name, archAliases)
+		} else {
+			score = platformInstallerAssetScore(name, platformAliases, archAliases)
 		}
 		if score > bestScore {
 			bestScore = score
@@ -495,6 +529,84 @@ func matchOfficialSelfUpdateAsset(req updater.CheckRequest, assets []updatergith
 		return -1
 	}
 	return bestIndex
+}
+
+func shouldSkipOfficialUpdateAsset(name string) bool {
+	if name == "" {
+		return true
+	}
+	return strings.Contains(name, "sha256sums") ||
+		strings.HasSuffix(name, ".json") ||
+		strings.HasSuffix(name, ".txt") ||
+		strings.HasSuffix(name, ".sig") ||
+		strings.HasSuffix(name, ".asc")
+}
+
+func windowsInstallerAssetScore(name string, archAliases []string) int {
+	if !looksLikeOfficialInstallerAsset(name) {
+		return 0
+	}
+	score := 150
+	if strings.Contains(name, "setup") {
+		score += 40
+	}
+	if strings.Contains(name, "windows") || strings.Contains(name, "win") {
+		score += 20
+	}
+	for _, alias := range archAliases {
+		if alias != "" && strings.Contains(name, alias) {
+			score += 20
+			break
+		}
+	}
+	return score
+}
+
+func platformInstallerAssetScore(name string, platformAliases []string, archAliases []string) int {
+	if strings.Contains(name, "portable") || strings.Contains(name, "selfupdate") || strings.Contains(name, "self-update") {
+		return 0
+	}
+	if !(strings.HasSuffix(name, ".zip") || strings.HasSuffix(name, ".tar.gz") || strings.HasSuffix(name, ".tgz") || strings.HasSuffix(name, ".appimage") || strings.HasSuffix(name, ".deb") || strings.HasSuffix(name, ".rpm")) {
+		return 0
+	}
+	score := 0
+	for _, alias := range platformAliases {
+		if alias != "" && strings.Contains(name, alias) {
+			score += 75
+			break
+		}
+	}
+	for _, alias := range archAliases {
+		if alias != "" && strings.Contains(name, alias) {
+			score += 50
+			break
+		}
+	}
+	return score
+}
+
+func looksLikeOfficialInstallerAsset(name string) bool {
+	name = strings.ToLower(strings.TrimSpace(name))
+	if !strings.HasSuffix(name, ".exe") {
+		return false
+	}
+	if strings.Contains(name, "portable") || strings.Contains(name, "selfupdate") || strings.Contains(name, "self-update") {
+		return false
+	}
+	compact := strings.NewReplacer("-", "", "_", "", " ", "").Replace(name)
+	if !strings.Contains(compact, "tracebrowser") {
+		return false
+	}
+	return strings.Contains(name, "setup") || strings.Contains(name, "installer")
+}
+
+func sameUpdatePath(a string, b string) bool {
+	a = filepath.Clean(strings.TrimSpace(a))
+	b = filepath.Clean(strings.TrimSpace(b))
+	if goruntime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
 }
 
 func officialProgressBytes(event *application.CustomEvent) (int64, int64) {
@@ -648,6 +760,15 @@ func (a *App) currentUpdateDistributionKind() string {
 func shouldUseManualPackageUpdate(distributionKind string) bool {
 	switch strings.ToLower(strings.TrimSpace(distributionKind)) {
 	case "dev", "portable":
+		return true
+	default:
+		return false
+	}
+}
+
+func isOfficialInstallablePackageKind(kind string) bool {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case appUpdatePackageInstaller, appUpdatePackageSelfUpdate:
 		return true
 	default:
 		return false

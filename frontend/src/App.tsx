@@ -153,6 +153,10 @@ function useWailsNotifications() {
 type PendingUpdateInfo = AppUpdatePendingUpdate
 type UpdateProgressInfo = AppUpdateDownloadProgress
 
+function isOfficialInstallableUpdate(kind?: string) {
+  return kind === 'installer' || kind === 'selfupdate'
+}
+
 function useAutoUpdateCheck() {
   const addNotification = useNotificationStore((s) => s.addNotification)
   const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null)
@@ -178,7 +182,7 @@ function useAutoUpdateCheck() {
           title: '发现新版本',
           message: manual
             ? `Trace Browser ${info.latestVersion} 已发布，可打开下载页手动下载解压版`
-            : `Trace Browser ${info.latestVersion} 已发布，可通过官方 updater 更新`,
+            : `Trace Browser ${info.latestVersion} 已发布，可下载官方安装包更新`,
         })
       } catch (error) {
         console.warn('Auto update check failed', error)
@@ -221,22 +225,22 @@ function useAutoUpdateCheck() {
 
   const handleDownload = async (installOnRestart: boolean) => {
     if (!updateInfo) return
-    if (installOnRestart || updateInfo.recommendedPackageKind !== 'selfupdate') {
+    if (installOnRestart || !isOfficialInstallableUpdate(updateInfo.recommendedPackageKind)) {
       await openAppReleasePage(updateInfo.releaseUrl || '')
       return
     }
     setUpdateProgress({
       phase: 'starting',
       progress: 0,
-      message: '准备通过 Wails3 官方 updater 下载更新...',
+      message: '准备通过官方 updater 下载安装包...',
     })
     setAction('download-now')
     try {
       const res = await downloadAppUpdate(updateInfo, installOnRestart)
       addNotification({
         type: 'success',
-        title: '官方更新包已准备好',
-        message: '应用即将重启完成更新',
+        title: '官方安装包已下载',
+        message: '安装程序即将启动，应用会自动退出',
       })
       await installDownloadedAppUpdate(res?.installerPath || '')
     } catch (error) {
@@ -265,7 +269,7 @@ function useAutoUpdateCheck() {
   }
 
   const isManualUpdate = updateInfo?.recommendedPackageKind === 'manual'
-  const canApplyOfficialUpdate = updateInfo?.recommendedPackageKind === 'selfupdate' && !!updateInfo?.installerAsset
+  const canApplyOfficialUpdate = isOfficialInstallableUpdate(updateInfo?.recommendedPackageKind) && !!updateInfo?.installerAsset
 
   const modal = (
     <Modal
@@ -292,7 +296,7 @@ function useAutoUpdateCheck() {
             <>
               {!isManualUpdate && (
                 <Button variant="danger" onClick={() => handleDownload(false)} loading={action === 'download-now'} disabled={!canApplyOfficialUpdate || (action !== 'none' && action !== 'download-now')}>
-                  下载并应用官方更新
+                  下载并安装官方更新
                 </Button>
               )}
             </>
@@ -310,7 +314,7 @@ function useAutoUpdateCheck() {
             </p>
             {updateInfo?.asset ? (
               <div className="space-y-1 text-xs text-[var(--color-text-muted)]">
-                {updateInfo.installerAsset && <p>官方自更新包：{updateInfo.installerAsset.name}</p>}
+                {updateInfo.installerAsset && <p>安装包：{updateInfo.installerAsset.name}</p>}
               </div>
             ) : !isManualUpdate ? (
               <p className="text-xs text-[var(--color-warning)]">未匹配到当前系统安装包，可打开下载页手动下载。</p>
@@ -324,7 +328,7 @@ function useAutoUpdateCheck() {
             ? '安装程序启动后应用会自动退出，方便更新文件完成替换。'
             : isManualUpdate
               ? '解压版不在应用内自动下载或替换文件，下载 ZIP 后自行解压即可。'
-              : '当前使用 Wails3 官方 updater：下载后会校验并替换当前程序，然后自动重启。'}
+              : '当前为安装版：下载官方 Setup EXE 后会启动安装程序，并自动退出当前应用。'}
         </p>
         {updateProgress && (
           <div className="rounded-md border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] px-3 py-2 space-y-2">

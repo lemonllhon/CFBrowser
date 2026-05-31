@@ -32,6 +32,10 @@ interface BackupExportLogItem {
   text: string
 }
 
+function isOfficialInstallableUpdate(kind?: string) {
+  return kind === 'installer' || kind === 'selfupdate'
+}
+
 export function SettingsPage() {
   const [settings, setSettings] = useState<AppSettings>(defaultSettings)
   const [loading, setLoading] = useState(true)
@@ -238,15 +242,15 @@ export function SettingsPage() {
 
   const handleDownloadUpdate = async (installOnRestart: boolean) => {
     if (!updateInfo) return
-    if (installOnRestart || updateInfo.recommendedPackageKind !== 'selfupdate') {
+    if (installOnRestart || !isOfficialInstallableUpdate(updateInfo.recommendedPackageKind)) {
       await openAppReleasePage(updateInfo.releaseUrl || appConfig.projectGithubUrl)
       return
     }
-    setUpdateProgress({ phase: 'starting', progress: 0, message: '准备通过 Wails3 官方 updater 下载更新...' })
+    setUpdateProgress({ phase: 'starting', progress: 0, message: '准备通过官方 updater 下载安装包...' })
     setUpdateAction('download-now')
     try {
       const res = await downloadAppUpdate(updateInfo, installOnRestart)
-      toast.success(res.message || '官方更新包已下载')
+      toast.success(res.message || '官方安装包已下载')
       await installDownloadedAppUpdate(res.installerPath || '')
     } catch (error: any) {
       toast.error(error?.message || '更新失败')
@@ -369,7 +373,7 @@ export function SettingsPage() {
 
   const importRunning = actionLoading === 'import-reset' || actionLoading === 'import-merge'
   const isManualUpdate = updateInfo?.recommendedPackageKind === 'manual'
-  const canApplyOfficialUpdate = updateInfo?.recommendedPackageKind === 'selfupdate' && !!updateInfo?.installerAsset
+  const canApplyOfficialUpdate = isOfficialInstallableUpdate(updateInfo?.recommendedPackageKind) && !!updateInfo?.installerAsset
 
   if (loading) {
     return (
@@ -742,7 +746,7 @@ export function SettingsPage() {
             </Button>
             {!isManualUpdate && (
               <Button variant="danger" onClick={() => handleDownloadUpdate(false)} loading={updateAction === 'download-now'} disabled={!canApplyOfficialUpdate || (updateAction !== 'none' && updateAction !== 'download-now')}>
-                下载并应用官方更新
+                下载并安装官方更新
               </Button>
             )}
           </>
@@ -757,7 +761,7 @@ export function SettingsPage() {
             <div className="space-y-1 text-xs text-[var(--color-text-muted)] mt-2">
               {updateInfo?.installerAsset && (
                 <p>
-                  {updateInfo.recommendedPackageKind === 'selfupdate' ? '官方自更新包' : '安装包'}：{updateInfo.installerAsset.name}
+                  安装包：{updateInfo.installerAsset.name}
                   {updateInfo.installerAsset.size > 0 ? `（${(updateInfo.installerAsset.size / 1024 / 1024).toFixed(1)} MB）` : ''}
                 </p>
               )}
@@ -766,7 +770,7 @@ export function SettingsPage() {
           <p className="text-xs text-[var(--color-text-muted)]">
             {isManualUpdate
               ? '当前为解压版或开发版，请打开下载页手动下载 ZIP 解压包并自行解压使用。'
-              : '当前使用 Wails3 官方 updater：下载后会校验并替换当前程序，然后自动重启。'}
+              : '当前为安装版：下载官方 Setup EXE 后会启动安装程序，并自动退出当前应用。'}
           </p>
           {updateInfo?.body && (
             <div className="max-h-36 overflow-y-auto rounded border border-[var(--color-border-muted)] bg-[var(--color-bg-primary)] px-3 py-2 text-xs whitespace-pre-wrap">

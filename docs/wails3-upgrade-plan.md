@@ -20,7 +20,7 @@
 - 前后端业务通信已切到 Protobuf binary WebSocket transport；Wails3 generated bindings 不再暴露业务 service 方法，也不作为旧 binding 兜底。
 - React 页面不整体重写，后端访问层已收敛到 `frontend/src/shared/backend` 与 `frontend/src/shared/ipc`，业务模块 `api.ts` 保持原函数语义并改走 Protobuf。
 - 窗口同步工具栏已从独立子进程 + HTTP JSON 控制面改为 Wails3 同进程多窗口 + Protobuf command/event。
-- 软件更新已接入 Wails3 官方 `selfupdate` service 运行时：检查、下载、应用、重启分别走官方 service 的 `Check`、`Download`、`Install`、`Restart`；前端仍只走项目 Protobuf 通道，不暴露 Wails binding 业务方法。
+- 软件更新已接入 Wails3 官方 `app.Updater` / GitHub provider：检查、下载走官方 updater，安装版下载 `TraceBrowser-Setup-<version>.exe` 后启动官方安装器；前端仍只走项目 Protobuf 通道，不暴露 Wails binding 业务方法。
 
 ## 参考资料
 
@@ -60,7 +60,7 @@
 | 文件对话框 | `OpenFileDialog` / `SaveFileDialog` | 已完成：后端平台层封装 Wails3 dialogs，前端经 Protobuf API 调用 |
 | 窗口控制 | `WindowSetSize`、`WindowSetPosition`、`WindowSetAlwaysOnTop` | 已完成：主窗口和工具栏窗口控制收口到 Wails3 platform/window adapter |
 | 同步工具栏 | 独立 exe 子进程 + HTTP JSON | 已完成：同进程 Wails3 子窗口 + Protobuf command/event，旧 HTTP 控制面不再作为兜底 |
-| 软件更新 | 自研 GitHub Releases 更新器 | 已完成：后端更新运行时切到 Wails3 官方 `app.Updater`，Windows workflow 额外生成官方运行时需要的 self-update ZIP 资产；解压版走发布页手动下载 |
+| 软件更新 | 自研 GitHub Releases 更新器 | 已完成：后端更新运行时切到 Wails3 官方 `app.Updater`，安装版匹配 `TraceBrowser-Setup-<version>.exe`，解压版走发布页手动下载 ZIP |
 | 打包脚本 | `wails build`、`wails generate module` | 已完成：脚本和 GitHub Actions 使用 `wails3 build` / `wails3 generate bindings` |
 
 ## 总体架构
@@ -186,7 +186,7 @@ message RpcResponse {
 - 已新增前端 `frontend/src/shared/ipc` 和 `frontend/src/shared/backend/client.ts`，具备 request id、超时、并发请求映射、错误解码和 Ping client。
 - 最终承载层已切为本地 `127.0.0.1` WebSocket binary transport，使用一次性随机 token，迁移后的业务请求只走 binary WebSocket。
 - 当前 request/response 已具备真正二进制帧承载；已补齐 WebSocket binary event 广播和前端订阅/取消订阅入口。代码生成链路和功能域协议仍按后续阶段继续收敛。
-- R5 设置、备份、更新通信层已接入 Protobuf-only：AppConfig、打开路径、打开 release 页面、备份初始化/导出/导入、更新检查、官方自更新下载/安装、解压版手动下载提示及相关进度事件均不再保留旧 Wails binding 兜底；更新运行时已切到 Wails3 官方 `pkg/updater`。
+- R5 设置、备份、更新通信层已接入 Protobuf-only：AppConfig、打开路径、打开 release 页面、备份初始化/导出/导入、更新检查、官方安装包下载/安装器启动、解压版手动下载提示及相关进度事件均不再保留旧 Wails binding 兜底；更新运行时已切到 Wails3 官方 `pkg/updater`。
 - 当前 `github.com/wailsapp/wails/v3 v3.0.0-alpha.96` 已提供 `pkg/updater` 和 `pkg/updater/providers/github`，本项目直接通过 `app.Updater` 驱动检查、下载、安装准备和重启；前端仍只走项目 Protobuf 通道。
 - R6 低频浏览器 API 已继续收敛：默认书签、默认打开页、默认内容联动规则、浏览器实例快照、Cookie 管理、用户数据目录打开动作、扩展管理、浏览器设置已接入 Protobuf-only，旧 Wails binding/mock 兜底已移除。
 - R7 窗口同步通信层已完成：主窗口侧候选列表、启动/停止、暂停/恢复、展示窗口、布局、同步设置和状态变化事件已接入 Protobuf-only；Wails3 悬浮工具栏已改为同进程多窗口，并通过同一套 Protobuf client 调用命令和同步尺寸。
@@ -237,7 +237,7 @@ React 不做整体重写，页面组件和现有交互优先保留。重构范�
 | R2 | Protobuf client | 新增 `shared/ipc` 和 `shared/backend/client.ts`，完成 request/response/event POC | Ping、错误返回、超时、并发请求、事件订阅和取消订阅正常 | 已完成 2A/2B：binary request/response/event POC；代码生成链路待功能域迁移时扩展 |
 | R3 | 浏览器实例 API | 迁移 `modules/browser/api.ts` 中实例列表、启动、停止、重启、复制、标签、分组基础能力 | 浏览器列表、新建/编辑/复制/删除、启动/停止/重启、分组筛选正常 | 已完成：实例列表/按标签筛选/新建/编辑/复制/删除/启动/停止/重启/LaunchCode/标签/关键字/分组/实例辅助操作已接入 Proto，旧 binding 兜底已移除 |
 | R4 | 代理与内核 API | 迁移代理池、测速、IP 健康检测、内核下载和下载进度事件 | 代理导入、测速、IP 检测、内核下载进度和错误提示正常 | 已完成：代理池、测速/IP 健康、Clash 导入、内核管理和下载进度事件已接入 Proto，旧 binding/mock 兜底已移除 |
-| R5 | 设置、备份、更新 API | 迁移设置页后端调用、备份导入导出、官方 updater 适配和进度事件 | 初始化、导入、导出、检查更新、下载更新、安装更新流程正常 | 已完成：设置、备份、更新 API 和事件均为 Protobuf-only；更新运行时切到 Wails3 官方 `selfupdate` service；Windows 发布链路生成 self-update ZIP |
+| R5 | 设置、备份、更新 API | 迁移设置页后端调用、备份导入导出、官方 updater 适配和进度事件 | 初始化、导入、导出、检查更新、下载更新、安装更新流程正常 | 已完成：设置、备份、更新 API 和事件均为 Protobuf-only；更新运行时切到 Wails3 官方 `app.Updater`；Windows 发布链路生成 Setup EXE 和 Portable ZIP |
 | R6 | 扩展、书签、默认内容、快照 API | 迁移扩展管理、书签、默认内容、快照等低频 CRUD | 列表、详情、创建、编辑、删除、导入/导出类操作正常 | 已完成：默认书签、默认打开页、默认内容联动规则、快照、Cookie 管理、用户数据目录打开动作、扩展管理、浏览器设置已接入 Protobuf-only |
 | R7 | 窗口同步窗口 API | 工具栏窗口改为多窗口入口，命令和状态事件走 Protobuf client | 开始同步、工具栏显示、暂停/恢复、停止、布局、批量输入、标签控制正常 | 已完成：主窗口和悬浮工具栏均为 Protobuf-only；Wails3 工具栏已切到同进程多窗口，旧子进程 HTTP JSON 不再作为兜底 |
 | R8 | 清理旧访问层 | 删除业务页面对 `wailsjs/go/main/App` 和旧 runtime 的直接依赖 | `rg "wailsjs/go/main/App" frontend/src` 无业务页面直接引用，前端构建通过 | 已完成：业务源码无 `wailsjs`、`window.go`、`appBindings` 和旧 runtime 空壳调用；旧 Wails2 生成目录已删除 |
@@ -309,7 +309,7 @@ React 不做整体重写，页面组件和现有交互优先保留。重构范�
 
 ### 官方内置更新
 
-当前 `backend/app_update.go` 已完成 Protobuf-only 通信层，并把运行时更新替换为 Wails3 官方 `app.Updater` / `pkg/updater`。检查更新走官方 GitHub provider，下载进度由 updater 事件转成 Protobuf event，安装版下载并准备更新后调用官方 `Restart` 完成替换；解压版只打开发布页，用户自行下载 ZIP 并解压。
+当前 `backend/app_update.go` 已完成 Protobuf-only 通信层，并把更新检查和下载替换为 Wails3 官方 `app.Updater` / `pkg/updater`。检查更新走官方 GitHub provider，下载进度由 updater 事件转成 Protobuf event；安装版优先匹配 `TraceBrowser-Setup-<version>.exe`，下载校验后启动官方安装器并退出当前应用；解压版只打开发布页，用户自行下载 `TraceBrowser-Portable-<version>-win-x64.zip` 并解压。
 
 保留前端功能语义：
 
@@ -317,15 +317,15 @@ React 不做整体重写，页面组件和现有交互优先保留。重构范�
 - 展示当前版本、最新版本、更新说明。
 - 安装版下载更新。
 - 显示下载进度。
-- 安装并重启。
+- 启动安装器并退出当前应用。
 - 解压版和失败场景打开发布页作为兜底。
 
 改造方向：
 
-- 后端通过 Wails3 官方 GitHub provider 检查 GitHub Releases，匹配 `TraceBrowser-SelfUpdate-{version}-{platform}.zip` 运行时资产。
-- 发布流程生成 Wails updater 需要的 self-update ZIP、checksum sidecar 和平台资产；签名字段等待官方最终格式确认后补齐。
+- 后端通过 Wails3 官方 GitHub provider 检查 GitHub Releases，安装版匹配 `TraceBrowser-Setup-{version}.exe`，解压版使用 `TraceBrowser-Portable-{version}-win-x64.zip` 作为手动下载包。
+- 发布流程生成安装包、便携包和 `SHA256SUMS` checksum sidecar；签名字段等待官方最终格式确认后补齐。
 - 前端 `settings/api.ts` 保留函数名，但返回结构改为由官方 updater 适配。
-- 官方 self-update ZIP 内只包含可替换的 `trace-browser.exe`，用于运行时替换；完整安装包和便携包仍作为手动/完整分发资产保留。
+- 官方安装版更新包使用完整 Setup EXE；便携版 ZIP 不做应用内替换，由用户自行下载解压。
 
 发布脚本影响：
 
@@ -550,15 +550,15 @@ React 不做整体重写，页面组件和现有交互优先保留。重构范�
 
 目标：
 
-- 使用 Wails3 官方 `selfupdate` service 替代自研下载/安装适配。
-- 发布脚本能生成官方 updater 所需资产。
+- 使用 Wails3 官方 `app.Updater` / GitHub provider 替代自研检查和下载适配。
+- 发布脚本能生成官方安装版 EXE、便携 ZIP 和 updater checksum sidecar。
 
 后端任务：
 
-- 新增 updater adapter，保持前端 API 语义。进度：已完成 Protobuf adapter + 官方 `selfupdate` service runtime。
+- 新增 updater adapter，保持前端 API 语义。进度：已完成 Protobuf adapter + 官方 `app.Updater` runtime。
 - `CheckAppUpdate` 调用官方 service `Check`。进度：已完成。
 - `DownloadAppUpdate` 调用官方 updater `DownloadAndInstall`。进度：已完成。
-- `InstallDownloadedAppUpdate` 调用官方 updater `Restart`。进度：已完成。
+- `InstallDownloadedAppUpdate` 启动官方 Setup EXE，并设置强制退出模式避免关闭确认弹框阻断安装。进度：已完成。
 - 迁移更新进度事件为 Protobuf event。进度：已完成，service progress callback 会转发为 `app:update:download:progress`。
 - 保留打开发布页兜底。进度：已完成。
 
@@ -570,19 +570,20 @@ React 不做整体重写，页面组件和现有交互优先保留。重构范�
 
 发布任务：
 
-- 生成 Wails self-update ZIP。进度：Windows workflow 已完成 `TraceBrowser-SelfUpdate-<version>-windows-amd64.zip`。
-- 生成 checksum sidecar。进度：Windows workflow 已完成 `SHA256SUMS`，指向 self-update ZIP。
+- 生成安装版 EXE。进度：Windows workflow 已完成 `TraceBrowser-Setup-<version>.exe`。
+- 生成便携版 ZIP。进度：Windows workflow 已完成 `TraceBrowser-Portable-<version>-win-x64.zip`。
+- 生成 checksum sidecar。进度：Windows workflow 已完成 `SHA256SUMS`，覆盖安装版 EXE 和便携版 ZIP。
 - 生成平台资产 hash / signature。进度：SHA256 已完成，signature 等待官方格式确认。
-- 发布脚本上传 self-update 资产、checksum 和安装包。进度：Windows workflow 已完成。
+- 发布脚本上传安装包、便携包和 checksum。进度：Windows workflow 已完成。
 - 文档化更新服务器或发布源配置。
 
 验收标准：
 
 - 本地模拟高版本 GitHub Release 可以检查到更新。
 - 下载进度正常。
-- 安装并重启流程正常。
+- 安装包启动并退出当前应用流程正常。
 - 更新失败不影响当前版本继续使用。
-- 发布产物包含 updater 必需文件：self-update ZIP、`SHA256SUMS`、安装包和便携包。
+- 发布产物包含 updater 必需文件：安装版 EXE、便携版 ZIP 和 `SHA256SUMS`。
 
 完成后暂停点：
 
@@ -600,7 +601,7 @@ React 不做整体重写，页面组件和现有交互优先保留。重构范�
 - 删除 Wails2 generated runtime 文件。
 - 删除未使用的 JSON binding 调用。
 - 删除工具栏 HTTP server/token/port 逻辑。
-- 删除内部更新下载/安装适配，保留 Wails3 官方 `selfupdate` service 运行时。
+- 删除内部更新下载适配，保留 Wails3 官方 `app.Updater` / GitHub provider 运行时。
 - 更新 README、开发脚本、发布文档。
 
 验收标准：
@@ -706,7 +707,7 @@ React 不做整体重写，页面组件和现有交互优先保留。重构范�
 - [x] 确认 Wails3 配置文件最终格式：当前使用 `build/config.yml` + `Taskfile.yml`。
 - [x] 确认 Wails3 alpha raw message/bindings 当前不适合作为最终二进制承载，已选择本地 binary WebSocket 作为 Protobuf 传输层。
 - [ ] 确认 Wails3 updater 对 Windows 资产的签名要求；SHA256 sidecar 链路已落地。
-- [x] 确认官方运行时更新策略：发布独立 self-update ZIP，只包含可替换的 `trace-browser.exe`；完整安装包和便携包继续作为分发资产。
+- [x] 确认官方运行时更新策略：安装版优先使用 `TraceBrowser-Setup-<version>.exe`，便携版使用 `TraceBrowser-Portable-<version>-win-x64.zip` 并由用户自行解压。
 - [x] GitHub Actions 发布 workflow 已支持选择 `staging` / `production` Environments；`PUBLIC_RELEASE_TOKEN` 可按环境配置为 Environment secret，`PUBLIC_RELEASE_REPOSITORY` 可按环境配置为 Environment variable。
 - [x] 确认窗口同步工具栏策略：当前只保留一个 `window-sync-toolbar` 子窗口，状态由后端统一广播。
 - [x] 建立 React 后端访问层调用面清单。
@@ -734,12 +735,12 @@ React 不做整体重写，页面组件和现有交互优先保留。重构范�
 - [x] 最终清理旧 `wails.json` 元数据和跨平台发布脚本中的 Wails2 打包路径。
 - [x] 按功能域迁移 `api.ts` 并更新进度状态。
 - [x] 每个功能域完成自动化构建/测试回归后再迁移下一个功能域；桌面端人工全量回归仍需发版前执行。
-- [ ] 迁移中发现的增强项补充独立验收标准：当前剩余重点为签名链路、跨平台 self-update 资产和发版前人工回归。
+- [ ] 迁移中发现的增强项补充独立验收标准：当前剩余重点为签名链路、跨平台安装资产和发版前人工回归。
 
 ## 当前剩余收尾清单
 
-- 更新签名链路：Windows workflow 已生成 self-update ZIP、`SHA256SUMS`、下载 URL、文件名、大小和 SHA256；签名字段/密钥格式还需要按 Wails3 官方最终格式补齐。
-- 跨平台 self-update 资产：Windows `windows-amd64` 已落地；Linux/macOS 发布脚本可继续补 `linux-amd64`、`linux-arm64`、`darwin-*` 平台资产。
+- 更新签名链路：Windows workflow 已生成安装版 EXE、便携版 ZIP、`SHA256SUMS`、下载 URL、文件名、大小和 SHA256；签名字段/密钥格式还需要按 Wails3 官方最终格式补齐。
+- 跨平台安装资产：Windows 安装包已落地；Linux/macOS 发布脚本可继续补对应平台安装包和 checksum。
 - 发版前人工回归：已通过自动化测试和构建，但浏览器实例启动、窗口同步工具栏、多窗口行为、安装包更新流程仍需要在真实桌面环境完整点验。
 
 ## 当前进度记录
@@ -790,6 +791,6 @@ React 不做整体重写，页面组件和现有交互优先保留。重构范�
 - 2026-05-24：GitHub Actions 发布 workflow 已支持 Environments。`.github/workflows/publish-windows.yml` 与 `.github/workflows/publish-linux.yml` 手动触发时可选择 `staging` / `production`；Windows tag/release 自动发布默认绑定 `production`。类似 `PUBLIC_RELEASE_TOKEN` 的敏感值可配置为 Environment secret，`PUBLIC_RELEASE_REPOSITORY` 可配置为 Environment variable，workflow 仍通过 `secrets.PUBLIC_RELEASE_TOKEN` / `vars.PUBLIC_RELEASE_REPOSITORY` 读取。
 - 2026-05-24：官方 updater 发布链路继续推进。Windows workflow 已生成 `publish/output/update.json` 并上传到 release 资产，manifest 包含 `windows-amd64` 下载 URL、文件名、大小和 SHA256；当时应用更新检查优先读取官方 updater 风格 manifest，下载后会校验 SHA256，manifest 不可用时再回退 GitHub Releases 资产选择。
 - 2026-05-24：收尾清理脚本和方案文档。`bat/dev.bat`、`bat/generate-bindings.bat` 不再识别旧 `--wails2` 参数，旧 `tmp-wails2-*` 日志清理项已删除；两个脚本会在 PATH 无 `go` 时自动发现仓库内 `.tmp/toolchains/go*/go` 便携 Go。源码和脚本扫描确认非文档区域无 Wails2 / `wailsjs` / `wails.json` / JSON over IPC 旧关键字残留。方案文档已补充当前剩余收尾清单：签名链路、跨平台 manifest 和发版前人工回归。
-- 2026-05-24：官方 Wails3 updater runtime 替换完成。当前最新 tag 仍为 `v3.0.0-alpha.95`，未发布 `CreateUpdaterService` API；已从官方仓库 `v3/feat/self-update` 分支接入 `pkg/services/selfupdate` service 运行时，后端检查/下载/安装/重启分别调用官方 service 的 `Check`、`Download`、`Install`、`Restart`，下载进度通过 Protobuf event 发给设置页。Windows workflow 新增 `TraceBrowser-SelfUpdate-<version>-windows-amd64.zip`，`update.json` 指向该 self-update ZIP，完整安装包和便携包继续上传。
-- 2026-05-27：官方 updater 包切换完成。依赖升级到 `github.com/wailsapp/wails/v3 v3.0.0-alpha.96`，后端移除本地 `backend/internal/wails3selfupdate` snapshot，改为直接初始化 `app.Updater`，使用 `pkg/updater/providers/github` provider 匹配 `TraceBrowser-SelfUpdate-<version>-windows-amd64.zip`；Windows 发布链路新增官方 checksum sidecar `SHA256SUMS`，完整安装包和便携包继续保留为分发资产。
-- 2026-05-31：更新入口收紧为官方渠道。后端删除自研 GitHub Releases / manifest 下载、安装包直装、下次启动安装和 ZIP 便携版自替换路径；安装版只走 Wails3 官方 `app.Updater`，解压版仅打开发布页由用户自行下载 ZIP 并解压。
+- 2026-05-24：官方 Wails3 updater runtime 替换完成。当前最新 tag 仍为 `v3.0.0-alpha.95`，未发布 `CreateUpdaterService` API；已从官方仓库 `v3/feat/self-update` 分支接入 `pkg/services/selfupdate` service 运行时，下载进度通过 Protobuf event 发给设置页。Windows workflow 当时新增 `TraceBrowser-SelfUpdate-<version>-windows-amd64.zip`，后续已改为安装版 Setup EXE 渠道。
+- 2026-05-27：官方 updater 包切换完成。依赖升级到 `github.com/wailsapp/wails/v3 v3.0.0-alpha.96`，后端移除本地 `backend/internal/wails3selfupdate` snapshot，改为直接初始化 `app.Updater` 并使用 `pkg/updater/providers/github` provider；Windows 发布链路新增官方 checksum sidecar `SHA256SUMS`。
+- 2026-05-31：更新入口收紧为官方渠道。后端删除自研 GitHub Releases / manifest 下载、下次启动安装和 ZIP 便携版自替换路径；安装版走 Wails3 官方 GitHub provider 下载 `TraceBrowser-Setup-<version>.exe` 并启动官方安装器，解压版仅打开发布页由用户自行下载 ZIP 并解压。
