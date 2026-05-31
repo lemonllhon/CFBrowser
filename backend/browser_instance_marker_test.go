@@ -44,7 +44,23 @@ func TestRenderBrowserInstanceIconWritesICOHeader(t *testing.T) {
 	if data[0] != 0 || data[1] != 0 || data[2] != 1 || data[3] != 0 {
 		t.Fatalf("unexpected ico header: %v", data[:4])
 	}
-	if data[4] != 3 || data[5] != 0 {
-		t.Fatalf("expected three icon frames, header bytes=%v", data[4:6])
+	if data[4] != 7 || data[5] != 0 {
+		t.Fatalf("expected seven icon frames, header bytes=%v", data[4:6])
+	}
+}
+
+func TestDecodeBrowserInstanceBaseIconFrames(t *testing.T) {
+	frames, err := decodeBrowserInstanceBaseIconFrames(browserInstanceBaseIconICO)
+	if err != nil {
+		t.Fatalf("decode base icon: %v", err)
+	}
+	for _, size := range []int{16, 24, 32, 48, 64, 128, 256} {
+		frame := frames[size]
+		if frame == nil {
+			t.Fatalf("missing %dpx base icon frame", size)
+		}
+		if frame.Bounds().Dx() != size || frame.Bounds().Dy() != size {
+			t.Fatalf("unexpected %dpx frame bounds: %v", size, frame.Bounds())
+		}
 	}
 }

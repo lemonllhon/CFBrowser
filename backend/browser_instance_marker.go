@@ -2,11 +2,13 @@ package backend
 
 import (
 	"bytes"
+	_ "embed"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"image"
 	"image/color"
+	"image/draw"
 	"image/png"
 	"os"
 	"path/filepath"
@@ -17,6 +19,9 @@ import (
 
 	"ant-chrome/backend/internal/logger"
 )
+
+//go:embed internal/tray/icon.ico
+var browserInstanceBaseIconICO []byte
 
 type browserInstanceIdentity struct {
 	ProfileId string
@@ -335,16 +340,21 @@ func renderBrowserInstanceIcon(index int) ([]byte, error) {
 		label = "99"
 	}
 	bg := browserInstanceIconColor(index)
+	baseFrames, _ := decodeBrowserInstanceBaseIconFrames(browserInstanceBaseIconICO)
 	frames := []struct {
 		size int
 		data []byte
 	}{
 		{size: 16},
+		{size: 24},
 		{size: 32},
 		{size: 48},
+		{size: 64},
+		{size: 128},
+		{size: 256},
 	}
 	for i := range frames {
-		pngData, err := renderBrowserInstanceIconPNG(frames[i].size, label, bg)
+		pngData, err := renderBrowserInstanceIconPNG(frames[i].size, label, bg, baseFrames[frames[i].size])
 		if err != nil {
 			return nil, err
 		}
@@ -381,8 +391,41 @@ func renderBrowserInstanceIcon(index int) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func renderBrowserInstanceIconPNG(size int, label string, bg color.RGBA) ([]byte, error) {
+func renderBrowserInstanceIconPNG(size int, label string, bg color.RGBA, base image.Image) ([]byte, error) {
 	img := image.NewRGBA(image.Rect(0, 0, size, size))
+	if base != nil {
+		drawBrowserInstanceBaseIcon(img, base)
+	} else {
+		drawBrowserInstanceFallbackIcon(img, bg)
+	}
+	drawBrowserInstanceNumberBadge(img, label, bg)
+
+	buf := bytes.NewBuffer(nil)
+	if err := png.Encode(buf, img); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+func drawBrowserInstanceBaseIcon(dst *image.RGBA, base image.Image) {
+	dstBounds := dst.Bounds()
+	srcBounds := base.Bounds()
+	if srcBounds.Dx() == dstBounds.Dx() && srcBounds.Dy() == dstBounds.Dy() {
+		draw.Draw(dst, dstBounds, base, srcBounds.Min, draw.Over)
+		return
+	}
+	for y := dstBounds.Min.Y; y < dstBounds.Max.Y; y++ {
+		for x := dstBounds.Min.X; x < dstBounds.Max.X; x++ {
+			srcX := srcBounds.Min.X + (x-dstBounds.Min.X)*srcBounds.Dx()/dstBounds.Dx()
+			srcY := srcBounds.Min.Y + (y-dstBounds.Min.Y)*srcBounds.Dy()/dstBounds.Dy()
+			dst.Set(x, y, base.At(srcX, srcY))
+		}
+	}
+}
+
+func drawBrowserInstanceFallbackIcon(img *image.RGBA, bg color.RGBA) {
+	bounds := img.Bounds()
+	size := bounds.Dx()
 	cx := float64(size-1) / 2
 	cy := float64(size-1) / 2
 	radius := float64(size) * 0.47
@@ -396,14 +439,125 @@ func renderBrowserInstanceIconPNG(size int, label string, bg color.RGBA) ([]byte
 			}
 		}
 	}
-	drawBrowserInstanceIconLabel(img, label, color.RGBA{R: 15, G: 23, B: 42, A: 120}, 1, 1)
-	drawBrowserInstanceIconLabel(img, label, color.RGBA{R: 255, G: 255, B: 255, A: 255}, 0, 0)
+}
 
-	buf := bytes.NewBuffer(nil)
-	if err := png.Encode(buf, img); err != nil {
-		return nil, err
+func drawBrowserInstanceNumberBadge(img *image.RGBA, label string, bg color.RGBA) {
+	if label == "" {
+		return
 	}
-	return buf.Bytes(), nil
+	bounds := img.Bounds()
+	size := bounds.Dx()
+	diameter := maxInt(10, int(float64(size)*0.42))
+	if size <= 16 {
+		diameter = 11
+	}
+	if diameter > size-2 {
+		diameter = size - 2
+	}
+	margin := maxInt(1, size/28)
+	x1 := bounds.Max.X - margin
+	y1 := bounds.Max.Y - margin
+	x0 := x1 - diameter
+	y0 := y1 - diameter
+	if x0 < bounds.Min.X {
+		x0 = bounds.Min.X
+	}
+	if y0 < bounds.Min.Y {
+		y0 = bounds.Min.Y
+	}
+	badge := image.Rect(x0, y0, x1, y1)
+	cx := float64(badge.Min.X+badge.Max.X-1) / 2
+	cy := float64(badge.Min.Y+badge.Max.Y-1) / 2
+	radius := float64(diameter) / 2
+	shadowOffset := maxInt(1, size/64)
+	drawBrowserInstanceBadgeCircle(img, cx+float64(shadowOffset), cy+float64(shadowOffset), radius, color.RGBA{R: 15, G: 23, B: 42, A: 90})
+	drawBrowserInstanceBadgeCircle(img, cx, cy, radius, color.RGBA{R: 255, G: 255, B: 255, A: 255})
+	border := maxInt(1, size/36)
+	drawBrowserInstanceBadgeCircle(img, cx, cy, radius-float64(border), bg)
+
+	inset := maxInt(1, border)
+	labelRect := badge.Inset(inset)
+	drawBrowserInstanceIconLabelInRect(img, label, labelRect, color.RGBA{R: 15, G: 23, B: 42, A: 135}, shadowOffset, shadowOffset)
+	drawBrowserInstanceIconLabelInRect(img, label, labelRect, color.RGBA{R: 255, G: 255, B: 255, A: 255}, 0, 0)
+}
+
+func drawBrowserInstanceBadgeCircle(img *image.RGBA, cx float64, cy float64, radius float64, clr color.RGBA) {
+	if radius <= 0 {
+		return
+	}
+	bounds := img.Bounds()
+	minX := maxInt(bounds.Min.X, int(cx-radius)-1)
+	maxX := minInt(bounds.Max.X, int(cx+radius)+2)
+	minY := maxInt(bounds.Min.Y, int(cy-radius)-1)
+	maxY := minInt(bounds.Max.Y, int(cy+radius)+2)
+	rr := radius * radius
+	for y := minY; y < maxY; y++ {
+		for x := minX; x < maxX; x++ {
+			dx := float64(x) - cx
+			dy := float64(y) - cy
+			if dx*dx+dy*dy <= rr {
+				blendBrowserInstancePixel(img, x, y, clr)
+			}
+		}
+	}
+}
+
+func blendBrowserInstancePixel(img *image.RGBA, x int, y int, src color.RGBA) {
+	if !image.Pt(x, y).In(img.Bounds()) || src.A == 0 {
+		return
+	}
+	if src.A == 255 {
+		img.SetRGBA(x, y, src)
+		return
+	}
+	dst := img.RGBAAt(x, y)
+	alpha := int(src.A)
+	invAlpha := 255 - alpha
+	img.SetRGBA(x, y, color.RGBA{
+		R: uint8((int(src.R)*alpha + int(dst.R)*invAlpha) / 255),
+		G: uint8((int(src.G)*alpha + int(dst.G)*invAlpha) / 255),
+		B: uint8((int(src.B)*alpha + int(dst.B)*invAlpha) / 255),
+		A: uint8(minInt(255, alpha+int(dst.A)*invAlpha/255)),
+	})
+}
+
+func decodeBrowserInstanceBaseIconFrames(data []byte) (map[int]image.Image, error) {
+	if len(data) < 6 {
+		return nil, fmt.Errorf("ico data too short")
+	}
+	if binary.LittleEndian.Uint16(data[0:2]) != 0 || binary.LittleEndian.Uint16(data[2:4]) != 1 {
+		return nil, fmt.Errorf("invalid ico header")
+	}
+	count := int(binary.LittleEndian.Uint16(data[4:6]))
+	if count <= 0 || len(data) < 6+count*16 {
+		return nil, fmt.Errorf("invalid ico directory")
+	}
+	frames := make(map[int]image.Image)
+	for i := 0; i < count; i++ {
+		entry := data[6+i*16 : 6+(i+1)*16]
+		size := int(entry[0])
+		if size == 0 {
+			size = 256
+		}
+		imageSize := int(binary.LittleEndian.Uint32(entry[8:12]))
+		imageOffset := int(binary.LittleEndian.Uint32(entry[12:16]))
+		if imageSize <= 0 || imageOffset < 0 || imageOffset+imageSize > len(data) {
+			continue
+		}
+		frameData := data[imageOffset : imageOffset+imageSize]
+		if len(frameData) < 8 || !bytes.Equal(frameData[:8], []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}) {
+			continue
+		}
+		img, err := png.Decode(bytes.NewReader(frameData))
+		if err != nil {
+			continue
+		}
+		frames[size] = img
+	}
+	if len(frames) == 0 {
+		return nil, fmt.Errorf("no png frames in ico")
+	}
+	return frames, nil
 }
 
 func browserInstanceIconColor(index int) color.RGBA {
@@ -423,22 +577,29 @@ func browserInstanceIconColor(index int) color.RGBA {
 	return palette[(index-1)%len(palette)]
 }
 
-func drawBrowserInstanceIconLabel(img *image.RGBA, label string, clr color.RGBA, offsetX int, offsetY int) {
-	bounds := img.Bounds()
-	size := bounds.Dx()
+func drawBrowserInstanceIconLabelInRect(img *image.RGBA, label string, rect image.Rectangle, clr color.RGBA, offsetX int, offsetY int) {
 	if label == "" {
 		return
 	}
-	scale := maxInt(1, size/14)
-	if len(label) == 1 {
-		scale = maxInt(1, size/8)
+	rect = rect.Intersect(img.Bounds())
+	if rect.Empty() {
+		return
 	}
+	glyphColumns := 5
+	glyphRows := 7
+	gapUnits := maxInt(0, len(label)-1)
+	scaleX := rect.Dx() / (len(label)*glyphColumns + gapUnits)
+	scaleY := rect.Dy() / glyphRows
+	scale := maxInt(1, minInt(scaleX, scaleY))
 	charWidth := 5 * scale
 	charHeight := 7 * scale
-	gap := scale
+	gap := 0
+	if scale > 1 {
+		gap = scale
+	}
 	totalWidth := len(label)*charWidth + maxInt(0, len(label)-1)*gap
-	startX := bounds.Min.X + (size-totalWidth)/2 + offsetX
-	startY := bounds.Min.Y + (size-charHeight)/2 + offsetY
+	startX := rect.Min.X + (rect.Dx()-totalWidth)/2 + offsetX
+	startY := rect.Min.Y + (rect.Dy()-charHeight)/2 + offsetY
 	for i, ch := range label {
 		pattern, ok := browserInstanceDigitFont[ch]
 		if !ok {
@@ -454,8 +615,8 @@ func drawBrowserInstanceIconLabel(img *image.RGBA, label string, clr color.RGBA,
 					for dx := 0; dx < scale; dx++ {
 						x := x0 + col*scale + dx
 						y := startY + row*scale + dy
-						if image.Pt(x, y).In(bounds) {
-							img.SetRGBA(x, y, clr)
+						if image.Pt(x, y).In(rect) {
+							blendBrowserInstancePixel(img, x, y, clr)
 						}
 					}
 				}
