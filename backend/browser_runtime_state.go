@@ -174,6 +174,9 @@ func (a *App) waitBrowserDebugReadyAsync(profileId string, debugPort int, timeou
 		logger.F("debug_port", debugPort),
 	)
 	a.emitBrowserInstanceUpdated(snapshot)
+	if identity, ok := a.browserInstanceIdentityForProfileID(profileId); ok {
+		go a.applyBrowserInstanceIdentityMarker(identity)
+	}
 }
 
 func shouldKeepBrowserRunningPendingDebugReady(debugPort int, monitor *browserProcessMonitor) bool {

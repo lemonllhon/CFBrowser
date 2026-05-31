@@ -74,7 +74,9 @@ func (a *App) browserInstanceStartInternal(profileId string, extraLaunchArgs []s
 			if a.launchServer != nil && profile.DebugReady {
 				a.launchServer.SetActiveProfile(profile)
 			}
+			identity := a.browserInstanceIdentityLocked(profile)
 			a.emitBrowserInstanceStarted(profile, true)
+			go a.applyBrowserInstanceIdentityMarker(identity)
 			return profile, nil
 		}
 	}
@@ -342,7 +344,9 @@ func (a *App) browserInstanceStartInternal(profileId string, extraLaunchArgs []s
 				logger.F("max_attempts", maxStartAttempts),
 				logger.F("args", strings.Join(args, " ")),
 			)
+			identity := a.browserInstanceIdentityLocked(profile)
 			a.emitBrowserInstanceStarted(profile, false)
+			go a.applyBrowserInstanceIdentityMarker(identity)
 
 			go a.waitBrowserProcess(profileId, monitor)
 			return profile, nil
@@ -394,7 +398,9 @@ func (a *App) browserInstanceStartInternal(profileId string, extraLaunchArgs []s
 			logger.F("max_attempts", maxStartAttempts),
 			logger.F("warning", runtimeWarning),
 		)
+		identity := a.browserInstanceIdentityLocked(profile)
 		a.emitBrowserInstanceStarted(profile, false)
+		go a.applyBrowserInstanceIdentityMarker(identity)
 		go a.waitBrowserProcess(profileId, monitor)
 		go a.waitBrowserDebugReadyAsync(profileId, assignedDebugPort, browserAsyncDebugAttachTimeout)
 	}
@@ -661,6 +667,9 @@ func (a *App) waitBrowserProcess(profileId string, monitor *browserProcessMonito
 					logger.F("debug_port", debugPort),
 				)
 				a.emitBrowserInstanceUpdated(snapshot)
+				if identity, ok := a.browserInstanceIdentityForProfileID(profileId); ok {
+					go a.applyBrowserInstanceIdentityMarker(identity)
+				}
 			}
 		}
 
