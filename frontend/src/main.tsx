@@ -1,6 +1,8 @@
 import ReactDOM from 'react-dom/client'
 import App from './App'
+import { ThemeProvider } from './shared/theme'
 import { WindowSyncFloatingToolbar } from './modules/browser/components/WindowSyncFloatingToolbar'
+import { WindowSyncMasterClosedPrompt } from './modules/browser/components/WindowSyncMasterClosedPrompt'
 import './index.css'
 
 type WailsRuntimeWindow = Window & {
@@ -59,9 +61,18 @@ async function bootstrap() {
 
   const searchParams = new URLSearchParams(window.location.search)
   const isWindowSyncToolbar = searchParams.get('toolbar') === '1'
+  const isWindowSyncPrompt = searchParams.get('windowSyncPrompt') === 'master-closed'
 
   ReactDOM.createRoot(document.getElementById('root')!).render(
-    isWindowSyncToolbar ? <WindowSyncFloatingToolbar /> : <App />,
+    isWindowSyncToolbar ? (
+      <WindowSyncFloatingToolbar />
+    ) : isWindowSyncPrompt ? (
+      <ThemeProvider>
+        <WindowSyncMasterClosedPrompt />
+      </ThemeProvider>
+    ) : (
+      <App />
+    ),
   )
 }
 

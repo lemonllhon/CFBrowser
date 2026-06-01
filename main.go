@@ -6,6 +6,7 @@ import (
 	"embed"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	goruntime "runtime"
@@ -192,6 +193,9 @@ const (
 	wails3WindowSyncToolbarName           = "window-sync-toolbar"
 	wails3WindowSyncToolbarExpandedWidth  = 900
 	wails3WindowSyncToolbarExpandedHeight = 430
+	wails3WindowSyncPromptName            = "window-sync-master-closed-prompt"
+	wails3WindowSyncPromptWidth           = 480
+	wails3WindowSyncPromptHeight          = 330
 )
 
 type wails3WindowSyncToolbarAdapter struct {
@@ -205,9 +209,11 @@ type wails3WindowSyncToolbarAdapter struct {
 }
 
 type wails3WindowSyncPromptAdapter struct {
-	mu       sync.Mutex
-	wailsApp *application.App
-	showing  bool
+	mu                  sync.Mutex
+	wailsApp            *application.App
+	protoIPC            *backend.Wails3ProtoIPC
+	window              application.Window
+	startupDebugEnabled bool
 }
 
 func (a *wails3WindowSyncPromptAdapter) ShowMasterClosedPrompt(app *backend.App, prompt backend.WindowSyncMasterClosedPrompt) bool {
@@ -216,46 +222,83 @@ func (a *wails3WindowSyncPromptAdapter) ShowMasterClosedPrompt(app *backend.App,
 	}
 
 	a.mu.Lock()
-	if a.showing {
+	if a.window != nil {
+		window := a.window
 		a.mu.Unlock()
+		window.Show()
+		window.Focus()
 		return true
 	}
-	a.showing = true
+
+	js := ""
+	if a.protoIPC != nil {
+		js = a.protoIPC.ConfigScript()
+	}
+	promptWindow := a.wailsApp.Window.NewWithOptions(application.WebviewWindowOptions{
+		Name:             wails3WindowSyncPromptName,
+		Title:            "窗口同步已停止",
+		Width:            wails3WindowSyncPromptWidth,
+		Height:           wails3WindowSyncPromptHeight,
+		MinWidth:         wails3WindowSyncPromptWidth,
+		MinHeight:        wails3WindowSyncPromptHeight,
+		MaxWidth:         wails3WindowSyncPromptWidth,
+		MaxHeight:        wails3WindowSyncPromptHeight,
+		DisableResize:    true,
+		Frameless:        true,
+		AlwaysOnTop:      true,
+		BackgroundType:   application.BackgroundTypeTransparent,
+		BackgroundColour: application.NewRGBA(245, 247, 250, 0),
+		InitialPosition:  application.WindowCentered,
+		URL:              windowSyncMasterClosedPromptURL(prompt),
+		JS:               js,
+		Windows: application.WindowsWindow{
+			DisableFramelessWindowDecorations: true,
+		},
+		MinimiseButtonState:   application.ButtonHidden,
+		MaximiseButtonState:   application.ButtonHidden,
+		CloseButtonState:      application.ButtonHidden,
+		FullscreenButtonState: application.ButtonHidden,
+	})
+	promptWindow.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
+		a.mu.Lock()
+		if a.window == promptWindow {
+			a.window = nil
+		}
+		a.mu.Unlock()
+	})
+	if a.protoIPC != nil {
+		registerProtoConfigInjection(promptWindow, a.protoIPC, wails3WindowSyncPromptName, a.startupDebugEnabled)
+	}
+	a.window = promptWindow
 	a.mu.Unlock()
 
-	remainingProfileIds := append([]string{}, prompt.RemainingProfileIds...)
-	masterName := strings.TrimSpace(prompt.ProfileName)
-	if masterName == "" {
-		masterName = strings.TrimSpace(prompt.ProfileId)
+	promptWindow.Center()
+	promptWindow.SetAlwaysOnTop(true)
+	promptWindow.Show()
+	if a.protoIPC != nil {
+		scheduleProtoConfigInjection(promptWindow, a.protoIPC, wails3WindowSyncPromptName, a.startupDebugEnabled)
 	}
-	if masterName == "" {
-		masterName = "主控窗口"
+	if a.startupDebugEnabled {
+		log.Printf("Wails3 窗口同步停止提示已创建为独立多窗口: %s", wails3WindowSyncPromptName)
 	}
-
-	go func() {
-		defer func() {
-			a.mu.Lock()
-			a.showing = false
-			a.mu.Unlock()
-		}()
-
-		dialog := a.wailsApp.Dialog.Question().
-			SetTitle("窗口同步已停止").
-			SetMessage(fmt.Sprintf("主控实例「%s」已关闭，窗口同步已立即停止。\n\n是否关闭剩余 %d 个同步实例？", masterName, len(remainingProfileIds)))
-		dialog.AddButton("Yes").OnClick(func() {
-			for _, profileId := range remainingProfileIds {
-				if _, err := app.BrowserInstanceStop(profileId); err != nil {
-					log.Printf("关闭窗口同步剩余实例失败: profile=%s error=%v", profileId, err)
-				}
-			}
-		})
-		noButton := dialog.AddButton("No").SetAsCancel().SetAsDefault()
-		dialog.SetCancelButton(noButton)
-		dialog.SetDefaultButton(noButton)
-		dialog.Show()
-	}()
-
 	return true
+}
+
+func windowSyncMasterClosedPromptURL(prompt backend.WindowSyncMasterClosedPrompt) string {
+	values := url.Values{}
+	values.Set("windowSyncPrompt", "master-closed")
+	values.Set("profileId", strings.TrimSpace(prompt.ProfileId))
+	values.Set("profileName", strings.TrimSpace(prompt.ProfileName))
+	values.Set("reason", strings.TrimSpace(prompt.Reason))
+	for _, profileId := range prompt.RemainingProfileIds {
+		if trimmed := strings.TrimSpace(profileId); trimmed != "" {
+			values.Add("remainingProfileIds", trimmed)
+		}
+	}
+	for _, profileName := range prompt.RemainingProfileNames {
+		values.Add("remainingProfileNames", strings.TrimSpace(profileName))
+	}
+	return "/?" + values.Encode()
 }
 
 func (a *wails3WindowSyncToolbarAdapter) Show(_ *backend.App, state *backend.WindowSyncState) error {
@@ -592,7 +635,9 @@ func main() {
 		startupDebugEnabled: startupDebugEnabled,
 	})
 	app.SetWindowSyncPromptAdapter(&wails3WindowSyncPromptAdapter{
-		wailsApp: wailsApp,
+		wailsApp:            wailsApp,
+		protoIPC:            protoIPC,
+		startupDebugEnabled: startupDebugEnabled,
 	})
 
 	mainWindow = wailsApp.Window.NewWithOptions(application.WebviewWindowOptions{
