@@ -169,8 +169,40 @@ input, select, textarea {
 }
 
 /* 图标样式 */
+.trace-sidebar-logo {
+  background: transparent !important;
+}
+
+.trace-sidebar-logo-image {
+  display: block;
+  background: transparent;
+  transform-origin: 50% 50%;
+  animation: traceLogoSpin 14s linear infinite;
+  will-change: transform;
+}
+
+.trace-sidebar-logo:hover .trace-sidebar-logo-image {
+  animation-duration: 2.4s;
+}
+
 .fallback-logo .fallback-content {
   display: block;
+}
+
+@keyframes traceLogoSpin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trace-sidebar-logo-image {
+    animation: none;
+    will-change: auto;
+  }
 }
 
 /* 新增动画 */

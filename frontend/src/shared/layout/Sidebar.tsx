@@ -68,11 +68,11 @@ export function Sidebar() {
       )}>
         {!sidebarCollapsed ? (
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-full overflow-hidden flex-shrink-0 bg-[var(--color-accent)] flex items-center justify-center">
-              <img 
-                src={logoImage} 
-                alt="应用Logo" 
-                className="w-full h-full object-cover"
+            <div className="trace-sidebar-logo w-6 h-6 flex-shrink-0 flex items-center justify-center">
+              <img
+                src={logoImage}
+                alt="应用Logo"
+                className="trace-sidebar-logo-image w-full h-full object-contain"
                 onError={(e) => {
                   // 图片加载失败时显示首字母
                   e.currentTarget.style.display = 'none';
@@ -88,11 +88,11 @@ export function Sidebar() {
             </h2>
           </div>
         ) : (
-          <div className="w-8 h-8 rounded-full overflow-hidden bg-[var(--color-accent)] flex items-center justify-center">
-            <img 
-              src={logoImage} 
-              alt="应用Logo" 
-              className="w-full h-full object-cover"
+          <div className="trace-sidebar-logo w-8 h-8 flex items-center justify-center">
+            <img
+              src={logoImage}
+              alt="应用Logo"
+              className="trace-sidebar-logo-image w-full h-full object-contain"
               onError={(e) => {
                 // 图片加载失败时显示首字母
                 e.currentTarget.style.display = 'none';
