@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react'
+import { useEffect, useRef, useState, type ClipboardEvent, type CSSProperties, type KeyboardEvent } from 'react'
 import { Eye, GripHorizontal, Keyboard, Link, List, Pause, Play, Power, RefreshCw, Settings, SquareStack, X } from 'lucide-react'
 import { Button, ToastContainer, toast } from '../../../shared/components'
 import { ThemeProvider } from '../../../shared/theme'
@@ -26,6 +26,9 @@ const collapsedToolbarWidth = 360
 const collapsedToolbarHeight = 76
 const expandedToolbarWidth = 900
 const panelToolbarHeight = 430
+const defaultWindowSyncMasterColor = '#2563eb'
+const themedMasterColor = 'var(--color-accent)'
+type ToolbarMasterColorStyle = CSSProperties & { '--window-sync-master-color': string }
 
 function profileCount(state: WindowSyncState | null) {
   return state?.windows?.length || state?.profileIds?.length || 0
@@ -52,7 +55,7 @@ function actionResultMessage(action: string, result: WindowSyncActionResult | nu
 
 function stateToSettings(state: WindowSyncState | null): WindowSyncSettings {
   return {
-    masterColor: state?.masterColor || '#2563eb',
+    masterColor: state?.masterColor || defaultWindowSyncMasterColor,
     syncKeyboard: state?.syncKeyboard ?? true,
     syncMouse: state?.syncMouse ?? true,
   }
@@ -60,8 +63,13 @@ function stateToSettings(state: WindowSyncState | null): WindowSyncSettings {
 
 function normalizeColor(value: string) {
   const trimmed = value.trim()
-  if (!trimmed) return '#2563eb'
+  if (!trimmed) return defaultWindowSyncMasterColor
   return trimmed.startsWith('#') ? trimmed : `#${trimmed}`
+}
+
+function toolbarMasterColor(value?: string) {
+  const color = normalizeColor(value || '')
+  return color.toLowerCase() === defaultWindowSyncMasterColor ? themedMasterColor : color
 }
 
 function layoutForMode(state: WindowSyncState | null, mode: 'grid' | 'stack', scope?: 'app-screen' | 'toolbar-screen' | 'all-screens') {
@@ -392,7 +400,7 @@ export function WindowSyncFloatingToolbar() {
   const count = profileCount(state)
   const windows = orderedWindows(state)
   const batchLoading = loadingCommand === 'batch-input:same' || loadingCommand === 'batch-input:different'
-  const masterColor = normalizeColor(state?.masterColor || settingsDraft.masterColor || '#2563eb')
+  const masterColor = toolbarMasterColor(state?.masterColor)
 
   return (
     <ThemeProvider>
@@ -598,7 +606,7 @@ export function WindowSyncFloatingToolbar() {
             {batchResult && (
               <div className="window-sync-batch-result">
                 {batchResult.results.map(item => (
-                  <div key={item.profileId} className={item.success ? 'text-[var(--color-success)]' : 'text-[var(--color-danger)]'}>
+                  <div key={item.profileId} className={item.success ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]'}>
                     {(item.master ? '主控' : '被控')} · {item.profileName || item.profileId}：{item.success ? '成功' : item.error || '失败'}
                   </div>
                 ))}
@@ -656,7 +664,7 @@ export function WindowSyncFloatingToolbar() {
             {tabResult && (
               <div className="window-sync-batch-result">
                 {tabResult.results.map(item => (
-                  <div key={item.profileId} className={item.success ? 'text-[var(--color-success)]' : 'text-[var(--color-danger)]'}>
+                  <div key={item.profileId} className={item.success ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]'}>
                     {(item.master ? '主控' : '被控')} · {item.profileName || item.profileId}：{item.success ? '成功' : item.error || '失败'}
                   </div>
                 ))}
@@ -687,7 +695,7 @@ export function WindowSyncFloatingToolbar() {
                       <span className="window-sync-index-badge">{index + 1}</span>
                       <span
                         className={window.master ? 'window-sync-role-badge is-master' : 'window-sync-role-badge'}
-                        style={window.master ? { color: masterColor, backgroundColor: `${masterColor}1f` } : undefined}
+                        style={window.master ? ({ '--window-sync-master-color': masterColor } as ToolbarMasterColorStyle) : undefined}
                       >
                         {window.master ? '主控' : '被控'}
                       </span>
@@ -698,7 +706,7 @@ export function WindowSyncFloatingToolbar() {
                     </div>
                   </div>
                   <div className="shrink-0 text-right">
-                    <div className={window.running ? 'text-xs text-[var(--color-success)]' : 'text-xs text-[var(--color-danger)]'}>
+                    <div className={window.running ? 'text-xs text-[var(--color-success)]' : 'text-xs text-[var(--color-error)]'}>
                       {window.running ? '运行中' : '未运行'}
                     </div>
                     <div className={window.debugReady ? 'mt-1 text-xs text-[var(--color-success)]' : 'mt-1 text-xs text-[var(--color-text-muted)]'}>
@@ -742,7 +750,7 @@ export function WindowSyncFloatingToolbar() {
                     value={settingsDraft.masterColor}
                     onChange={event => setSettingsDraft(prev => ({ ...prev, masterColor: event.target.value }))}
                     className="window-sync-color-text"
-                    placeholder="#2563eb"
+                    placeholder={defaultWindowSyncMasterColor}
                   />
                 </span>
               </label>

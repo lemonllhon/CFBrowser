@@ -493,7 +493,7 @@ input, select, textarea {
   border: 1px solid var(--color-border-default);
   border-radius: 8px;
   background: color-mix(in srgb, var(--color-bg-elevated) 94%, transparent);
-  box-shadow: 0 12px 36px rgb(15 23 42 / 0.18);
+  box-shadow: var(--shadow-lg);
   overflow: hidden;
 }
 
@@ -588,7 +588,7 @@ input, select, textarea {
 .window-sync-batch-tabs button.is-active {
   background: var(--color-bg-elevated);
   color: var(--color-text-primary);
-  box-shadow: 0 1px 4px rgb(15 23 42 / 0.12);
+  box-shadow: var(--shadow-sm);
 }
 
 .window-sync-batch-textarea {
@@ -637,10 +637,10 @@ input, select, textarea {
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--color-border-default);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 18%, var(--color-border-default));
   border-radius: 7px;
-  background: var(--color-bg-muted);
-  color: var(--color-text-secondary);
+  background: color-mix(in srgb, var(--color-accent) 10%, var(--color-bg-muted));
+  color: var(--color-accent);
   font-size: 11px;
   font-weight: 700;
   line-height: 1;
@@ -716,8 +716,9 @@ input, select, textarea {
 }
 
 .window-sync-role-badge.is-master {
-  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
-  color: var(--color-accent);
+  --window-sync-master-color: var(--color-accent);
+  background: color-mix(in srgb, var(--window-sync-master-color) 14%, transparent);
+  color: var(--window-sync-master-color);
 }
 
 .window-sync-settings-panel {
