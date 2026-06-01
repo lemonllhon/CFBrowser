@@ -390,6 +390,7 @@ func isProtoRuntimeEvent(eventName string) bool {
 		"browser:instance:crashed",
 		"browser:profiles:updated",
 		"browser:groups:updated",
+		"window-sync:master-closed",
 		"proxy:bridge:failed",
 		"proxy:bridge:died":
 		return true

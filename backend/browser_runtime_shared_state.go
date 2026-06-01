@@ -30,9 +30,9 @@ func (a *App) reconcileBrowserProfileRuntimeStates() {
 	a.refreshBrowserProfileConfigCacheFromStore()
 	a.browserMgr.InitData()
 	a.browserMgr.Mutex.Lock()
-	defer a.browserMgr.Mutex.Unlock()
 
 	changed := false
+	stoppedProfileIDs := make([]string, 0)
 	for profileID, profile := range a.browserMgr.Profiles {
 		if profile == nil {
 			continue
@@ -42,6 +42,7 @@ func (a *App) reconcileBrowserProfileRuntimeStates() {
 		if err != nil || state == nil || !state.Running {
 			if profile.Running && !isBrowserProfileLive(profile, a.browserMgr.BrowserProcesses[profileID]) {
 				a.markProfileStoppedLocked(profileID, profile)
+				stoppedProfileIDs = append(stoppedProfileIDs, profileID)
 				changed = true
 			}
 			continue
@@ -50,6 +51,7 @@ func (a *App) reconcileBrowserProfileRuntimeStates() {
 		if !browserRuntimeStateLive(state) {
 			if profile.Running && profile.DebugPort == state.DebugPort && profile.Pid == state.PID {
 				a.markProfileStoppedLocked(profileID, profile)
+				stoppedProfileIDs = append(stoppedProfileIDs, profileID)
 				changed = true
 			}
 			_ = a.clearBrowserProfileRuntimeState(profileID)
@@ -89,6 +91,11 @@ func (a *App) reconcileBrowserProfileRuntimeStates() {
 				break
 			}
 		}
+	}
+	a.browserMgr.Mutex.Unlock()
+
+	for _, profileID := range stoppedProfileIDs {
+		a.handleWindowSyncProfileStopped(profileID, "runtime-reconcile")
 	}
 }
 

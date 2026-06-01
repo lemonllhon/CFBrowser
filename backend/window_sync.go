@@ -612,6 +612,156 @@ func (a *App) ensureWindowSyncProfileMutable(profileId string) error {
 	return nil
 }
 
+func (a *App) handleWindowSyncProfileStopped(profileId string, reason string) {
+	if a == nil {
+		return
+	}
+	profileId = strings.TrimSpace(profileId)
+	if profileId == "" {
+		return
+	}
+
+	var activeState *WindowSyncState
+	var inactiveState *WindowSyncState
+	var masterClosedPayload map[string]interface{}
+	masterClosed := false
+
+	a.windowSyncMu.Lock()
+	if a.windowSyncState == nil || !a.windowSyncState.Active || !windowSyncStateHasProfile(a.windowSyncState, profileId) {
+		a.windowSyncMu.Unlock()
+		return
+	}
+
+	next := cloneWindowSyncState(a.windowSyncState)
+	next.UpdatedAt = time.Now().Format(time.RFC3339)
+	if next.MasterProfileId == profileId {
+		markWindowSyncCandidateStopped(next, profileId)
+		next.Active = false
+		masterClosed = true
+		masterClosedPayload = windowSyncMasterClosedPayload(next, profileId, reason)
+		a.stopWindowSyncListenerLocked()
+		a.windowSyncState = nil
+		inactiveState = next
+	} else {
+		next.ProfileIds = removeWindowSyncProfileId(next.ProfileIds, profileId)
+		next.Windows = removeWindowSyncCandidate(next.Windows, profileId)
+		if len(next.Windows) < 2 {
+			next.Active = false
+			a.stopWindowSyncListenerLocked()
+			a.windowSyncState = nil
+			inactiveState = next
+		} else {
+			a.windowSyncState = cloneWindowSyncState(next)
+			activeState = cloneWindowSyncState(next)
+		}
+	}
+	a.windowSyncMu.Unlock()
+
+	if masterClosed {
+		logger.New("WindowSync").Info("主控窗口已关闭，窗口同步已停止",
+			logger.F("profile_id", profileId),
+			logger.F("reason", reason),
+		)
+		a.emitEvent("window-sync:master-closed", masterClosedPayload)
+	}
+	if activeState != nil {
+		logger.New("WindowSync").Info("同步窗口已移除",
+			logger.F("profile_id", profileId),
+			logger.F("remaining", len(activeState.Windows)),
+			logger.F("reason", reason),
+		)
+		a.emitWindowSyncStateChanged(activeState)
+		a.updateWindowSyncToolbar(activeState)
+		return
+	}
+	if inactiveState != nil {
+		if !masterClosed {
+			logger.New("WindowSync").Info("同步窗口不足，窗口同步已停止",
+				logger.F("profile_id", profileId),
+				logger.F("reason", reason),
+			)
+		}
+		a.hideWindowSyncToolbar()
+		a.emitWindowSyncStateChanged(inactiveState)
+	}
+}
+
+func windowSyncStateHasProfile(state *WindowSyncState, profileId string) bool {
+	if state == nil || strings.TrimSpace(profileId) == "" {
+		return false
+	}
+	if containsString(state.ProfileIds, profileId) {
+		return true
+	}
+	return findWindowSyncWindow(state.Windows, profileId) != nil
+}
+
+func removeWindowSyncProfileId(profileIds []string, profileId string) []string {
+	out := make([]string, 0, len(profileIds))
+	for _, item := range profileIds {
+		if item != profileId {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func removeWindowSyncCandidate(windows []WindowSyncCandidate, profileId string) []WindowSyncCandidate {
+	out := make([]WindowSyncCandidate, 0, len(windows))
+	for _, item := range windows {
+		if item.ProfileId != profileId {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func markWindowSyncCandidateStopped(state *WindowSyncState, profileId string) {
+	if state == nil {
+		return
+	}
+	for index := range state.Windows {
+		if state.Windows[index].ProfileId != profileId {
+			continue
+		}
+		state.Windows[index].Running = false
+		state.Windows[index].DebugReady = false
+		state.Windows[index].DebugPort = 0
+		state.Windows[index].Pid = 0
+		state.Windows[index].CanSync = false
+		state.Windows[index].Unavailable = "实例已关闭"
+		return
+	}
+}
+
+func windowSyncMasterClosedPayload(state *WindowSyncState, profileId string, reason string) map[string]interface{} {
+	remainingProfileIds := make([]string, 0)
+	remainingProfileNames := make([]string, 0)
+	masterName := profileId
+	if state != nil {
+		for _, item := range orderedWindowSyncWindows(state) {
+			name := strings.TrimSpace(item.ProfileName)
+			if name == "" {
+				name = item.ProfileId
+			}
+			if item.ProfileId == profileId {
+				masterName = name
+				continue
+			}
+			remainingProfileIds = append(remainingProfileIds, item.ProfileId)
+			remainingProfileNames = append(remainingProfileNames, name)
+		}
+	}
+	return map[string]interface{}{
+		"profileId":             profileId,
+		"profileName":           masterName,
+		"key":                   strings.Join(remainingProfileIds, "\n"),
+		"engine":                strings.TrimSpace(reason),
+		"remainingProfileIds":   remainingProfileIds,
+		"remainingProfileNames": remainingProfileNames,
+	}
+}
+
 func (a *App) updateWindowSyncPaused(paused bool) (*WindowSyncState, error) {
 	if a == nil {
 		return nil, fmt.Errorf("窗口同步未启动")
@@ -670,9 +820,9 @@ func (a *App) runWindowSyncListener(seq int, cancel <-chan struct{}) {
 			return
 		}
 		master := findWindowSyncWindow(state.Windows, state.MasterProfileId)
-		if master == nil || master.DebugPort <= 0 {
-			time.Sleep(500 * time.Millisecond)
-			continue
+		if master == nil || !master.Running || !master.DebugReady || master.DebugPort <= 0 {
+			a.handleWindowSyncProfileStopped(state.MasterProfileId, "master-unavailable")
+			return
 		}
 
 		if err := a.listenWindowSyncMaster(seq, cancel, state, master.DebugPort, &lastActiveTab); err != nil {

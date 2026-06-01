@@ -3,11 +3,11 @@ import type { ComponentType } from 'react'
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import { ThemeProvider } from './shared/theme'
 import { Layout } from './shared/layout'
-import { ToastContainer, Modal, Button, Loading, Progress } from './shared/components'
+import { ToastContainer, Modal, Button, Loading, Progress, toast } from './shared/components'
 import { AlertCircle } from 'lucide-react'
 import { useNotificationStore } from './store/notificationStore'
 import { useBackupStore } from './store/backupStore'
-import { forceQuitApp, quitAppOnly, saveWindowState } from './shared/backend/client'
+import { forceQuitApp, quitAppOnly, saveWindowState, stopBrowserInstance } from './shared/backend/client'
 import {
   checkAppUpdate,
   downloadAppUpdate,
@@ -508,6 +508,89 @@ function CloseConfirmModal() {
   )
 }
 
+type WindowSyncMasterClosedPayload = {
+  profileId?: string
+  profileName?: string
+  key?: string
+  remainingProfileIds?: string[]
+}
+
+function remainingSyncProfileIds(payload: WindowSyncMasterClosedPayload): string[] {
+  const rawIds = Array.isArray(payload?.remainingProfileIds)
+    ? payload.remainingProfileIds
+    : String(payload?.key || '').split(/\r?\n/)
+  const seen = new Set<string>()
+  const ids: string[] = []
+  for (const rawId of rawIds) {
+    const id = String(rawId || '').trim()
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    ids.push(id)
+  }
+  return ids
+}
+
+function WindowSyncMasterClosedModal() {
+  const [pending, setPending] = useState<{ masterName: string; profileIds: string[] } | null>(null)
+  const [closing, setClosing] = useState(false)
+
+  useEffect(() => {
+    return onRuntimeEvent<WindowSyncMasterClosedPayload>('window-sync:master-closed', payload => {
+      const profileIds = remainingSyncProfileIds(payload || {})
+      const masterName = String(payload?.profileName || payload?.profileId || '主控窗口')
+      if (profileIds.length === 0) {
+        toast.warning(`主控窗口「${masterName}」已关闭，窗口同步已停止`)
+        return
+      }
+      setClosing(false)
+      setPending({ masterName, profileIds })
+    })
+  }, [])
+
+  const closeModal = () => {
+    if (closing) return
+    setPending(null)
+  }
+
+  const closeRemainingProfiles = async () => {
+    if (!pending) return
+    setClosing(true)
+    const results = await Promise.allSettled(pending.profileIds.map(profileId => stopBrowserInstance(profileId)))
+    const failed = results.filter(result => result.status === 'rejected').length
+    if (failed > 0) {
+      toast.warning(`已关闭部分剩余实例，${failed} 个实例关闭失败`)
+    } else {
+      toast.success(`已关闭剩余 ${pending.profileIds.length} 个同步实例`)
+    }
+    setClosing(false)
+    setPending(null)
+  }
+
+  return (
+    <Modal
+      open={!!pending}
+      onClose={closeModal}
+      title="窗口同步已停止"
+      width="420px"
+      closable={!closing}
+    >
+      <div className="space-y-5">
+        <div className="text-sm leading-6 text-[var(--color-text-secondary)]">
+          主控实例「{pending?.masterName}」已关闭，窗口同步已立即停止。是否关闭剩余 {pending?.profileIds.length || 0} 个同步实例？
+        </div>
+        <div className="flex justify-end gap-3">
+          <Button variant="secondary" onClick={closeModal} disabled={closing}>
+            保留实例
+          </Button>
+          <Button variant="danger" onClick={closeRemainingProfiles} loading={closing}>
+            关闭剩余实例
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
 function App() {
   useWailsNotifications()
   const autoUpdateModal = useAutoUpdateCheck()
@@ -585,6 +668,7 @@ function App() {
         <ToastContainer />
         {autoUpdateModal}
         <CloseConfirmModal />
+        <WindowSyncMasterClosedModal />
         <Suspense fallback={null}>
           {quickLaunchOpen ? (
             <QuickLaunchModal open={quickLaunchOpen} onClose={() => setQuickLaunchOpen(false)} />

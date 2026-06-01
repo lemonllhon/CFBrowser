@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react'
 import { Eye, GripHorizontal, Keyboard, Link, List, Pause, Play, Power, RefreshCw, Settings, SquareStack, X } from 'lucide-react'
 import { Button, ToastContainer, toast } from '../../../shared/components'
 import { ThemeProvider } from '../../../shared/theme'
@@ -95,6 +95,7 @@ export function WindowSyncFloatingToolbar() {
   const [listPanelOpen, setListPanelOpen] = useState(false)
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(false)
   const [settingsDraft, setSettingsDraft] = useState<WindowSyncSettings>(() => stateToSettings(null))
+  const differentInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
 
   const loadState = async () => {
     try {
@@ -131,6 +132,19 @@ export function WindowSyncFloatingToolbar() {
     if (windows.length === 0) {
       toast.error('当前没有可批量输入的同步窗口')
       return
+    }
+    if (batchMode === 'same' && sameText.trim() === '') {
+      toast.error('请输入需要填充到所有窗口的文本')
+      return
+    }
+    if (batchMode === 'different') {
+      const missingWindow = windows.find(window => (differentTexts[window.profileId] || '').trim() === '')
+      if (missingWindow) {
+        toast.error(`请填写「${missingWindow.profileName || missingWindow.profileId}」的差异文本`)
+        const index = windows.findIndex(window => window.profileId === missingWindow.profileId)
+        focusDifferentTextInput(index)
+        return
+      }
     }
     setLoadingCommand(`batch-input:${batchMode}`)
     try {
@@ -247,6 +261,86 @@ export function WindowSyncFloatingToolbar() {
     }
   }
 
+  const focusDifferentTextInput = (index: number) => {
+    const windows = orderedWindows(state)
+    if (windows.length === 0) return
+    const nextIndex = ((index % windows.length) + windows.length) % windows.length
+    const nextProfileId = windows[nextIndex]?.profileId
+    if (!nextProfileId) return
+    window.requestAnimationFrame(() => {
+      const input = differentInputRefs.current[nextProfileId]
+      input?.focus()
+      input?.select()
+    })
+  }
+
+  const applyDifferentTextLines = (profileId: string, rawText: string) => {
+    const normalized = rawText.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+    if (!normalized.includes('\n')) return false
+
+    const lines = normalized
+      .split('\n')
+      .map(line => line.replace(/\s+$/g, ''))
+      .filter(line => line.trim() !== '')
+    if (lines.length <= 1) return false
+
+    const windows = orderedWindows(state)
+    const startIndex = windows.findIndex(window => window.profileId === profileId)
+    if (startIndex < 0) return false
+
+    const targets = windows.slice(startIndex)
+    const fillCount = Math.min(targets.length, lines.length)
+    if (fillCount <= 0) return false
+
+    setDifferentTexts(prev => {
+      const next = { ...prev }
+      for (let index = 0; index < fillCount; index += 1) {
+        next[targets[index].profileId] = lines[index]
+      }
+      return next
+    })
+
+    const ignoredCount = Math.max(0, lines.length - fillCount)
+    toast.success(`已按窗口顺序填充 ${fillCount} 项${ignoredCount > 0 ? `，多出的 ${ignoredCount} 行已忽略` : ''}`)
+    focusDifferentTextInput(startIndex + fillCount - 1)
+    return true
+  }
+
+  const handleSameTextKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.nativeEvent.isComposing) return
+    if (!(event.ctrlKey || event.metaKey) || event.key !== 'Enter') return
+    event.preventDefault()
+    void runBatchInput()
+  }
+
+  const handleDifferentTextKeyDown = (profileId: string, event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.nativeEvent.isComposing) return
+    const windows = orderedWindows(state)
+    const index = windows.findIndex(window => window.profileId === profileId)
+    if (index < 0) return
+    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+      event.preventDefault()
+      focusDifferentTextInput(index + 1)
+      return
+    }
+    if (event.altKey && event.key === 'ArrowDown') {
+      event.preventDefault()
+      focusDifferentTextInput(index + 1)
+      return
+    }
+    if (event.altKey && event.key === 'ArrowUp') {
+      event.preventDefault()
+      focusDifferentTextInput(index - 1)
+    }
+  }
+
+  const handleDifferentTextPaste = (profileId: string, event: ClipboardEvent<HTMLInputElement>) => {
+    const text = event.clipboardData.getData('text')
+    if (applyDifferentTextLines(profileId, text)) {
+      event.preventDefault()
+    }
+  }
+
   const panelOpen = batchOpen || tabPanelOpen || listPanelOpen || settingsPanelOpen
 
   useEffect(() => {
@@ -273,6 +367,12 @@ export function WindowSyncFloatingToolbar() {
 
   useEffect(() => {
     const windows = orderedWindows(state)
+    const activeProfileIds = new Set(windows.map(window => window.profileId))
+    for (const profileId of Object.keys(differentInputRefs.current)) {
+      if (!activeProfileIds.has(profileId)) {
+        delete differentInputRefs.current[profileId]
+      }
+    }
     setDifferentTexts(prev => {
       const next: Record<string, string> = {}
       for (const window of windows) {
@@ -280,7 +380,7 @@ export function WindowSyncFloatingToolbar() {
       }
       return next
     })
-  }, [state?.sessionId, state?.windows?.length])
+  }, [state?.sessionId, state?.windows])
 
   useEffect(() => {
     if (settingsPanelOpen) {
@@ -448,7 +548,7 @@ export function WindowSyncFloatingToolbar() {
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="text-sm font-semibold text-[var(--color-text-primary)]">批量输入</div>
-                <div className="text-xs text-[var(--color-text-muted)]">当前同步窗口 {windows.length} 个，差异文本必须一窗一项。</div>
+                <div className="text-xs text-[var(--color-text-muted)]">当前同步窗口 {windows.length} 个，差异文本支持多行粘贴按序填充。</div>
               </div>
               <Button size="sm" variant="ghost" title="关闭批量输入" onClick={() => setBatchOpen(false)} className="h-8 w-8 px-0">
                 <X className="h-4 w-4" />
@@ -463,21 +563,30 @@ export function WindowSyncFloatingToolbar() {
                 className="window-sync-batch-textarea"
                 value={sameText}
                 onChange={event => setSameText(event.target.value)}
+                onKeyDown={handleSameTextKeyDown}
+                title="Ctrl+Enter 执行批量输入"
                 placeholder="输入要填充到所有同步窗口当前焦点输入框的文本"
               />
             ) : (
               <div className="window-sync-batch-window-list">
-                {windows.map(window => (
+                {windows.map((window, index) => (
                   <label key={window.profileId} className="window-sync-batch-window-item">
                     <span className="window-sync-batch-window-label">
+                      <span className="window-sync-index-badge">{index + 1}</span>
                       <span className={window.master ? 'text-[var(--color-accent)]' : 'text-[var(--color-text-muted)]'}>
                         {window.master ? '主控' : '被控'}
                       </span>
                       <span className="truncate">{window.profileName || window.profileId}</span>
                     </span>
                     <input
+                      ref={node => {
+                        differentInputRefs.current[window.profileId] = node
+                      }}
                       value={differentTexts[window.profileId] || ''}
                       onChange={event => setDifferentTexts(prev => ({ ...prev, [window.profileId]: event.target.value }))}
+                      onKeyDown={event => handleDifferentTextKeyDown(window.profileId, event)}
+                      onPaste={event => handleDifferentTextPaste(window.profileId, event)}
+                      title="粘贴多行会从当前窗口开始按顺序填充，Ctrl+Enter 跳到下一个窗口"
                       placeholder="该窗口输入内容"
                     />
                   </label>
@@ -569,10 +678,11 @@ export function WindowSyncFloatingToolbar() {
               </Button>
             </div>
             <div className="window-sync-window-list">
-              {windows.map(window => (
+              {windows.map((window, index) => (
                 <div key={window.profileId} className="window-sync-window-list-item">
                   <div className="min-w-0">
                     <div className="flex min-w-0 items-center gap-2">
+                      <span className="window-sync-index-badge">{index + 1}</span>
                       <span
                         className={window.master ? 'window-sync-role-badge is-master' : 'window-sync-role-badge'}
                         style={window.master ? { color: masterColor, backgroundColor: `${masterColor}1f` } : undefined}
