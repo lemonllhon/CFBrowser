@@ -43,6 +43,39 @@ func TestHandleWindowSyncControlledStoppedRemovesWindow(t *testing.T) {
 	}
 }
 
+func TestHandleWindowSyncControlledStoppedKeepsRemainingLiveWindows(t *testing.T) {
+	app := NewApp(t.TempDir())
+	app.SetWindowSyncToolbarAdapter(noopWindowSyncToolbarAdapter{})
+	app.windowSyncState = testWindowSyncState([]string{"p1", "p2", "p3", "p4"}, "p1")
+	markWindowSyncCandidateStopped(app.windowSyncState, "p3")
+
+	app.handleWindowSyncProfileStopped("p2", "stopped")
+
+	state := app.windowSyncState
+	if state == nil || !state.Active {
+		t.Fatalf("expected window sync to remain active while master and p4 are still controllable, got %#v", state)
+	}
+	if windowSyncStateHasProfile(state, "p2") || windowSyncStateHasProfile(state, "p3") {
+		t.Fatalf("expected closed/unavailable controlled windows to be removed, got %#v", state)
+	}
+	if !windowSyncStateHasProfile(state, "p1") || !windowSyncStateHasProfile(state, "p4") {
+		t.Fatalf("expected live master and controlled window to remain, got %#v", state)
+	}
+}
+
+func TestHandleWindowSyncControlledStoppedStopsWhenNoControllableControlledRemain(t *testing.T) {
+	app := NewApp(t.TempDir())
+	app.SetWindowSyncToolbarAdapter(noopWindowSyncToolbarAdapter{})
+	app.windowSyncState = testWindowSyncState([]string{"p1", "p2", "p3"}, "p1")
+	markWindowSyncCandidateStopped(app.windowSyncState, "p3")
+
+	app.handleWindowSyncProfileStopped("p2", "stopped")
+
+	if app.windowSyncState != nil {
+		t.Fatalf("expected window sync to stop when no controllable controlled windows remain, got %#v", app.windowSyncState)
+	}
+}
+
 func TestHandleWindowSyncControlledStoppedStopsWhenOnlyMasterRemains(t *testing.T) {
 	app := NewApp(t.TempDir())
 	app.SetWindowSyncToolbarAdapter(noopWindowSyncToolbarAdapter{})

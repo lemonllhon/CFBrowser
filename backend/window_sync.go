@@ -646,7 +646,8 @@ func (a *App) handleWindowSyncProfileStopped(profileId string, reason string) {
 	} else {
 		next.ProfileIds = removeWindowSyncProfileId(next.ProfileIds, profileId)
 		next.Windows = removeWindowSyncCandidate(next.Windows, profileId)
-		if len(next.Windows) < 2 {
+		pruneInactiveWindowSyncControlledCandidates(next)
+		if !windowSyncCanRemainActive(next) {
 			next.Active = false
 			a.stopWindowSyncListenerLocked()
 			a.windowSyncState = nil
@@ -717,6 +718,55 @@ func removeWindowSyncCandidate(windows []WindowSyncCandidate, profileId string) 
 		}
 	}
 	return out
+}
+
+func pruneInactiveWindowSyncControlledCandidates(state *WindowSyncState) {
+	if state == nil {
+		return
+	}
+	keep := make(map[string]struct{}, len(state.Windows))
+	windows := make([]WindowSyncCandidate, 0, len(state.Windows))
+	for _, item := range state.Windows {
+		if item.ProfileId == state.MasterProfileId || windowSyncCandidateControllable(item) {
+			windows = append(windows, item)
+			keep[item.ProfileId] = struct{}{}
+		}
+	}
+	profileIds := make([]string, 0, len(state.ProfileIds))
+	for _, profileId := range state.ProfileIds {
+		if _, ok := keep[profileId]; ok {
+			profileIds = append(profileIds, profileId)
+		}
+	}
+	if len(profileIds) == 0 && len(windows) > 0 {
+		for _, item := range windows {
+			profileIds = append(profileIds, item.ProfileId)
+		}
+	}
+	state.Windows = windows
+	state.ProfileIds = profileIds
+}
+
+func windowSyncCandidateControllable(item WindowSyncCandidate) bool {
+	return item.Running && item.DebugReady && item.DebugPort > 0
+}
+
+func windowSyncCanRemainActive(state *WindowSyncState) bool {
+	if state == nil || !state.Active {
+		return false
+	}
+	masterReady := false
+	controlledReady := false
+	for _, item := range state.Windows {
+		if item.ProfileId == state.MasterProfileId {
+			masterReady = windowSyncCandidateControllable(item)
+			continue
+		}
+		if windowSyncCandidateControllable(item) {
+			controlledReady = true
+		}
+	}
+	return masterReady && controlledReady
 }
 
 func markWindowSyncCandidateStopped(state *WindowSyncState, profileId string) {
@@ -1039,7 +1089,8 @@ func (a *App) handleWindowSyncPayload(seq int, payload string) {
 		if item.ProfileId == state.MasterProfileId {
 			continue
 		}
-		if item.DebugPort <= 0 {
+		if !windowSyncCandidateControllable(item) {
+			a.handleWindowSyncControlledUnavailable(item, "controlled-unavailable")
 			continue
 		}
 		if err := dispatchWindowSyncEvent(item.DebugPort, event); err != nil {
@@ -1048,6 +1099,7 @@ func (a *App) handleWindowSyncPayload(seq int, payload string) {
 				logger.F("event_type", event.Type),
 				logger.F("error", err.Error()),
 			)
+			a.handleWindowSyncControlledUnavailable(item, "dispatch-unavailable")
 		}
 	}
 }
@@ -1084,7 +1136,11 @@ func (a *App) syncWindowSyncTabs(seq int, masterDebugPort int, lastActiveTab *st
 	}
 
 	for _, item := range state.Windows {
-		if item.ProfileId == state.MasterProfileId || item.DebugPort <= 0 {
+		if item.ProfileId == state.MasterProfileId {
+			continue
+		}
+		if !windowSyncCandidateControllable(item) {
+			a.handleWindowSyncControlledUnavailable(item, "controlled-unavailable")
 			continue
 		}
 		if err := syncWindowSyncTabsToControlled(item.DebugPort, activeTarget); err != nil {
@@ -1092,8 +1148,19 @@ func (a *App) syncWindowSyncTabs(seq int, masterDebugPort int, lastActiveTab *st
 				logger.F("profile_id", item.ProfileId),
 				logger.F("error", err.Error()),
 			)
+			a.handleWindowSyncControlledUnavailable(item, "tabs-unavailable")
 		}
 	}
+}
+
+func (a *App) handleWindowSyncControlledUnavailable(item WindowSyncCandidate, reason string) {
+	if a == nil || strings.TrimSpace(item.ProfileId) == "" {
+		return
+	}
+	if item.DebugPort > 0 && canConnectDebugPort(item.DebugPort, 200*time.Millisecond) {
+		return
+	}
+	a.handleWindowSyncProfileStopped(item.ProfileId, reason)
 }
 
 type windowSyncEvent struct {

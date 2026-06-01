@@ -359,10 +359,10 @@ input, select, textarea {
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  border: 1px solid color-mix(in srgb, var(--color-warning) 28%, var(--color-border-default));
+  border: 1px solid color-mix(in srgb, var(--color-accent) 28%, var(--color-border-default));
   border-radius: 8px;
-  background: color-mix(in srgb, var(--color-warning) 12%, transparent);
-  color: var(--color-warning);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  color: var(--color-accent);
 }
 
 .window-sync-prompt-heading {
@@ -413,8 +413,8 @@ input, select, textarea {
   height: 22px;
   align-items: center;
   border-radius: 7px;
-  background: color-mix(in srgb, var(--color-success) 14%, transparent);
-  color: var(--color-success);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  color: var(--color-accent);
   padding: 0 8px;
   font-size: 12px;
   font-weight: 600;
@@ -450,8 +450,8 @@ input, select, textarea {
   align-items: center;
   justify-content: center;
   border-radius: 6px;
-  background: var(--color-bg-muted);
-  color: var(--color-text-primary);
+  background: color-mix(in srgb, var(--color-accent) 10%, var(--color-bg-muted));
+  color: var(--color-accent);
   font-size: 11px;
   font-weight: 700;
 }
