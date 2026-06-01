@@ -623,7 +623,7 @@ func (a *App) handleWindowSyncProfileStopped(profileId string, reason string) {
 
 	var activeState *WindowSyncState
 	var inactiveState *WindowSyncState
-	var masterClosedPayload map[string]interface{}
+	var masterClosedPrompt *WindowSyncMasterClosedPrompt
 	masterClosed := false
 
 	a.windowSyncMu.Lock()
@@ -638,7 +638,8 @@ func (a *App) handleWindowSyncProfileStopped(profileId string, reason string) {
 		markWindowSyncCandidateStopped(next, profileId)
 		next.Active = false
 		masterClosed = true
-		masterClosedPayload = windowSyncMasterClosedPayload(next, profileId, reason)
+		prompt := windowSyncMasterClosedPrompt(next, profileId, reason)
+		masterClosedPrompt = &prompt
 		a.stopWindowSyncListenerLocked()
 		a.windowSyncState = nil
 		inactiveState = next
@@ -662,7 +663,9 @@ func (a *App) handleWindowSyncProfileStopped(profileId string, reason string) {
 			logger.F("profile_id", profileId),
 			logger.F("reason", reason),
 		)
-		a.emitEvent("window-sync:master-closed", masterClosedPayload)
+		if masterClosedPrompt == nil || !a.showWindowSyncMasterClosedPrompt(*masterClosedPrompt) {
+			a.emitEvent("window-sync:master-closed", masterClosedEventPayload(masterClosedPrompt))
+		}
 	}
 	if activeState != nil {
 		logger.New("WindowSync").Info("同步窗口已移除",
@@ -734,7 +737,19 @@ func markWindowSyncCandidateStopped(state *WindowSyncState, profileId string) {
 	}
 }
 
-func windowSyncMasterClosedPayload(state *WindowSyncState, profileId string, reason string) map[string]interface{} {
+type WindowSyncMasterClosedPrompt struct {
+	ProfileId             string
+	ProfileName           string
+	RemainingProfileIds   []string
+	RemainingProfileNames []string
+	Reason                string
+}
+
+type WindowSyncPromptAdapter interface {
+	ShowMasterClosedPrompt(app *App, prompt WindowSyncMasterClosedPrompt) bool
+}
+
+func windowSyncMasterClosedPrompt(state *WindowSyncState, profileId string, reason string) WindowSyncMasterClosedPrompt {
 	remainingProfileIds := make([]string, 0)
 	remainingProfileNames := make([]string, 0)
 	masterName := profileId
@@ -752,14 +767,49 @@ func windowSyncMasterClosedPayload(state *WindowSyncState, profileId string, rea
 			remainingProfileNames = append(remainingProfileNames, name)
 		}
 	}
-	return map[string]interface{}{
-		"profileId":             profileId,
-		"profileName":           masterName,
-		"key":                   strings.Join(remainingProfileIds, "\n"),
-		"engine":                strings.TrimSpace(reason),
-		"remainingProfileIds":   remainingProfileIds,
-		"remainingProfileNames": remainingProfileNames,
+	return WindowSyncMasterClosedPrompt{
+		ProfileId:             profileId,
+		ProfileName:           masterName,
+		RemainingProfileIds:   remainingProfileIds,
+		RemainingProfileNames: remainingProfileNames,
+		Reason:                strings.TrimSpace(reason),
 	}
+}
+
+func masterClosedEventPayload(prompt *WindowSyncMasterClosedPrompt) map[string]interface{} {
+	if prompt == nil {
+		return map[string]interface{}{}
+	}
+	return map[string]interface{}{
+		"profileId":             prompt.ProfileId,
+		"profileName":           prompt.ProfileName,
+		"key":                   strings.Join(prompt.RemainingProfileIds, "\n"),
+		"engine":                prompt.Reason,
+		"remainingProfileIds":   append([]string{}, prompt.RemainingProfileIds...),
+		"remainingProfileNames": append([]string{}, prompt.RemainingProfileNames...),
+	}
+}
+
+func (a *App) SetWindowSyncPromptAdapter(adapter WindowSyncPromptAdapter) {
+	if a == nil {
+		return
+	}
+	a.windowSyncPromptMu.Lock()
+	a.windowSyncPromptAdapter = adapter
+	a.windowSyncPromptMu.Unlock()
+}
+
+func (a *App) showWindowSyncMasterClosedPrompt(prompt WindowSyncMasterClosedPrompt) bool {
+	if a == nil {
+		return false
+	}
+	a.windowSyncPromptMu.RLock()
+	adapter := a.windowSyncPromptAdapter
+	a.windowSyncPromptMu.RUnlock()
+	if adapter == nil {
+		return false
+	}
+	return adapter.ShowMasterClosedPrompt(a, prompt)
 }
 
 func (a *App) updateWindowSyncPaused(paused bool) (*WindowSyncState, error) {

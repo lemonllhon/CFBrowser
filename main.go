@@ -204,6 +204,60 @@ type wails3WindowSyncToolbarAdapter struct {
 	startupDebugEnabled bool
 }
 
+type wails3WindowSyncPromptAdapter struct {
+	mu       sync.Mutex
+	wailsApp *application.App
+	showing  bool
+}
+
+func (a *wails3WindowSyncPromptAdapter) ShowMasterClosedPrompt(app *backend.App, prompt backend.WindowSyncMasterClosedPrompt) bool {
+	if a == nil || a.wailsApp == nil || app == nil || len(prompt.RemainingProfileIds) == 0 {
+		return false
+	}
+
+	a.mu.Lock()
+	if a.showing {
+		a.mu.Unlock()
+		return true
+	}
+	a.showing = true
+	a.mu.Unlock()
+
+	remainingProfileIds := append([]string{}, prompt.RemainingProfileIds...)
+	masterName := strings.TrimSpace(prompt.ProfileName)
+	if masterName == "" {
+		masterName = strings.TrimSpace(prompt.ProfileId)
+	}
+	if masterName == "" {
+		masterName = "主控窗口"
+	}
+
+	go func() {
+		defer func() {
+			a.mu.Lock()
+			a.showing = false
+			a.mu.Unlock()
+		}()
+
+		dialog := a.wailsApp.Dialog.Question().
+			SetTitle("窗口同步已停止").
+			SetMessage(fmt.Sprintf("主控实例「%s」已关闭，窗口同步已立即停止。\n\n是否关闭剩余 %d 个同步实例？", masterName, len(remainingProfileIds)))
+		dialog.AddButton("Yes").OnClick(func() {
+			for _, profileId := range remainingProfileIds {
+				if _, err := app.BrowserInstanceStop(profileId); err != nil {
+					log.Printf("关闭窗口同步剩余实例失败: profile=%s error=%v", profileId, err)
+				}
+			}
+		})
+		noButton := dialog.AddButton("No").SetAsCancel().SetAsDefault()
+		dialog.SetCancelButton(noButton)
+		dialog.SetDefaultButton(noButton)
+		dialog.Show()
+	}()
+
+	return true
+}
+
 func (a *wails3WindowSyncToolbarAdapter) Show(_ *backend.App, state *backend.WindowSyncState) error {
 	if a == nil || state == nil || !state.Active {
 		return nil
@@ -536,6 +590,9 @@ func main() {
 		wailsApp:            wailsApp,
 		protoIPC:            protoIPC,
 		startupDebugEnabled: startupDebugEnabled,
+	})
+	app.SetWindowSyncPromptAdapter(&wails3WindowSyncPromptAdapter{
+		wailsApp: wailsApp,
 	})
 
 	mainWindow = wailsApp.Window.NewWithOptions(application.WebviewWindowOptions{

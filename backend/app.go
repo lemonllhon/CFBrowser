@@ -70,6 +70,8 @@ type App struct {
 	windowSyncToolbar        windowSyncToolbarController
 	windowSyncToolbarMu      sync.RWMutex
 	windowSyncToolbarAdapter WindowSyncToolbarAdapter
+	windowSyncPromptMu       sync.RWMutex
+	windowSyncPromptAdapter  WindowSyncPromptAdapter
 	extensionAutoSyncMu      sync.Mutex
 	extensionAutoSyncBlocked map[string]struct{}
 	stopServicesOnce         sync.Once

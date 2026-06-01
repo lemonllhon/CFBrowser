@@ -548,7 +548,9 @@ export function WindowSyncFloatingToolbar() {
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="text-sm font-semibold text-[var(--color-text-primary)]">批量输入</div>
-                <div className="text-xs text-[var(--color-text-muted)]">当前同步窗口 {windows.length} 个，差异文本支持多行粘贴按序填充。</div>
+                <div className="text-xs text-[var(--color-text-muted)]">
+                  当前同步窗口 {windows.length} 个，差异文本支持多行粘贴按序填充；Ctrl+Enter 跳到下一个输入框，Alt+↑/↓ 上下切换。
+                </div>
               </div>
               <Button size="sm" variant="ghost" title="关闭批量输入" onClick={() => setBatchOpen(false)} className="h-8 w-8 px-0">
                 <X className="h-4 w-4" />

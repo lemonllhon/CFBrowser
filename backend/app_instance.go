@@ -423,6 +423,7 @@ func (a *App) BrowserInstanceStop(profileId string) (*BrowserProfile, error) {
 	a.browserMgr.Mutex.Lock()
 	autoSyncAfterStop := false
 	windowSyncAfterStop := false
+	emitStoppedAfterStop := false
 	defer func() {
 		a.browserMgr.Mutex.Unlock()
 		if windowSyncAfterStop {
@@ -430,6 +431,9 @@ func (a *App) BrowserInstanceStop(profileId string) (*BrowserProfile, error) {
 		}
 		if autoSyncAfterStop {
 			a.scheduleAutoSyncSharedExtensionDataAfterProfileStopped(profileId)
+		}
+		if emitStoppedAfterStop {
+			a.emitEvent("browser:instance:stopped", profileId)
 		}
 	}()
 
@@ -445,6 +449,7 @@ func (a *App) BrowserInstanceStop(profileId string) (*BrowserProfile, error) {
 		a.markProfileStoppedLocked(profileId, profile)
 		autoSyncAfterStop = wasRunning
 		windowSyncAfterStop = wasRunning
+		emitStoppedAfterStop = wasRunning
 		log.Info("实例停止", logger.F("profile_id", profileId), logger.F("method", "cdp"), logger.F("debug_port", debugPort))
 		return profile, nil
 	}
@@ -467,6 +472,7 @@ func (a *App) BrowserInstanceStop(profileId string) (*BrowserProfile, error) {
 	a.markProfileStoppedLocked(profileId, profile)
 	autoSyncAfterStop = wasRunning
 	windowSyncAfterStop = wasRunning
+	emitStoppedAfterStop = wasRunning
 	log.Info("实例停止", logger.F("profile_id", profileId))
 	return profile, nil
 }

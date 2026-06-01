@@ -10,6 +10,17 @@ func (noopWindowSyncToolbarAdapter) Hide() error                           { ret
 func (noopWindowSyncToolbarAdapter) SetSize(_ int, _ int) error            { return nil }
 func (noopWindowSyncToolbarAdapter) CenterPoint() (int, int, bool)         { return 0, 0, false }
 
+type recordingWindowSyncPromptAdapter struct {
+	called bool
+	prompt WindowSyncMasterClosedPrompt
+}
+
+func (a *recordingWindowSyncPromptAdapter) ShowMasterClosedPrompt(_ *App, prompt WindowSyncMasterClosedPrompt) bool {
+	a.called = true
+	a.prompt = prompt
+	return true
+}
+
 func TestHandleWindowSyncControlledStoppedRemovesWindow(t *testing.T) {
 	app := NewApp(t.TempDir())
 	app.SetWindowSyncToolbarAdapter(noopWindowSyncToolbarAdapter{})
@@ -53,6 +64,29 @@ func TestHandleWindowSyncMasterStoppedStopsSession(t *testing.T) {
 
 	if app.windowSyncState != nil {
 		t.Fatalf("expected master stop to clear active window sync state, got %#v", app.windowSyncState)
+	}
+}
+
+func TestHandleWindowSyncMasterStoppedUsesPromptAdapter(t *testing.T) {
+	app := NewApp(t.TempDir())
+	app.SetWindowSyncToolbarAdapter(noopWindowSyncToolbarAdapter{})
+	promptAdapter := &recordingWindowSyncPromptAdapter{}
+	app.SetWindowSyncPromptAdapter(promptAdapter)
+	app.windowSyncState = testWindowSyncState([]string{"p1", "p2", "p3"}, "p1")
+
+	app.handleWindowSyncProfileStopped("p1", "stopped")
+
+	if !promptAdapter.called {
+		t.Fatal("expected master close prompt adapter to be called")
+	}
+	if promptAdapter.prompt.ProfileId != "p1" || promptAdapter.prompt.ProfileName != "p1" {
+		t.Fatalf("unexpected master prompt profile: %#v", promptAdapter.prompt)
+	}
+	if got := promptAdapter.prompt.RemainingProfileIds; len(got) != 2 || got[0] != "p2" || got[1] != "p3" {
+		t.Fatalf("unexpected remaining profiles: %#v", got)
+	}
+	if promptAdapter.prompt.Reason != "stopped" {
+		t.Fatalf("unexpected prompt reason: %q", promptAdapter.prompt.Reason)
 	}
 }
 
