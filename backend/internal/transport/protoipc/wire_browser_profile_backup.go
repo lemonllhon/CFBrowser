@@ -22,6 +22,7 @@ type BrowserProfileBackupExportRequest struct {
 type BrowserProfileBackupImportRequest struct {
 	ZipPath        string
 	RestoreCookies bool
+	ProfileIDs     []string
 }
 
 type BrowserProfileBackupSummary struct {
@@ -46,6 +47,17 @@ type BrowserProfileBackupWarning struct {
 	Message     string
 }
 
+type BrowserProfileBackupProfile struct {
+	ProfileID       string
+	ProfileName     string
+	UserDataDir     string
+	GroupID         string
+	TagCount        int32
+	KeywordCount    int32
+	HasCookies      bool
+	CookieFileCount int32
+}
+
 type BrowserProfileBackupActionResult struct {
 	Cancelled          bool
 	Message            string
@@ -59,6 +71,7 @@ type BrowserProfileBackupActionResult struct {
 	CookieProfileCount int32
 	Summary            BrowserProfileBackupSummary
 	Warnings           []BrowserProfileBackupWarning
+	Profiles           []BrowserProfileBackupProfile
 }
 
 func EncodeBrowserProfileBackupExportRequest(message BrowserProfileBackupExportRequest) []byte {
@@ -104,6 +117,7 @@ func EncodeBrowserProfileBackupImportRequest(message BrowserProfileBackupImportR
 	var out []byte
 	out = appendStringField(out, 1, message.ZipPath)
 	out = appendBoolField(out, 2, message.RestoreCookies)
+	out = appendRepeatedStringField(out, 3, message.ProfileIDs)
 	return out
 }
 
@@ -118,6 +132,10 @@ func DecodeBrowserProfileBackupImportRequest(payload []byte) (BrowserProfileBack
 		case 2:
 			boolValue, err := consumeBoolValue(wireType, value)
 			result.RestoreCookies = boolValue
+			return err
+		case 3:
+			text, err := consumeStringValue(wireType, value)
+			result.ProfileIDs = append(result.ProfileIDs, text)
 			return err
 		default:
 			return nil
@@ -144,6 +162,9 @@ func EncodeBrowserProfileBackupActionResult(message BrowserProfileBackupActionRe
 	out = appendBytesField(out, 11, EncodeBrowserProfileBackupSummary(message.Summary))
 	for _, warning := range message.Warnings {
 		out = appendBytesField(out, 12, EncodeBrowserProfileBackupWarning(warning))
+	}
+	for _, profile := range message.Profiles {
+		out = appendBytesField(out, 13, EncodeBrowserProfileBackupProfile(profile))
 	}
 	return out
 }
@@ -210,6 +231,17 @@ func DecodeBrowserProfileBackupActionResult(payload []byte) (BrowserProfileBacku
 				return err
 			}
 			result.Warnings = append(result.Warnings, warning)
+			return nil
+		case 13:
+			data, err := consumeBytesValue(wireType, value)
+			if err != nil {
+				return err
+			}
+			profile, err := DecodeBrowserProfileBackupProfile(data)
+			if err != nil {
+				return err
+			}
+			result.Profiles = append(result.Profiles, profile)
 			return nil
 		default:
 			return nil
@@ -335,6 +367,65 @@ func DecodeBrowserProfileBackupWarning(payload []byte) (BrowserProfileBackupWarn
 	})
 	if err != nil {
 		return BrowserProfileBackupWarning{}, fmt.Errorf("decode browser profile backup warning: %w", err)
+	}
+	return result, nil
+}
+
+func EncodeBrowserProfileBackupProfile(message BrowserProfileBackupProfile) []byte {
+	var out []byte
+	out = appendStringField(out, 1, message.ProfileID)
+	out = appendStringField(out, 2, message.ProfileName)
+	out = appendStringField(out, 3, message.UserDataDir)
+	out = appendStringField(out, 4, message.GroupID)
+	out = appendInt32Field(out, 5, message.TagCount)
+	out = appendInt32Field(out, 6, message.KeywordCount)
+	out = appendBoolField(out, 7, message.HasCookies)
+	out = appendInt32Field(out, 8, message.CookieFileCount)
+	return out
+}
+
+func DecodeBrowserProfileBackupProfile(payload []byte) (BrowserProfileBackupProfile, error) {
+	var result BrowserProfileBackupProfile
+	err := consumeFields(payload, func(field protowire.Number, wireType protowire.Type, value []byte) error {
+		switch field {
+		case 1:
+			text, err := consumeStringValue(wireType, value)
+			result.ProfileID = text
+			return err
+		case 2:
+			text, err := consumeStringValue(wireType, value)
+			result.ProfileName = text
+			return err
+		case 3:
+			text, err := consumeStringValue(wireType, value)
+			result.UserDataDir = text
+			return err
+		case 4:
+			text, err := consumeStringValue(wireType, value)
+			result.GroupID = text
+			return err
+		case 5:
+			number, err := consumeVarintValue(wireType, value)
+			result.TagCount = int32(number)
+			return err
+		case 6:
+			number, err := consumeVarintValue(wireType, value)
+			result.KeywordCount = int32(number)
+			return err
+		case 7:
+			boolValue, err := consumeBoolValue(wireType, value)
+			result.HasCookies = boolValue
+			return err
+		case 8:
+			number, err := consumeVarintValue(wireType, value)
+			result.CookieFileCount = int32(number)
+			return err
+		default:
+			return nil
+		}
+	})
+	if err != nil {
+		return BrowserProfileBackupProfile{}, fmt.Errorf("decode browser profile backup profile: %w", err)
 	}
 	return result, nil
 }

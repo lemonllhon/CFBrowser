@@ -9,12 +9,14 @@ import {
   type BrowserProfileBackupActionResult,
   type BrowserProfileBackupProgress,
 } from '../api'
+import type { BrowserProfile } from '../types'
 
-type ExportScope = 'all' | 'selected' | 'filtered'
+type ExportScope = 'all' | 'selected' | 'filtered' | 'custom'
 
 interface Props {
   open: boolean
   onClose: () => void
+  profiles: BrowserProfile[]
   totalCount: number
   selectedProfileIds: string[]
   filteredProfileIds: string[]
@@ -33,6 +35,7 @@ const cookieNotice = '仅备份非无痕窗口中的持久 Cookie。无痕窗口
 export function InstanceBackupRestoreModal({
   open,
   onClose,
+  profiles,
   totalCount,
   selectedProfileIds,
   filteredProfileIds,
@@ -48,6 +51,10 @@ export function InstanceBackupRestoreModal({
   const [logs, setLogs] = useState<ProgressLog[]>([])
   const [preview, setPreview] = useState<BrowserProfileBackupActionResult | null>(null)
   const [lastResult, setLastResult] = useState<BrowserProfileBackupActionResult | null>(null)
+  const [customProfileIds, setCustomProfileIds] = useState<Set<string>>(new Set())
+  const [restoreProfileIds, setRestoreProfileIds] = useState<Set<string>>(new Set())
+  const [exportCompleted, setExportCompleted] = useState(false)
+  const [restoreCompleted, setRestoreCompleted] = useState(false)
 
   const selectedCount = selectedProfileIds.length
   const filteredCount = filteredProfileIds.length
@@ -60,7 +67,11 @@ export function InstanceBackupRestoreModal({
     setLogs([])
     setPreview(null)
     setLastResult(null)
-  }, [open, selectedCount])
+    setCustomProfileIds(new Set(selectedProfileIds))
+    setRestoreProfileIds(new Set())
+    setExportCompleted(false)
+    setRestoreCompleted(false)
+  }, [open, selectedCount, selectedProfileIds])
 
   useEffect(() => {
     if (!open) return
@@ -81,13 +92,41 @@ export function InstanceBackupRestoreModal({
   const exportCount = useMemo(() => {
     if (scope === 'selected') return selectedCount
     if (scope === 'filtered') return filteredCount
+    if (scope === 'custom') return customProfileIds.size
     return totalCount
-  }, [filteredCount, scope, selectedCount, totalCount])
+  }, [customProfileIds.size, filteredCount, scope, selectedCount, totalCount])
 
   const activeExportProfileIds = () => {
     if (scope === 'selected') return selectedProfileIds
     if (scope === 'filtered') return filteredProfileIds
+    if (scope === 'custom') return Array.from(customProfileIds)
     return []
+  }
+
+  const restoreProfiles = preview?.profiles || []
+  const restoreSelectedCount = restoreProfiles.length > 0 ? restoreProfileIds.size : preview ? (preview.summary.profileCount || preview.profileCount) : 0
+  const canRestore = !!preview && !preview.cancelled && !restoreCompleted && (restoreProfiles.length === 0 || restoreProfileIds.size > 0)
+
+  const setScopeValue = (next: ExportScope) => {
+    setScope(next)
+  }
+
+  const toggleCustomProfile = (profileId: string) => {
+    setCustomProfileIds(prev => {
+      const next = new Set(prev)
+      if (next.has(profileId)) next.delete(profileId)
+      else next.add(profileId)
+      return next
+    })
+  }
+
+  const toggleRestoreProfile = (profileId: string) => {
+    setRestoreProfileIds(prev => {
+      const next = new Set(prev)
+      if (next.has(profileId)) next.delete(profileId)
+      else next.add(profileId)
+      return next
+    })
   }
 
   const handleExport = async () => {
@@ -110,6 +149,7 @@ export function InstanceBackupRestoreModal({
       if (result.cancelled) {
         toast.info(result.message || '已取消导出')
       } else {
+        setExportCompleted(true)
         toast.success(`实例备份已导出：${result.profileCount || result.exported} 个实例`)
       }
     } catch (error: any) {
@@ -130,6 +170,8 @@ export function InstanceBackupRestoreModal({
         toast.info(result.message || '已取消选择')
       } else {
         setPreview(result)
+        setRestoreProfileIds(new Set((result.profiles || []).map(item => item.profileId).filter(Boolean)))
+        setRestoreCompleted(false)
         toast.success('实例备份包校验通过')
       }
     } catch (error: any) {
@@ -150,8 +192,13 @@ export function InstanceBackupRestoreModal({
     setLogs([])
     setLastResult(null)
     try {
-      const result = await importProfileBackup({ zipPath, restoreCookies })
+      const result = await importProfileBackup({
+        zipPath,
+        restoreCookies,
+        profileIds: restoreProfiles.length > 0 ? Array.from(restoreProfileIds) : undefined,
+      })
       setLastResult(result)
+      setRestoreCompleted(true)
       toast.success(`实例恢复完成：成功 ${result.imported}${result.failed ? `，失败 ${result.failed}` : ''}`)
       onRestored()
     } catch (error: any) {
@@ -180,14 +227,14 @@ export function InstanceBackupRestoreModal({
         <>
           <Button variant="secondary" onClick={onClose} disabled={busy}>关闭</Button>
           {tab === 'export' ? (
-            <Button onClick={handleExport} loading={busy} disabled={exportCount <= 0}>
+            <Button onClick={handleExport} loading={busy} disabled={exportCount <= 0 || exportCompleted}>
               <Download className="w-4 h-4" />
-              开始导出
+              {exportCompleted ? '已导出' : '开始导出'}
             </Button>
           ) : (
-            <Button onClick={handleRestore} loading={busy} disabled={!preview || !!preview.cancelled}>
+            <Button onClick={handleRestore} loading={busy} disabled={!canRestore}>
               <Upload className="w-4 h-4" />
-              开始恢复
+              {restoreCompleted ? '已恢复' : '开始恢复'}
             </Button>
           )}
         </>
@@ -217,12 +264,60 @@ export function InstanceBackupRestoreModal({
           <div className="space-y-4">
             <div>
               <div className="text-sm font-medium text-[var(--color-text-primary)] mb-2">导出范围</div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                <ScopeButton active={scope === 'all'} label="全部实例" count={totalCount} onClick={() => setScope('all')} />
-                <ScopeButton active={scope === 'selected'} label="已选实例" count={selectedCount} disabled={selectedCount === 0} onClick={() => setScope('selected')} />
-                <ScopeButton active={scope === 'filtered'} label="当前筛选" count={filteredCount} disabled={filteredCount === 0} onClick={() => setScope('filtered')} />
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                <ScopeButton active={scope === 'all'} label="全部实例" count={totalCount} onClick={() => setScopeValue('all')} />
+                <ScopeButton active={scope === 'selected'} label="列表已选" count={selectedCount} disabled={selectedCount === 0} onClick={() => setScopeValue('selected')} />
+                <ScopeButton active={scope === 'filtered'} label="当前筛选" count={filteredCount} disabled={filteredCount === 0} onClick={() => setScopeValue('filtered')} />
+                <ScopeButton active={scope === 'custom'} label="自定义实例" count={customProfileIds.size} disabled={profiles.length === 0} onClick={() => setScopeValue('custom')} />
               </div>
             </div>
+
+            {scope === 'custom' && (
+              <div className="rounded-md border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-3 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-sm font-medium text-[var(--color-text-primary)]">选择要备份的实例</div>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        setCustomProfileIds(new Set(profiles.map(item => item.profileId)))
+                      }}
+                    >
+                      全选
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        setCustomProfileIds(new Set())
+                      }}
+                    >
+                      清空
+                    </Button>
+                  </div>
+                </div>
+                <div className="max-h-44 overflow-y-auto space-y-1 pr-1">
+                  {profiles.map(profile => (
+                    <label
+                      key={profile.profileId}
+                      className="flex items-center gap-2 rounded px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-muted)] cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        className="w-4 h-4 accent-[var(--color-accent)]"
+                        checked={customProfileIds.has(profile.profileId)}
+                        onChange={() => toggleCustomProfile(profile.profileId)}
+                      />
+                      <span className="min-w-0 flex-1 truncate">{profile.profileName || profile.profileId}</span>
+                      <span className="text-xs text-[var(--color-text-muted)] shrink-0">{profile.running ? '运行中' : '已停止'}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="space-y-2">
               <label className="flex items-center gap-2 text-sm text-[var(--color-text-primary)]">
@@ -230,7 +325,9 @@ export function InstanceBackupRestoreModal({
                   type="checkbox"
                   className="w-4 h-4 accent-[var(--color-accent)]"
                   checked={includeCookies}
-                  onChange={event => setIncludeCookies(event.target.checked)}
+                  onChange={event => {
+                    setIncludeCookies(event.target.checked)
+                  }}
                 />
                 包含非无痕持久 Cookie
               </label>
@@ -239,7 +336,9 @@ export function InstanceBackupRestoreModal({
                   type="checkbox"
                   className="w-4 h-4 accent-[var(--color-accent)]"
                   checked={includePlainCookies}
-                  onChange={event => setIncludePlainCookies(event.target.checked)}
+                  onChange={event => {
+                    setIncludePlainCookies(event.target.checked)
+                  }}
                   disabled={!includeCookies}
                 />
                 运行中实例额外导出明文 Cookie 快照
@@ -280,6 +379,49 @@ export function InstanceBackupRestoreModal({
                   />
                   恢复非无痕持久 Cookie
                 </label>
+                {restoreProfiles.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-sm font-medium text-[var(--color-text-primary)]">
+                        选择要恢复的实例（已选 {restoreSelectedCount} / {restoreProfiles.length}）
+                      </div>
+                      <div className="flex gap-2">
+                        <Button type="button" size="sm" variant="ghost" onClick={() => {
+                          setRestoreProfileIds(new Set(restoreProfiles.map(item => item.profileId)))
+                        }}>
+                          全选
+                        </Button>
+                        <Button type="button" size="sm" variant="ghost" onClick={() => {
+                          setRestoreProfileIds(new Set())
+                        }}>
+                          清空
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="max-h-48 overflow-y-auto rounded border border-[var(--color-border-muted)] bg-[var(--color-bg-primary)] divide-y divide-[var(--color-border-muted)]">
+                      {restoreProfiles.map(profile => (
+                        <label
+                          key={profile.profileId}
+                          className="flex items-center gap-2 px-3 py-2 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-muted)] cursor-pointer"
+                        >
+                          <input
+                            type="checkbox"
+                            className="w-4 h-4 accent-[var(--color-accent)]"
+                            checked={restoreProfileIds.has(profile.profileId)}
+                            onChange={() => toggleRestoreProfile(profile.profileId)}
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate">{profile.profileName || profile.profileId}</span>
+                            <span className="block text-xs text-[var(--color-text-muted)] truncate">{profile.userDataDir || profile.profileId}</span>
+                          </span>
+                          <span className="text-xs text-[var(--color-text-muted)] shrink-0">
+                            {profile.hasCookies ? `Cookie ${profile.cookieFileCount}` : '无 Cookie'}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div className="text-xs text-[var(--color-text-muted)]">
                   恢复模式：创建新实例；冲突处理：自动重命名。
                 </div>

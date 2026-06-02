@@ -1961,6 +1961,7 @@ export function BrowserListPage() {
       <InstanceBackupRestoreModal
         open={backupModalOpen}
         onClose={() => setBackupModalOpen(false)}
+        profiles={profiles}
         totalCount={profiles.length}
         selectedProfileIds={selectedProfileIds}
         filteredProfileIds={filteredProfileIds}

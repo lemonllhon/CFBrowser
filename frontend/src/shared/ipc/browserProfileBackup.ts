@@ -27,6 +27,7 @@ export type ProtoBrowserProfileBackupExportInput = {
 export type ProtoBrowserProfileBackupImportInput = {
   zipPath: string
   restoreCookies: boolean
+  profileIds?: string[]
 }
 
 export type ProtoBrowserProfileBackupSummary = {
@@ -51,6 +52,17 @@ export type ProtoBrowserProfileBackupWarning = {
   message: string
 }
 
+export type ProtoBrowserProfileBackupProfile = {
+  profileId: string
+  profileName: string
+  userDataDir: string
+  groupId: string
+  tagCount: number
+  keywordCount: number
+  hasCookies: boolean
+  cookieFileCount: number
+}
+
 export type ProtoBrowserProfileBackupActionResult = {
   cancelled: boolean
   message: string
@@ -64,6 +76,7 @@ export type ProtoBrowserProfileBackupActionResult = {
   cookieProfileCount: number
   summary: ProtoBrowserProfileBackupSummary
   warnings: ProtoBrowserProfileBackupWarning[]
+  profiles: ProtoBrowserProfileBackupProfile[]
 }
 
 export async function exportBrowserProfileBackup(input: ProtoBrowserProfileBackupExportInput): Promise<ProtoBrowserProfileBackupActionResult> {
@@ -110,6 +123,7 @@ export function encodeBrowserProfileBackupImportRequest(message: ProtoBrowserPro
   return concatBytes([
     encodeStringField(1, message.zipPath),
     encodeBoolField(2, message.restoreCookies),
+    ...(message.profileIds || []).map(profileId => encodeStringField(3, profileId)),
   ])
 }
 
@@ -127,6 +141,7 @@ export function decodeBrowserProfileBackupActionResult(payload: Uint8Array): Pro
     cookieProfileCount: 0,
     summary: emptyProfileBackupSummary(),
     warnings: [],
+    profiles: [],
   }
 
   for (const field of readFields(payload)) {
@@ -146,6 +161,9 @@ export function decodeBrowserProfileBackupActionResult(payload: Uint8Array): Pro
           break
         case 12:
           result.warnings.push(decodeBrowserProfileBackupWarning(field.value))
+          break
+        case 13:
+          result.profiles.push(decodeBrowserProfileBackupProfile(field.value))
           break
       }
       continue
@@ -266,6 +284,51 @@ export function decodeBrowserProfileBackupWarning(payload: Uint8Array): ProtoBro
     }
   }
   return warning
+}
+
+export function decodeBrowserProfileBackupProfile(payload: Uint8Array): ProtoBrowserProfileBackupProfile {
+  const profile: ProtoBrowserProfileBackupProfile = {
+    profileId: '',
+    profileName: '',
+    userDataDir: '',
+    groupId: '',
+    tagCount: 0,
+    keywordCount: 0,
+    hasCookies: false,
+    cookieFileCount: 0,
+  }
+
+  for (const field of readFields(payload)) {
+    if (field.wireType === WireType.LengthDelimited) {
+      const text = decodeString(field.value)
+      if (field.fieldNumber === 1) {
+        profile.profileId = text
+      } else if (field.fieldNumber === 2) {
+        profile.profileName = text
+      } else if (field.fieldNumber === 3) {
+        profile.userDataDir = text
+      } else if (field.fieldNumber === 4) {
+        profile.groupId = text
+      }
+      continue
+    }
+
+    if (field.wireType !== WireType.Varint) {
+      continue
+    }
+    const number = Number(decodeVarintField(field.value))
+    if (field.fieldNumber === 5) {
+      profile.tagCount = number
+    } else if (field.fieldNumber === 6) {
+      profile.keywordCount = number
+    } else if (field.fieldNumber === 7) {
+      profile.hasCookies = number !== 0
+    } else if (field.fieldNumber === 8) {
+      profile.cookieFileCount = number
+    }
+  }
+
+  return profile
 }
 
 function emptyProfileBackupSummary(): ProtoBrowserProfileBackupSummary {

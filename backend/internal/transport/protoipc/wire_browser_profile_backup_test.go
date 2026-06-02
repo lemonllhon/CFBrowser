@@ -19,11 +19,12 @@ func TestBrowserProfileBackupWireRoundTrip(t *testing.T) {
 	importRequest, err := DecodeBrowserProfileBackupImportRequest(EncodeBrowserProfileBackupImportRequest(BrowserProfileBackupImportRequest{
 		ZipPath:        "C:/tmp/instances.zip",
 		RestoreCookies: true,
+		ProfileIDs:     []string{"profile-1"},
 	}))
 	if err != nil {
 		t.Fatalf("DecodeBrowserProfileBackupImportRequest failed: %v", err)
 	}
-	if importRequest.ZipPath != "C:/tmp/instances.zip" || !importRequest.RestoreCookies {
+	if importRequest.ZipPath != "C:/tmp/instances.zip" || !importRequest.RestoreCookies || len(importRequest.ProfileIDs) != 1 {
 		t.Fatalf("import request mismatch: %#v", importRequest)
 	}
 
@@ -54,12 +55,15 @@ func TestBrowserProfileBackupWireRoundTrip(t *testing.T) {
 		Warnings: []BrowserProfileBackupWarning{
 			{ProfileID: "profile-1", ProfileName: "Profile 1", Message: "warning"},
 		},
+		Profiles: []BrowserProfileBackupProfile{
+			{ProfileID: "profile-1", ProfileName: "Profile 1", UserDataDir: "profile-1", HasCookies: true, CookieFileCount: 2},
+		},
 	}
 	decoded, err := DecodeBrowserProfileBackupActionResult(EncodeBrowserProfileBackupActionResult(result))
 	if err != nil {
 		t.Fatalf("DecodeBrowserProfileBackupActionResult failed: %v", err)
 	}
-	if decoded.ProfileCount != 2 || decoded.CookieProfileCount != 1 || !decoded.Summary.IncludesCookies || len(decoded.Warnings) != 1 {
+	if decoded.ProfileCount != 2 || decoded.CookieProfileCount != 1 || !decoded.Summary.IncludesCookies || len(decoded.Warnings) != 1 || len(decoded.Profiles) != 1 || !decoded.Profiles[0].HasCookies {
 		t.Fatalf("action result mismatch: %#v", decoded)
 	}
 }

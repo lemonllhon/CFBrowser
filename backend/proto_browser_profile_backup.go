@@ -56,6 +56,7 @@ func (a *App) handleProtoBrowserProfileBackupImport(ctx context.Context, request
 	result, err := a.BrowserProfilesBackupImport(ProfileBackupImportRequest{
 		ZipPath:        strings.TrimSpace(input.ZipPath),
 		RestoreCookies: input.RestoreCookies,
+		ProfileIDs:     append([]string{}, input.ProfileIDs...),
 	})
 	if err != nil {
 		return nil, protoBrowserOperationError("恢复实例备份失败", err)
@@ -77,6 +78,7 @@ func profileBackupActionResultToProto(result ProfileBackupActionResult) protoipc
 		CookieProfileCount: int32(result.CookieProfileCount),
 		Summary:            profileBackupSummaryToProto(result.Summary),
 		Warnings:           profileBackupWarningsToProto(result.Warnings),
+		Profiles:           profileBackupProfilesToProto(result.Profiles),
 	}
 }
 
@@ -96,6 +98,23 @@ func profileBackupSummaryToProto(summary ProfileBackupSummary) protoipc.BrowserP
 		CookieNotice:         summary.CookieNotice,
 		Warnings:             append([]string{}, summary.Warnings...),
 	}
+}
+
+func profileBackupProfilesToProto(items []ProfileBackupProfileSummary) []protoipc.BrowserProfileBackupProfile {
+	out := make([]protoipc.BrowserProfileBackupProfile, 0, len(items))
+	for _, item := range items {
+		out = append(out, protoipc.BrowserProfileBackupProfile{
+			ProfileID:       item.ProfileID,
+			ProfileName:     item.ProfileName,
+			UserDataDir:     item.UserDataDir,
+			GroupID:         item.GroupID,
+			TagCount:        int32(item.TagCount),
+			KeywordCount:    int32(item.KeywordCount),
+			HasCookies:      item.HasCookies,
+			CookieFileCount: int32(item.CookieFileCount),
+		})
+	}
+	return out
 }
 
 func profileBackupWarningsToProto(items []ProfileBackupWarning) []protoipc.BrowserProfileBackupWarning {

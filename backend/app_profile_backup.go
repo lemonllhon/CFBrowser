@@ -33,6 +33,7 @@ type ProfileBackupExportRequest struct {
 type ProfileBackupImportRequest struct {
 	ZipPath        string `json:"zipPath"`
 	RestoreCookies bool   `json:"restoreCookies"`
+	ProfileIDs     []string `json:"profileIds,omitempty"`
 }
 
 type ProfileBackupSummary struct {
@@ -70,6 +71,18 @@ type ProfileBackupActionResult struct {
 	CookieProfileCount int                    `json:"cookieProfileCount"`
 	Summary            ProfileBackupSummary   `json:"summary"`
 	Warnings           []ProfileBackupWarning `json:"warnings"`
+	Profiles           []ProfileBackupProfileSummary `json:"profiles,omitempty"`
+}
+
+type ProfileBackupProfileSummary struct {
+	ProfileID       string `json:"profileId"`
+	ProfileName     string `json:"profileName"`
+	UserDataDir     string `json:"userDataDir"`
+	GroupID         string `json:"groupId,omitempty"`
+	TagCount        int    `json:"tagCount"`
+	KeywordCount    int    `json:"keywordCount"`
+	HasCookies      bool   `json:"hasCookies"`
+	CookieFileCount int    `json:"cookieFileCount"`
 }
 
 type profileBackupManifest struct {
@@ -212,6 +225,11 @@ func (a *App) BrowserProfilesBackupChooseImportPackage() (ProfileBackupActionRes
 		a.emitProfileBackupProgress("error", 100, fmt.Sprintf("实例备份包校验失败: %v", err), nil)
 		return ProfileBackupActionResult{}, err
 	}
+	profiles, err := readProfileBackupProfileSummaries(zipPath)
+	if err != nil {
+		a.emitProfileBackupProgress("error", 100, fmt.Sprintf("实例备份包解析失败: %v", err), nil)
+		return ProfileBackupActionResult{}, err
+	}
 	a.emitProfileBackupProgress("done", 100, "实例备份包校验通过", nil)
 	return ProfileBackupActionResult{
 		Cancelled:          false,
@@ -221,6 +239,7 @@ func (a *App) BrowserProfilesBackupChooseImportPackage() (ProfileBackupActionRes
 		ProfileCount:       summary.ProfileCount,
 		CookieProfileCount: summary.CookieProfileCount,
 		Summary:            summary,
+		Profiles:           profiles,
 	}, nil
 }
 
@@ -255,8 +274,16 @@ func (a *App) BrowserProfilesBackupImport(input ProfileBackupImportRequest) (Pro
 		return ProfileBackupActionResult{}, err
 	}
 
+	originalTotal := len(payload.Profiles)
+	selectedIDs := profileBackupRequestedProfileIDSet(input.ProfileIDs)
+	if len(selectedIDs) > 0 {
+		payload.Profiles = filterProfileBackupPayloadProfiles(payload.Profiles, selectedIDs)
+	}
 	total := len(payload.Profiles)
 	if total == 0 {
+		if originalTotal > 0 && len(selectedIDs) > 0 {
+			return ProfileBackupActionResult{}, fmt.Errorf("未在备份包中找到勾选的实例")
+		}
 		return ProfileBackupActionResult{}, fmt.Errorf("实例备份包中没有实例配置")
 	}
 
@@ -312,17 +339,20 @@ func (a *App) BrowserProfilesBackupImport(input ProfileBackupImportRequest) (Pro
 	a.emitProfileDataUpdated()
 
 	summary := profileBackupSummaryFromManifest(manifest, zipPath)
+	profiles := profileBackupProfileSummariesFromPayload(&reader.Reader, payload)
 	return ProfileBackupActionResult{
 		Cancelled:          false,
 		Message:            fmt.Sprintf("实例恢复完成：成功 %d，失败 %d", imported, failed),
 		ZipPath:            zipPath,
 		CreatedAt:          manifest.CreatedAt,
 		Imported:           imported,
+		Skipped:            originalTotal - total,
 		Failed:             failed,
 		ProfileCount:       total,
 		CookieProfileCount: cookieProfiles,
 		Summary:            summary,
 		Warnings:           warnings,
+		Profiles:           profiles,
 	}, nil
 }
 
@@ -332,8 +362,11 @@ func (a *App) selectProfilesForBackup(input ProfileBackupExportRequest) []Browse
 	if scope == "" {
 		scope = "all"
 	}
-	if scope == "all" || len(input.ProfileIDs) == 0 {
+	if scope == "all" {
 		return all
+	}
+	if len(input.ProfileIDs) == 0 {
+		return []BrowserProfile{}
 	}
 	selected := make(map[string]struct{}, len(input.ProfileIDs))
 	for _, id := range input.ProfileIDs {
@@ -489,7 +522,7 @@ func (a *App) writeProfileCookiesToBackup(w *zip.Writer, profile BrowserProfile,
 		Warnings:    []string{},
 	}
 
-	for _, rel := range profileBackupCookieCandidatePaths() {
+	for _, rel := range profileBackupCookieCandidatePaths(userDataDir) {
 		absPath := filepath.Join(userDataDir, filepath.FromSlash(rel))
 		info, err := os.Stat(absPath)
 		if err != nil {
@@ -737,6 +770,44 @@ func readProfileBackupSummary(zipPath string) (ProfileBackupSummary, error) {
 	return profileBackupSummaryFromManifest(manifest, zipPath), nil
 }
 
+func readProfileBackupProfileSummaries(zipPath string) ([]ProfileBackupProfileSummary, error) {
+	reader, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return nil, fmt.Errorf("打开实例备份包失败: %w", err)
+	}
+	defer reader.Close()
+	payload, err := readProfileBackupPayloadFromZip(&reader.Reader)
+	if err != nil {
+		return nil, err
+	}
+	return profileBackupProfileSummariesFromPayload(&reader.Reader, payload), nil
+}
+
+func profileBackupProfileSummariesFromPayload(reader *zip.Reader, payload profileBackupPayload) []ProfileBackupProfileSummary {
+	out := make([]ProfileBackupProfileSummary, 0, len(payload.Profiles))
+	for _, item := range payload.Profiles {
+		summary := ProfileBackupProfileSummary{
+			ProfileID:    item.ProfileID,
+			ProfileName:  item.ProfileName,
+			UserDataDir:  item.UserDataDir,
+			GroupID:      item.GroupID,
+			TagCount:     len(item.Tags),
+			KeywordCount: len(item.Keywords),
+		}
+		metaPath := path.Join(profileBackupCookieArchiveRoot(item.ProfileID), "cookie-meta.json")
+		var meta profileBackupCookieMeta
+		if err := readProfileBackupJSON(reader, metaPath, &meta); err == nil {
+			summary.HasCookies = len(meta.Files) > 0 || meta.PlainCookiesIncluded
+			summary.CookieFileCount = len(meta.Files)
+			if meta.PlainCookiesIncluded {
+				summary.CookieFileCount++
+			}
+		}
+		out = append(out, summary)
+	}
+	return out
+}
+
 func profileBackupSummaryFromManifest(manifest profileBackupManifest, zipPath string) ProfileBackupSummary {
 	return ProfileBackupSummary{
 		ZipPath:              zipPath,
@@ -964,16 +1035,42 @@ func safeProfileBackupName(value string) string {
 	return builder.String()
 }
 
-func profileBackupCookieCandidatePaths() []string {
+func profileBackupCookieCandidatePaths(userDataDir string) []string {
 	basePaths := []string{
 		"Default/Network/Cookies",
 		"Default/Cookies",
+		"Network/Cookies",
+		"Cookies",
+	}
+	if entries, err := os.ReadDir(userDataDir); err == nil {
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			name := entry.Name()
+			if strings.HasPrefix(name, ".") {
+				continue
+			}
+			basePaths = append(basePaths,
+				path.Join(filepath.ToSlash(name), "Network", "Cookies"),
+				path.Join(filepath.ToSlash(name), "Cookies"),
+			)
+		}
 	}
 	suffixes := []string{"", "-wal", "-shm", "-journal"}
+	seen := map[string]struct{}{}
 	paths := make([]string, 0, len(basePaths)*len(suffixes))
 	for _, base := range basePaths {
 		for _, suffix := range suffixes {
-			paths = append(paths, base+suffix)
+			item := path.Clean(base + suffix)
+			if item == "." {
+				continue
+			}
+			if _, ok := seen[item]; ok {
+				continue
+			}
+			seen[item] = struct{}{}
+			paths = append(paths, item)
 		}
 	}
 	return paths
@@ -1042,4 +1139,28 @@ func profileBackupSortedProfileIDs(profiles []BrowserProfile) []string {
 	}
 	sort.Strings(ids)
 	return ids
+}
+
+func profileBackupRequestedProfileIDSet(profileIDs []string) map[string]struct{} {
+	out := make(map[string]struct{}, len(profileIDs))
+	for _, id := range profileIDs {
+		id = strings.TrimSpace(id)
+		if id != "" {
+			out[id] = struct{}{}
+		}
+	}
+	return out
+}
+
+func filterProfileBackupPayloadProfiles(profiles []profileBackupProfile, selected map[string]struct{}) []profileBackupProfile {
+	if len(selected) == 0 {
+		return profiles
+	}
+	out := make([]profileBackupProfile, 0, len(profiles))
+	for _, profile := range profiles {
+		if _, ok := selected[profile.ProfileID]; ok {
+			out = append(out, profile)
+		}
+	}
+	return out
 }

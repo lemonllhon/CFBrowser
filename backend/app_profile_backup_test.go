@@ -74,6 +74,68 @@ func TestProfileBackupZipIncludesProfilesAndCookieBundle(t *testing.T) {
 	}
 }
 
+func TestProfileBackupFindsCookiesInNonDefaultChromeProfile(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.DefaultConfig()
+	app := NewApp(root)
+	app.config = cfg
+	app.browserMgr = browser.NewManager(cfg, root)
+
+	profile := BrowserProfile{
+		ProfileId:   "profile-2",
+		ProfileName: "Profile 2",
+		UserDataDir: "profile-2",
+	}
+	userDataDir := filepath.Join(root, "data", "profile-2", "Profile 1", "Network")
+	if err := os.MkdirAll(userDataDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(userDataDir, "Cookies"), []byte("cookie-db"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	zipPath := filepath.Join(root, "instances.zip")
+	result, err := app.writeProfileBackupZip(zipPath, []BrowserProfile{profile}, ProfileBackupExportRequest{IncludeCookies: true})
+	if err != nil {
+		t.Fatalf("writeProfileBackupZip failed: %v", err)
+	}
+	if result.CookieProfileCount != 1 {
+		t.Fatalf("expected cookie profile to be backed up: %#v", result)
+	}
+
+	reader, err := zip.OpenReader(zipPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	found := false
+	for _, file := range reader.File {
+		if path.Clean(file.Name) == path.Join("payload", "cookies", "profile-2", "Profile 1", "Network", "Cookies") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("backup zip missing non-default profile cookie database")
+	}
+}
+
+func TestSelectProfilesForBackupEmptySelectedDoesNotExportAll(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.DefaultConfig()
+	app := NewApp(root)
+	app.config = cfg
+	app.browserMgr = browser.NewManager(cfg, root)
+	app.browserMgr.Profiles = map[string]*BrowserProfile{
+		"profile-1": {ProfileId: "profile-1", ProfileName: "Profile 1"},
+	}
+
+	got := app.selectProfilesForBackup(ProfileBackupExportRequest{Scope: "selected"})
+	if len(got) != 0 {
+		t.Fatalf("expected no profiles for empty selected scope, got %#v", got)
+	}
+}
+
 func TestUniqueRestoredProfileName(t *testing.T) {
 	used := map[string]struct{}{"demo": {}, "demo (恢复)": {}}
 	if got := uniqueRestoredProfileName("Demo", used); got != "Demo (恢复 2)" {

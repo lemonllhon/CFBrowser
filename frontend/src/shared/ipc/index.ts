@@ -20,7 +20,7 @@ export { applyWindowSyncLayout, getWindowSyncLayoutSettings, getWindowSyncSettin
 export type { ProtoAppConfigInfo, ProtoAppDashboardStats, ProtoAppEnvironmentInfo, ProtoAppFileDropPayload, ProtoAppLicenseStatus, ProtoAppLogEntry, ProtoAppRuntimeEventPayload, ProtoAppWindowSize, ProtoAppWindowState, ProtoBackupActionResult, ProtoBackupFailedComponent, ProtoBackupProgress } from './app'
 export type { ProtoAppUpdateAsset, ProtoAppUpdateDownloadProgress, ProtoAppUpdateDownloadResult, ProtoAppUpdateInfo, ProtoAppUpdatePendingInstallFailed, ProtoAppUpdatePendingNotification, ProtoAppUpdatePendingUpdate } from './update'
 export type { ProtoBrowserGroup, ProtoBrowserGroupInput, ProtoBrowserProfile, ProtoBrowserProfileInput, ProtoBrowserTab, ProtoLaunchServerInfo } from './browser'
-export type { ProtoBrowserProfileBackupActionResult, ProtoBrowserProfileBackupExportInput, ProtoBrowserProfileBackupImportInput, ProtoBrowserProfileBackupSummary, ProtoBrowserProfileBackupWarning } from './browserProfileBackup'
+export type { ProtoBrowserProfileBackupActionResult, ProtoBrowserProfileBackupExportInput, ProtoBrowserProfileBackupImportInput, ProtoBrowserProfileBackupProfile, ProtoBrowserProfileBackupSummary, ProtoBrowserProfileBackupWarning } from './browserProfileBackup'
 export type { ProtoBrowserBookmark, ProtoBrowserDefaultContentRule, ProtoBrowserDefaultContentScope, ProtoBrowserStartURL } from './browserDefaults'
 export type { ProtoBrowserSettings } from './browserSettings'
 export type { ProtoBrowserSnapshotInfo } from './browserSnapshots'
