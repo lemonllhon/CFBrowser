@@ -145,6 +145,7 @@ type profileBackupCookieFile struct {
 	RelativePath string `json:"relativePath"`
 	ArchivePath  string `json:"archivePath"`
 	Size         int64  `json:"size"`
+	Kind         string `json:"kind,omitempty"`
 }
 
 type profileBackupProgressMeta struct {
@@ -540,10 +541,11 @@ func (a *App) writeProfileCookiesToBackup(w *zip.Writer, profile BrowserProfile,
 			RelativePath: rel,
 			ArchivePath:  archivePath,
 			Size:         info.Size(),
+			Kind:         profileBackupCookieFileKind(rel),
 		})
 	}
 
-	if len(meta.Files) == 0 {
+	if !profileBackupCookieMetaHasCookieData(meta) {
 		meta.Warnings = append(meta.Warnings, "未找到非无痕持久 Cookie 文件")
 	}
 
@@ -562,9 +564,9 @@ func (a *App) writeProfileCookiesToBackup(w *zip.Writer, profile BrowserProfile,
 	}
 
 	if err := profileBackupZipWriteJSON(w, path.Join(cookieRoot, "cookie-meta.json"), meta); err != nil {
-		return len(meta.Files) > 0 || meta.PlainCookiesIncluded, meta.Warnings, err
+		return profileBackupCookieMetaHasCookieData(meta), meta.Warnings, err
 	}
-	return len(meta.Files) > 0 || meta.PlainCookiesIncluded, meta.Warnings, nil
+	return profileBackupCookieMetaHasCookieData(meta), meta.Warnings, nil
 }
 
 func (a *App) restoreProfileBackupCookies(reader *zip.Reader, source profileBackupProfile, target *BrowserProfile) (bool, []string) {
@@ -584,6 +586,9 @@ func (a *App) restoreProfileBackupCookies(reader *zip.Reader, source profileBack
 	}
 
 	restored := false
+	restoredCookieData := false
+	restoredLocalState := false
+	expectedLocalState := profileBackupCookieMetaHasFileKind(meta, "local_state")
 	for _, item := range meta.Files {
 		rel, err := profileBackupSafeRelativePath(item.RelativePath)
 		if err != nil {
@@ -604,9 +609,24 @@ func (a *App) restoreProfileBackupCookies(reader *zip.Reader, source profileBack
 			continue
 		}
 		restored = true
+		kind := strings.TrimSpace(item.Kind)
+		if kind == "" {
+			kind = profileBackupCookieFileKind(rel)
+		}
+		if kind == "cookie_db" {
+			restoredCookieData = true
+		} else if kind == "local_state" {
+			restoredLocalState = true
+		}
+	}
+	if restoredCookieData && expectedLocalState && !restoredLocalState {
+		warnings = append(warnings, "Cookie 加密密钥文件 Local State 恢复失败，部分 Cookie 可能无法读取")
+	}
+	if restoredCookieData && !expectedLocalState {
+		warnings = append(warnings, "备份包缺少 Cookie 加密密钥文件 Local State，恢复后部分 Cookie 可能无法读取")
 	}
 	warnings = append(warnings, meta.Warnings...)
-	return restored, warnings
+	return restored && restoredCookieData, warnings
 }
 
 func (a *App) profileBackupBuildCreateInput(item profileBackupProfile, coreIDs, proxyIDs, groupIDs map[string]struct{}, usedNames map[string]struct{}) (BrowserProfileInput, []string) {
@@ -797,8 +817,8 @@ func profileBackupProfileSummariesFromPayload(reader *zip.Reader, payload profil
 		metaPath := path.Join(profileBackupCookieArchiveRoot(item.ProfileID), "cookie-meta.json")
 		var meta profileBackupCookieMeta
 		if err := readProfileBackupJSON(reader, metaPath, &meta); err == nil {
-			summary.HasCookies = len(meta.Files) > 0 || meta.PlainCookiesIncluded
-			summary.CookieFileCount = len(meta.Files)
+			summary.HasCookies = profileBackupCookieMetaHasCookieData(meta)
+			summary.CookieFileCount = profileBackupCookieMetaCookieFileCount(meta)
 			if meta.PlainCookiesIncluded {
 				summary.CookieFileCount++
 			}
@@ -1059,7 +1079,8 @@ func profileBackupCookieCandidatePaths(userDataDir string) []string {
 	}
 	suffixes := []string{"", "-wal", "-shm", "-journal"}
 	seen := map[string]struct{}{}
-	paths := make([]string, 0, len(basePaths)*len(suffixes))
+	paths := make([]string, 0, 1+len(basePaths)*len(suffixes))
+	paths = append(paths, "Local State")
 	for _, base := range basePaths {
 		for _, suffix := range suffixes {
 			item := path.Clean(base + suffix)
@@ -1074,6 +1095,59 @@ func profileBackupCookieCandidatePaths(userDataDir string) []string {
 		}
 	}
 	return paths
+}
+
+func profileBackupCookieFileKind(relativePath string) string {
+	rel := strings.TrimSpace(filepath.ToSlash(relativePath))
+	if strings.EqualFold(rel, "Local State") {
+		return "local_state"
+	}
+	name := path.Base(rel)
+	if strings.EqualFold(name, "Cookies") ||
+		strings.EqualFold(name, "Cookies-wal") ||
+		strings.EqualFold(name, "Cookies-shm") ||
+		strings.EqualFold(name, "Cookies-journal") {
+		return "cookie_db"
+	}
+	return "cookie_related"
+}
+
+func profileBackupCookieMetaHasCookieData(meta profileBackupCookieMeta) bool {
+	if meta.PlainCookiesIncluded {
+		return true
+	}
+	return profileBackupCookieMetaCookieFileCount(meta) > 0
+}
+
+func profileBackupCookieMetaCookieFileCount(meta profileBackupCookieMeta) int {
+	count := 0
+	for _, file := range meta.Files {
+		kind := strings.TrimSpace(file.Kind)
+		if kind == "" {
+			kind = profileBackupCookieFileKind(file.RelativePath)
+		}
+		if kind == "cookie_db" {
+			count++
+		}
+	}
+	return count
+}
+
+func profileBackupCookieMetaHasFileKind(meta profileBackupCookieMeta, targetKind string) bool {
+	targetKind = strings.TrimSpace(targetKind)
+	if targetKind == "" {
+		return false
+	}
+	for _, file := range meta.Files {
+		kind := strings.TrimSpace(file.Kind)
+		if kind == "" {
+			kind = profileBackupCookieFileKind(file.RelativePath)
+		}
+		if kind == targetKind {
+			return true
+		}
+	}
+	return false
 }
 
 func profileBackupSafeRelativePath(value string) (string, error) {

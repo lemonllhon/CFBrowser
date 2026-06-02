@@ -36,6 +36,9 @@ func TestProfileBackupZipIncludesProfilesAndCookieBundle(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(userDataDir, "Cookies-wal"), []byte("cookie-wal"), 0644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(root, "data", "profile-1", "Local State"), []byte(`{"os_crypt":{"encrypted_key":"key"}}`), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	zipPath := filepath.Join(root, "instances.zip")
 	result, err := app.writeProfileBackupZip(zipPath, []BrowserProfile{profile}, ProfileBackupExportRequest{IncludeCookies: true})
@@ -62,6 +65,7 @@ func TestProfileBackupZipIncludesProfilesAndCookieBundle(t *testing.T) {
 	expected := map[string]bool{
 		"manifest.json":         true,
 		"payload/profiles.json": true,
+		path.Join("payload", "cookies", "profile-1", "Local State"):                     true,
 		path.Join("payload", "cookies", "profile-1", "Default", "Network", "Cookies"):     true,
 		path.Join("payload", "cookies", "profile-1", "Default", "Network", "Cookies-wal"): true,
 		path.Join("payload", "cookies", "profile-1", "cookie-meta.json"):                  true,
@@ -117,6 +121,77 @@ func TestProfileBackupFindsCookiesInNonDefaultChromeProfile(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("backup zip missing non-default profile cookie database")
+	}
+}
+
+func TestRestoreProfileBackupCookiesCopiesLocalStateWithCookieDatabase(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.DefaultConfig()
+	app := NewApp(root)
+	app.config = cfg
+	app.browserMgr = browser.NewManager(cfg, root)
+
+	zipPath := filepath.Join(root, "instances.zip")
+	out, err := os.Create(zipPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer := zip.NewWriter(out)
+	cookieRoot := profileBackupCookieArchiveRoot("source-profile")
+	if err := profileBackupZipWriteString(writer, path.Join(cookieRoot, "Local State"), `{"os_crypt":{"encrypted_key":"key"}}`); err != nil {
+		t.Fatal(err)
+	}
+	if err := profileBackupZipWriteString(writer, path.Join(cookieRoot, "Default", "Network", "Cookies"), "cookie-db"); err != nil {
+		t.Fatal(err)
+	}
+	meta := profileBackupCookieMeta{
+		ProfileID:   "source-profile",
+		ProfileName: "Source",
+		UserDataDir: "source-profile",
+		Files: []profileBackupCookieFile{
+			{
+				RelativePath: "Local State",
+				ArchivePath:  path.Join(cookieRoot, "Local State"),
+				Kind:         "local_state",
+			},
+			{
+				RelativePath: "Default/Network/Cookies",
+				ArchivePath:  path.Join(cookieRoot, "Default", "Network", "Cookies"),
+				Kind:         "cookie_db",
+			},
+		},
+	}
+	if err := profileBackupZipWriteJSON(writer, path.Join(cookieRoot, "cookie-meta.json"), meta); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := out.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reader, err := zip.OpenReader(zipPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+
+	target := &BrowserProfile{ProfileId: "target-profile", UserDataDir: "target-profile"}
+	restored, warnings := app.restoreProfileBackupCookies(&reader.Reader, profileBackupProfile{
+		ProfileID:   "source-profile",
+		ProfileName: "Source",
+	}, target)
+	if !restored {
+		t.Fatalf("expected cookies to restore, warnings=%v", warnings)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected restore warnings: %v", warnings)
+	}
+	for _, rel := range []string{"Local State", "Default/Network/Cookies"} {
+		if _, err := os.Stat(filepath.Join(root, "data", "target-profile", filepath.FromSlash(rel))); err != nil {
+			t.Fatalf("expected restored file %s: %v", rel, err)
+		}
 	}
 }
 

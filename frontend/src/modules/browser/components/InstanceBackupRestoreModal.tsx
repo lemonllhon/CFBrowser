@@ -477,15 +477,18 @@ export function InstanceBackupRestoreModal({
 }
 
 function ScopeButton({ active, label, count, disabled, onClick }: { active: boolean; label: string; count: number; disabled?: boolean; onClick: () => void }) {
+  const activeClass = 'border-[var(--color-accent)] bg-[var(--color-accent-muted)] text-[var(--color-accent)] shadow-sm'
+  const inactiveClass = 'border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] hover:border-[var(--color-accent)] hover:bg-[var(--color-bg-muted)]'
   return (
     <button
       type="button"
       disabled={disabled}
+      aria-pressed={active}
       onClick={onClick}
-      className={`h-16 rounded-md border px-3 text-left transition-colors ${active ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10' : 'border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] hover:bg-[var(--color-bg-muted)]'} ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+      className={`h-16 rounded-md border px-3 text-left transition-colors ${active ? activeClass : inactiveClass} ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
     >
-      <div className="text-sm font-medium text-[var(--color-text-primary)]">{label}</div>
-      <div className="mt-1 text-xs text-[var(--color-text-muted)]">{count} 个实例</div>
+      <div className={`text-sm font-medium ${active ? 'text-[var(--color-accent)]' : 'text-[var(--color-text-primary)]'}`}>{label}</div>
+      <div className={`mt-1 text-xs ${active ? 'text-[var(--color-accent)]' : 'text-[var(--color-text-muted)]'}`}>{count} 个实例</div>
     </button>
   )
 }
