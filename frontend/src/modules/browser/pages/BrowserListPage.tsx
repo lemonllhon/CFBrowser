@@ -1686,25 +1686,25 @@ export function BrowserListPage() {
   return (
     <div className="overflow-auto p-5 space-y-5 animate-fade-in h-full">
       {/* 页头 */}
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-col gap-3 2xl:flex-row 2xl:items-start 2xl:justify-between">
+        <div className="shrink-0">
           <h1 className="text-xl font-semibold text-[var(--color-text-primary)]">实例列表</h1>
           <p className="text-sm text-[var(--color-text-muted)] mt-1">
             当前配置总数 {profiles.length}
             {filteredProfiles.length !== profiles.length && <span className="ml-1 text-[var(--color-accent)]">（已筛选 {filteredProfiles.length}）</span>}
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="secondary" size="sm" onClick={() => setHeaderCollapsed(prev => !prev)}>{headerCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}{headerCollapsed ? '展开面板' : '收起面板'}</Button>
-          <Button variant="secondary" size="sm" onClick={() => { void loadProfiles() }}><RefreshCw className="w-4 h-4" />刷新</Button>
-          <Button variant="secondary" size="sm" onClick={() => setBatchRandomModalOpen(true)}><Wand2 className="w-4 h-4" />批量生成</Button>
-          <Button variant="secondary" size="sm" onClick={() => setBackupModalOpen(true)}><Download className="w-4 h-4" />实例备份与恢复</Button>
-          <Button variant="secondary" size="sm" onClick={handleOpenWindowSyncModal}><MonitorUp className="w-4 h-4" />窗口同步</Button>
-          <Button variant="secondary" size="sm" onClick={handleOpenSettings}><Sliders className="w-4 h-4" />基础配置</Button>
-          <Button variant="secondary" size="sm" onClick={() => setExpandModalOpen(true)} className="text-[var(--color-primary)] border-[var(--color-primary)] hover:bg-[var(--color-primary)]/10">
+        <div className="flex flex-wrap items-center justify-start 2xl:justify-end gap-2 min-w-0">
+          <Button variant="secondary" size="sm" className="shrink-0 whitespace-nowrap" onClick={() => setHeaderCollapsed(prev => !prev)}>{headerCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}{headerCollapsed ? '展开面板' : '收起面板'}</Button>
+          <Button variant="secondary" size="sm" className="shrink-0 whitespace-nowrap" onClick={() => { void loadProfiles() }}><RefreshCw className="w-4 h-4" />刷新</Button>
+          <Button variant="secondary" size="sm" className="shrink-0 whitespace-nowrap" onClick={() => setBatchRandomModalOpen(true)}><Wand2 className="w-4 h-4" />批量生成</Button>
+          <Button variant="secondary" size="sm" className="shrink-0 whitespace-nowrap" onClick={() => setBackupModalOpen(true)}><Download className="w-4 h-4" />实例备份与恢复</Button>
+          <Button variant="secondary" size="sm" className="shrink-0 whitespace-nowrap" onClick={handleOpenWindowSyncModal}><MonitorUp className="w-4 h-4" />窗口同步</Button>
+          <Button variant="secondary" size="sm" className="shrink-0 whitespace-nowrap" onClick={handleOpenSettings}><Sliders className="w-4 h-4" />基础配置</Button>
+          <Button variant="secondary" size="sm" onClick={() => setExpandModalOpen(true)} className="shrink-0 whitespace-nowrap text-[var(--color-primary)] border-[var(--color-primary)] hover:bg-[var(--color-primary)]/10">
             <Plus className="w-4 h-4" />扩容情况
           </Button>
-          <div className="flex items-center bg-[var(--color-bg-secondary)] rounded-md border border-[var(--color-border-default)] p-0.5 ml-2">
+          <div className="flex shrink-0 items-center bg-[var(--color-bg-secondary)] rounded-md border border-[var(--color-border-default)] p-0.5">
             <button
               className={`p-1.5 rounded text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors ${viewMode === 'card' ? 'bg-[var(--color-bg-surface)] shadow-sm text-[var(--color-accent)]' : ''}`}
               onClick={() => setViewMode('card')}
@@ -1720,7 +1720,7 @@ export function BrowserListPage() {
               <List className="w-4 h-4" />
             </button>
           </div>
-          <details className="relative">
+          <details className="relative shrink-0">
             <summary className="list-none p-1.5 rounded text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-secondary)] cursor-pointer" title="选择显示列">
               <Sliders className="w-4 h-4" />
             </summary>
@@ -1740,8 +1740,8 @@ export function BrowserListPage() {
               ))}
             </div>
           </details>
-          <span className="w-px h-4 bg-[var(--color-border-muted)] mx-1 self-center"></span>
-          <Link to="/browser/edit/new"><Button size="sm"><Play className="w-4 h-4" />新建配置</Button></Link>
+          <span className="w-px h-4 bg-[var(--color-border-muted)] mx-1 self-center shrink-0"></span>
+          <Link to="/browser/edit/new" className="shrink-0"><Button size="sm" className="shrink-0 whitespace-nowrap"><Play className="w-4 h-4" />新建配置</Button></Link>
         </div>
       </div>
 

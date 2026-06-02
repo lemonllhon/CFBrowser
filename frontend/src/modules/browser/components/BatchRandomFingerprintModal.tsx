@@ -57,6 +57,25 @@ function makeProfileName(prefix: string, number: number, width: number) {
   return `${safePrefix} ${String(number).padStart(width, '0')}`
 }
 
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function detectNextStartIndex(profiles: BrowserProfile[], prefix: string) {
+  const safePrefix = prefix.trim() || '随机实例'
+  const matcher = new RegExp(`^${escapeRegExp(safePrefix)}\\s+(\\d+)(?:\\s*\\(\\d+\\))?$`, 'i')
+  let maxIndex = 0
+  for (const profile of profiles) {
+    const match = profile.profileName.trim().match(matcher)
+    if (!match) continue
+    const value = Number(match[1])
+    if (Number.isFinite(value)) {
+      maxIndex = Math.max(maxIndex, value)
+    }
+  }
+  return Math.min(maxIndex + 1, 999999)
+}
+
 function uniqueProfileName(base: string, usedNames: Set<string>) {
   const normalized = (value: string) => value.trim().toLowerCase()
   let candidate = base.trim() || '随机实例'
@@ -115,7 +134,6 @@ export function BatchRandomFingerprintModal({
 }: Props) {
   const [count, setCount] = useState(5)
   const [namePrefix, setNamePrefix] = useState('随机实例')
-  const [startIndex, setStartIndex] = useState(1)
   const [coreId, setCoreId] = useState('')
   const [groupId, setGroupId] = useState('')
   const [tags, setTags] = useState<string[]>([])
@@ -139,7 +157,6 @@ export function BatchRandomFingerprintModal({
     if (!open) return
     setCount(5)
     setNamePrefix('随机实例')
-    setStartIndex(profiles.length + 1)
     setCoreId('')
     setGroupId('')
     setTags([])
@@ -164,7 +181,7 @@ export function BatchRandomFingerprintModal({
       setLaunchArgsText(fallbackLaunchArgs.join('\n'))
       setFingerprintArgs(seedVisibleFingerprintArgs([]))
     })
-  }, [open, profiles.length])
+  }, [open])
 
   const selectedProxyGroups = useMemo(() => (
     Array.from(new Set(proxies.map(item => (item.groupName || '').trim()).filter(Boolean))).sort()
@@ -186,6 +203,7 @@ export function BatchRandomFingerprintModal({
     : findRegionPresetByLocale(currentFingerprint.lang, currentFingerprint.timezone)?.code || ''
   const selectedRegion = selectedRegionCode ? findRegionPreset(selectedRegionCode) : undefined
   const selectedRegionTimezones = selectedRegion ? regionTimezones(selectedRegion) : []
+  const startIndex = useMemo(() => detectNextStartIndex(profiles, namePrefix), [profiles, namePrefix])
 
   const handleRegionChange = (code: string) => {
     const current = deserializeFingerprint(fingerprintArgs)
@@ -328,13 +346,13 @@ export function BatchRandomFingerprintModal({
               onChange={event => setCount(clampNumber(Number(event.target.value), 1, 200, 5))}
             />
           </FormItem>
-          <FormItem label="起始序号">
-            <Input
-              type="number"
-              min={1}
-              value={String(startIndex)}
-              onChange={event => setStartIndex(clampNumber(Number(event.target.value), 1, 999999, 1))}
-            />
+          <FormItem label="起始序号" hint="自动识别，只做展示">
+            <div
+              className="h-9 w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] px-3 flex items-center font-mono text-sm text-[var(--color-text-primary)]"
+              title="根据当前名称前缀自动识别，只做展示"
+            >
+              {startIndex}
+            </div>
           </FormItem>
           <FormItem label="内核" className="md:col-span-2">
             <Select value={coreId} onChange={event => setCoreId(event.target.value)} options={coreOptions} />
