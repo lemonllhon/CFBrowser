@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Activity, CheckCircle, ChevronDown, ChevronRight, ChevronUp, Copy, Download, Edit2, Eraser, FileText, Focus, GripVertical, Key, Layers, Pencil, Play, Plus, RefreshCw, RotateCcw, Settings, Shuffle, Sliders, Square, Star, Trash2, XCircle, LayoutGrid, List, MonitorUp } from 'lucide-react'
+import { Activity, CheckCircle, ChevronDown, ChevronRight, ChevronUp, Copy, Download, Edit2, Eraser, FileText, Focus, GripVertical, Key, Layers, Pencil, Play, Plus, RefreshCw, RotateCcw, Settings, Shuffle, Sliders, Square, Star, Trash2, XCircle, LayoutGrid, List, MonitorUp, Wand2 } from 'lucide-react'
 import { Badge, Button, Card, ConfirmModal, FormItem, Input, Modal, StatCard, Switch, Table, Textarea, toast } from '../../../shared/components'
 import type { TableColumn } from '../../../shared/components/Table'
 import type { BrowserCore, BrowserCoreInput, BrowserProfile, BrowserProxy, BrowserSettings, BrowserGroupWithCount, WindowSyncCandidate, WindowSyncLayoutSettings, WindowSyncSettings, WindowSyncState } from '../types'
@@ -8,6 +8,7 @@ import { InstanceFilterBar, EMPTY_FILTERS } from '../components/InstanceFilterBa
 import type { InstanceFilters } from '../components/InstanceFilterBar'
 import { KeywordsModal } from '../components/KeywordsModal'
 import { InstanceBackupRestoreModal } from '../components/InstanceBackupRestoreModal'
+import { BatchRandomFingerprintModal } from '../components/BatchRandomFingerprintModal'
 import { onRuntimeEvent } from '../../../shared/backend/runtime'
 import { resolveActionErrorMessage, resolveActionFeedback } from '../utils/actionErrors'
 import {
@@ -475,6 +476,7 @@ export function BrowserListPage() {
   const [clearingCookieIds, setClearingCookieIds] = useState<Set<string>>(new Set())
   const [cookieClearTarget, setCookieClearTarget] = useState<BrowserProfile | null>(null)
   const [backupModalOpen, setBackupModalOpen] = useState(false)
+  const [batchRandomModalOpen, setBatchRandomModalOpen] = useState(false)
   const profilesRef = useRef<BrowserProfile[]>([])
   const profileOrderChannelRef = useRef<BroadcastChannel | null>(null)
   const silentRefreshInFlightRef = useRef(false)
@@ -1695,6 +1697,7 @@ export function BrowserListPage() {
         <div className="flex gap-2">
           <Button variant="secondary" size="sm" onClick={() => setHeaderCollapsed(prev => !prev)}>{headerCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}{headerCollapsed ? '展开面板' : '收起面板'}</Button>
           <Button variant="secondary" size="sm" onClick={() => { void loadProfiles() }}><RefreshCw className="w-4 h-4" />刷新</Button>
+          <Button variant="secondary" size="sm" onClick={() => setBatchRandomModalOpen(true)}><Wand2 className="w-4 h-4" />批量生成</Button>
           <Button variant="secondary" size="sm" onClick={() => setBackupModalOpen(true)}><Download className="w-4 h-4" />实例备份与恢复</Button>
           <Button variant="secondary" size="sm" onClick={handleOpenWindowSyncModal}><MonitorUp className="w-4 h-4" />窗口同步</Button>
           <Button variant="secondary" size="sm" onClick={handleOpenSettings}><Sliders className="w-4 h-4" />基础配置</Button>
@@ -1962,6 +1965,20 @@ export function BrowserListPage() {
         selectedProfileIds={selectedProfileIds}
         filteredProfileIds={filteredProfileIds}
         onRestored={() => {
+          void loadProfiles({ silent: true, syncRuntimeState: true })
+          void loadGroups()
+        }}
+      />
+
+      <BatchRandomFingerprintModal
+        open={batchRandomModalOpen}
+        onClose={() => setBatchRandomModalOpen(false)}
+        profiles={profiles}
+        cores={cores}
+        proxies={proxies}
+        groups={groups}
+        allTags={allTags}
+        onGenerated={() => {
           void loadProfiles({ silent: true, syncRuntimeState: true })
           void loadGroups()
         }}

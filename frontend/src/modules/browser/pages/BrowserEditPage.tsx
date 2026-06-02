@@ -90,6 +90,10 @@ export function BrowserEditPage() {
       setGroups(groupList)
 
       if (isCreate) {
+        setFormData(prev => ({
+          ...prev,
+          fingerprintArgs: settings.defaultFingerprintArgs || [],
+        }))
         setLaunchArgsText(resolvedDefaultLaunchArgs.join('\n'))
         return
       }

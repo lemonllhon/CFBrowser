@@ -377,8 +377,7 @@ function randomHardwareFingerprint(base: FingerprintConfig): FingerprintConfig {
 }
 
 function withAutoFingerprintDefaults(base: FingerprintConfig): FingerprintConfig {
-  const hasHardwareConfig = !!base.seed ||
-    !!base.brand ||
+  const hasManualHardwareConfig = !!base.brand ||
     !!base.platform ||
     !!base.resolution ||
     !!base.colorDepth ||
@@ -394,7 +393,25 @@ function withAutoFingerprintDefaults(base: FingerprintConfig): FingerprintConfig
     !!base.mediaDevices ||
     !!base.fonts
 
-  return { ...base, autoHardware: base.autoHardware ?? !hasHardwareConfig }
+  if (!base.autoHardware && !base.seed) {
+    if (!hasManualHardwareConfig) {
+      return {
+        ...randomHardwareFingerprint(base),
+        autoHardware: false,
+        region: base.region,
+        lang: base.lang,
+        timezone: base.timezone,
+        unknownArgs: base.unknownArgs,
+      }
+    }
+    return {
+      ...base,
+      autoHardware: false,
+      seed: randomFingerprintSeed(),
+    }
+  }
+
+  return { ...base, autoHardware: base.autoHardware ?? false }
 }
 
 const PRESET_OPTIONS = [
@@ -529,6 +546,11 @@ export function FingerprintPanel({ value, onChange }: FingerprintPanelProps) {
             随机
           </button>
         </div>
+        {config.autoHardware && !config.seed && (
+          <div className="text-xs leading-5 text-[var(--color-text-muted)]">
+            当前为自动随机硬件画像，不保存固定指纹种子；启动时会即时生成。需要可见且固定的种子时，点击“随机”。
+          </div>
+        )}
       </div>
 
       <ConfirmModal
