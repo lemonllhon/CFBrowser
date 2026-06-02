@@ -15,9 +15,11 @@ func registerProtoCoreHandlers(app *App, dispatcher *protoipc.Dispatcher) {
 	dispatcher.Register(protoipc.MethodBrowserCoreDelete, app.handleProtoBrowserCoreDelete)
 	dispatcher.Register(protoipc.MethodBrowserCoreSetDefault, app.handleProtoBrowserCoreSetDefault)
 	dispatcher.Register(protoipc.MethodBrowserCoreValidate, app.handleProtoBrowserCoreValidate)
+	dispatcher.Register(protoipc.MethodBrowserCoreRenamePath, app.handleProtoBrowserCoreRenamePath)
 	dispatcher.Register(protoipc.MethodBrowserCoreExtendedInfo, app.handleProtoBrowserCoreExtendedInfo)
 	dispatcher.Register(protoipc.MethodBrowserCoreScan, app.handleProtoBrowserCoreScan)
 	dispatcher.Register(protoipc.MethodBrowserCoreDownload, app.handleProtoBrowserCoreDownload)
+	dispatcher.Register(protoipc.MethodBrowserCoreCancelDownload, app.handleProtoBrowserCoreCancelDownload)
 	dispatcher.Register(protoipc.MethodBrowserCoreOpenPath, app.handleProtoBrowserCoreOpenPath)
 }
 
@@ -103,6 +105,24 @@ func (a *App) handleProtoBrowserCoreValidate(ctx context.Context, request protoi
 	}), nil
 }
 
+func (a *App) handleProtoBrowserCoreRenamePath(ctx context.Context, request protoipc.Envelope) ([]byte, *protoipc.RPCError) {
+	if rpcErr := a.ensureProtoBrowserReady(ctx); rpcErr != nil {
+		return nil, rpcErr
+	}
+	input, err := protoipc.DecodeBrowserCoreRenamePathRequest(request.Payload)
+	if err != nil {
+		return nil, &protoipc.RPCError{
+			Code:    protoipc.ErrorCodeInvalidPayload,
+			Message: "BrowserCoreRenamePathRequest 解码失败",
+			Details: err.Error(),
+		}
+	}
+	if err := a.BrowserCoreRenamePath(input.CorePath, input.NewFolderName); err != nil {
+		return nil, protoBrowserOperationError("重命名浏览器内核路径失败", err)
+	}
+	return protoipc.EncodeBrowserActionResponse(protoipc.BrowserActionResponse{OK: true}), nil
+}
+
 func (a *App) handleProtoBrowserCoreExtendedInfo(ctx context.Context, request protoipc.Envelope) ([]byte, *protoipc.RPCError) {
 	if rpcErr := a.ensureProtoBrowserReady(ctx); rpcErr != nil {
 		return nil, rpcErr
@@ -135,6 +155,16 @@ func (a *App) handleProtoBrowserCoreDownload(ctx context.Context, request protoi
 	}
 	if err := a.BrowserCoreDownload(input.CoreName, input.URL, input.ProxyConfig); err != nil {
 		return nil, protoBrowserOperationError("下载浏览器内核失败", err)
+	}
+	return protoipc.EncodeBrowserActionResponse(protoipc.BrowserActionResponse{OK: true}), nil
+}
+
+func (a *App) handleProtoBrowserCoreCancelDownload(ctx context.Context, request protoipc.Envelope) ([]byte, *protoipc.RPCError) {
+	if rpcErr := a.ensureProtoBrowserReady(ctx); rpcErr != nil {
+		return nil, rpcErr
+	}
+	if err := a.BrowserCoreCancelDownload(); err != nil {
+		return nil, protoBrowserOperationError("中断浏览器内核下载失败", err)
 	}
 	return protoipc.EncodeBrowserActionResponse(protoipc.BrowserActionResponse{OK: true}), nil
 }
@@ -207,5 +237,6 @@ func (a *App) emitCoreDownloadProgressEvent(eventName string, optionalData ...an
 		Phase:    progress.Phase,
 		Progress: int32(progress.Progress),
 		Message:  progress.Message,
+		CorePath: progress.CorePath,
 	}))
 }

@@ -32,6 +32,11 @@ message BrowserCoreValidateResponse {
   string message = 2;
 }
 
+message BrowserCoreRenamePathRequest {
+  string core_path = 1;
+  string new_folder_name = 2;
+}
+
 message BrowserCoreExtendedInfo {
   string core_id = 1;
   string chrome_version = 2;
@@ -52,4 +57,5 @@ message BrowserCoreDownloadProgress {
   string phase = 1;
   int32 progress = 2;
   string message = 3;
+  string core_path = 4;
 }

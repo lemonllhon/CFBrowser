@@ -167,6 +167,130 @@ func (m *Manager) SaveCore(input CoreInput) error {
 	return m.Config.Save(m.ResolveRelativePath("config.yaml"))
 }
 
+// RenameCorePath 重命名内核目录，并同步更新引用该路径的内核配置。
+func (m *Manager) RenameCorePath(corePath string, newFolderName string) error {
+	log := logger.New("Browser")
+	corePath = strings.TrimSpace(corePath)
+	newFolderName, err := normalizeCoreFolderName(newFolderName)
+	if err != nil {
+		return err
+	}
+	if corePath == "" {
+		return fmt.Errorf("原内核路径不能为空")
+	}
+
+	sourceAbs, err := filepath.Abs(m.ResolveRelativePath(corePath))
+	if err != nil {
+		return fmt.Errorf("解析原内核路径失败: %w", err)
+	}
+	info, err := os.Stat(sourceAbs)
+	if err != nil {
+		return fmt.Errorf("原内核路径不可用: %w", err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("原内核路径不是目录: %s", sourceAbs)
+	}
+
+	targetAbs := filepath.Join(filepath.Dir(sourceAbs), newFolderName)
+	targetAbs, err = filepath.Abs(targetAbs)
+	if err != nil {
+		return fmt.Errorf("解析新内核路径失败: %w", err)
+	}
+	if filepath.Clean(sourceAbs) == filepath.Clean(targetAbs) {
+		return nil
+	}
+	if _, err := os.Stat(targetAbs); err == nil {
+		return fmt.Errorf("目标路径已存在: %s", targetAbs)
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("检查目标路径失败: %w", err)
+	}
+
+	cores := m.ListCores()
+	matched := make([]Core, 0, 1)
+	for _, core := range cores {
+		if corePathMatches(m, core.CorePath, corePath) {
+			matched = append(matched, core)
+		}
+	}
+	if len(matched) == 0 {
+		return fmt.Errorf("未找到对应内核配置: %s", corePath)
+	}
+
+	if err := os.Rename(sourceAbs, targetAbs); err != nil {
+		return fmt.Errorf("重命名内核目录失败: %w", err)
+	}
+
+	newCorePath := targetAbs
+	if !filepath.IsAbs(corePath) {
+		if rel, relErr := filepath.Rel(m.AppRoot, targetAbs); relErr == nil {
+			newCorePath = filepath.ToSlash(rel)
+		}
+	}
+	if !m.ValidateCorePath(newCorePath).Valid {
+		_ = os.Rename(targetAbs, sourceAbs)
+		return fmt.Errorf("重命名后的内核路径无效: %s", newCorePath)
+	}
+
+	for _, core := range matched {
+		if err := m.SaveCore(CoreInput{
+			CoreId:    core.CoreId,
+			CoreName:  core.CoreName,
+			CorePath:  newCorePath,
+			IsDefault: core.IsDefault,
+		}); err != nil {
+			_ = os.Rename(targetAbs, sourceAbs)
+			return fmt.Errorf("更新内核配置失败: %w", err)
+		}
+	}
+
+	log.Info("内核路径已重命名", logger.F("old_path", corePath), logger.F("new_path", newCorePath))
+	return nil
+}
+
+func normalizeCoreFolderName(name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", fmt.Errorf("新文件夹名称不能为空")
+	}
+	if filepath.IsAbs(name) || strings.Contains(name, "/") || strings.Contains(name, `\`) {
+		return "", fmt.Errorf("新文件夹名称不能包含路径分隔符")
+	}
+	if name == "." || name == ".." {
+		return "", fmt.Errorf("新文件夹名称无效")
+	}
+	if strings.TrimRight(name, ". ") != name {
+		return "", fmt.Errorf("新文件夹名称不能以空格或点结尾")
+	}
+	if strings.ContainsAny(name, `<>:"|?*`) {
+		return "", fmt.Errorf("新文件夹名称包含非法字符")
+	}
+	for _, r := range name {
+		if r < 32 {
+			return "", fmt.Errorf("新文件夹名称包含控制字符")
+		}
+	}
+	switch strings.ToUpper(name) {
+	case "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9":
+		return "", fmt.Errorf("新文件夹名称是系统保留名称")
+	}
+	return name, nil
+}
+
+func corePathMatches(m *Manager, left string, right string) bool {
+	leftAbs, leftErr := filepath.Abs(m.ResolveRelativePath(strings.TrimSpace(left)))
+	rightAbs, rightErr := filepath.Abs(m.ResolveRelativePath(strings.TrimSpace(right)))
+	if leftErr == nil && rightErr == nil {
+		return sameCleanPath(leftAbs, rightAbs)
+	}
+	return sameCleanPath(left, right)
+}
+
+func sameCleanPath(left string, right string) bool {
+	left = filepath.Clean(strings.TrimSpace(left))
+	right = filepath.Clean(strings.TrimSpace(right))
+	return left == right || strings.EqualFold(left, right)
+}
+
 // DeleteCore 删除内核配置
 func (m *Manager) DeleteCore(coreId string) error {
 	log := logger.New("Browser")

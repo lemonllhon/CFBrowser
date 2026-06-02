@@ -14,6 +14,7 @@ import {
   createBrowserGroup as createBrowserGroupProto,
   createBrowserProfile as createBrowserProfileProto,
   createBrowserSnapshot as createBrowserSnapshotProto,
+  cancelBrowserCoreDownload as cancelBrowserCoreDownloadProto,
   deleteBrowserCore as deleteBrowserCoreProto,
   deleteBrowserExtension as deleteBrowserExtensionProto,
   deleteBrowserGroup as deleteBrowserGroupProto,
@@ -63,6 +64,7 @@ import {
   pauseWindowSync as pauseWindowSyncProto,
   pinCenterBrowserInstance as pinCenterBrowserInstanceProto,
   regenerateBrowserProfileCode as regenerateBrowserProfileCodeProto,
+  renameBrowserCorePath as renameBrowserCorePathProto,
   renameBrowserTag as renameBrowserTagProto,
   resetBrowserBookmarks as resetBrowserBookmarksProto,
   resetBrowserDefaultStartURLs as resetBrowserDefaultStartURLsProto,
@@ -329,7 +331,15 @@ export async function BrowserCoreDownload(coreName: string, url: string, proxyCo
   return await downloadBrowserCoreProto(coreName, url, proxyConfig || '')
 }
 
-export function onBrowserCoreDownloadProgress(callback: (progress: { phase: string; progress: number; message: string }) => void): () => void {
+export async function cancelBrowserCoreDownload(): Promise<boolean> {
+  return await cancelBrowserCoreDownloadProto()
+}
+
+export async function renameBrowserCorePath(corePath: string, newFolderName: string): Promise<boolean> {
+  return await renameBrowserCorePathProto(corePath, newFolderName)
+}
+
+export function onBrowserCoreDownloadProgress(callback: (progress: { phase: string; progress: number; message: string; corePath?: string }) => void): () => void {
   return onBrowserCoreDownloadProgressProto(callback)
 }
 

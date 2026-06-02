@@ -19,9 +19,10 @@ import (
 
 // DownloadProgress 进度信息载体
 type DownloadProgress struct {
-	Phase    string `json:"phase"`    // "downloading" 或 "extracting" 或 "done" 或 "error"
+	Phase    string `json:"phase"`    // "downloading"、"extracting"、"done"、"cancelled" 或 "error"
 	Progress int    `json:"progress"` // 进度百分比 0-100
 	Message  string `json:"message"`  // 附加详情
+	CorePath string `json:"corePath"` // 下载完成后保存的内核路径
 }
 
 type coreDownloadWriter struct {
@@ -44,7 +45,13 @@ func (cw *coreDownloadWriter) Write(p []byte) (int, error) {
 func (m *Manager) DownloadAndExtractCore(ctx context.Context, coreName string, targetUrl string, proxyConfig string, emitEvent EventEmitter) {
 	log := logger.New("Browser")
 	t := time.Now()
+	coreName = strings.TrimSpace(coreName)
+	targetUrl = strings.TrimSpace(targetUrl)
 	proxyConfig = strings.TrimSpace(proxyConfig)
+	corePath := ""
+	if coreName != "" {
+		corePath = filepath.ToSlash(filepath.Join("chrome", coreName))
+	}
 
 	sendEvent := func(phase string, progress int, msg string) {
 		if emitEvent == nil {
@@ -54,14 +61,33 @@ func (m *Manager) DownloadAndExtractCore(ctx context.Context, coreName string, t
 			Phase:    phase,
 			Progress: progress,
 			Message:  msg,
+			CorePath: corePath,
 		})
+	}
+	sendCancelled := func(msg string) {
+		if strings.TrimSpace(msg) == "" {
+			msg = "下载已中断"
+		}
+		sendEvent("cancelled", 0, msg)
+		log.Info("内核下载已中断", logger.F("core_name", coreName), logger.F("cost", time.Since(t).String()))
+	}
+	if err := ctx.Err(); err != nil {
+		sendCancelled("下载已中断")
+		return
 	}
 
 	sendEvent("downloading", 0, "开始解析地址并创建下载请求: "+targetUrl)
 	log.Info("内核下载开始", logger.F("core_name", coreName), logger.F("url", targetUrl), logger.F("proxy_mode", describeCoreDownloadProxy(proxyConfig)))
 
 	// 1. 检查名称重复
-	coreName = strings.TrimSpace(coreName)
+	if coreName == "" {
+		sendEvent("error", 0, "内核名称不能为空")
+		return
+	}
+	if targetUrl == "" {
+		sendEvent("error", 0, "下载地址不能为空")
+		return
+	}
 	for _, c := range m.ListCores() {
 		if strings.EqualFold(c.CoreName, coreName) || filepath.Base(c.CorePath) == coreName {
 			sendEvent("error", 0, "名称已存在，请换一个名称")
@@ -133,6 +159,10 @@ func (m *Manager) DownloadAndExtractCore(ctx context.Context, coreName string, t
 
 	err = doConcurrentDownload(ctx, client, targetUrl, tempFile, sendEvent)
 	if err != nil {
+		if ctx.Err() != nil {
+			sendCancelled("下载已中断")
+			return
+		}
 		sendEvent("error", 0, "下载失败: "+err.Error())
 		log.Error("内核下载失败", logger.F("url", targetUrl), logger.F("proxy_mode", describeCoreDownloadProxy(proxyConfig)), logger.F("error", err.Error()), logger.F("cost", time.Since(t).String()))
 		return
@@ -143,17 +173,20 @@ func (m *Manager) DownloadAndExtractCore(ctx context.Context, coreName string, t
 	log.Info("内核下载完成", logger.F("url", targetUrl), logger.F("temp", tempFilePath), logger.F("cost", time.Since(t).String()))
 
 	// 3. 执行解压，并剥离顶层文件夹
-	if err := extractZipAndStripRoot(tempFilePath, targetDir, func(p int, msg string) {
+	if err := extractZipAndStripRoot(ctx, tempFilePath, targetDir, func(p int, msg string) {
 		sendEvent("extracting", p, msg)
 	}); err != nil {
 		os.RemoveAll(targetDir) // 删除不完整的解压文件
+		if ctx.Err() != nil {
+			sendCancelled("解压已中断，已清理未完成文件")
+			return
+		}
 		sendEvent("error", 0, "解压失败: "+err.Error())
 		log.Error("内核解压失败", logger.F("temp", tempFilePath), logger.F("target", targetDir), logger.F("error", err.Error()))
 		return
 	}
 
 	// 4. 将新内核配置入库
-	corePath := filepath.Join("chrome", coreName)
 	if m.ValidateCorePath(corePath).Valid {
 		newCore := CoreInput{
 			CoreId:    uuid.NewString(), // 使用固定的 UUID 或生成新的
@@ -166,8 +199,8 @@ func (m *Manager) DownloadAndExtractCore(ctx context.Context, coreName string, t
 			log.Error("内核下载后保存配置失败", logger.F("core_name", coreName), logger.F("error", err.Error()))
 			return
 		}
-		sendEvent("done", 100, "内核下载与配置成功！")
-		log.Info("内核下载配置入库成功", logger.F("core_name", coreName))
+		sendEvent("done", 100, "内核下载与配置成功: "+corePath)
+		log.Info("内核下载配置入库成功", logger.F("core_name", coreName), logger.F("core_path", corePath))
 	} else {
 		os.RemoveAll(targetDir) // 删除不正确的解压内容
 		sendEvent("error", 0, fmt.Sprintf("解压后未找到浏览器可执行文件（候选：%s），请检查压缩包内容！", strings.Join(CoreExecutableCandidates(), ", ")))
@@ -193,7 +226,10 @@ func describeCoreDownloadProxy(proxyConfig string) string {
 
 // extractZipAndStripRoot 解压 ZIP 包，如果其所有文件全被同一个根目录包裹，则剥离这层根目录解压至 dest
 // progressCb 为进度回调 (0-100%, statusType_msg)
-func extractZipAndStripRoot(zipPath, dest string, progressCb func(int, string)) error {
+func extractZipAndStripRoot(ctx context.Context, zipPath, dest string, progressCb func(int, string)) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	r, err := zip.OpenReader(zipPath)
 	if err != nil {
 		return err
@@ -231,6 +267,9 @@ func extractZipAndStripRoot(zipPath, dest string, progressCb func(int, string)) 
 
 	totalFiles := len(r.File)
 	for i, f := range r.File {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		// 报告进度 (逢 5% 更新一下)
 		percent := int((float64(i) / float64(totalFiles)) * 100)
 		if i%50 == 0 {
@@ -275,7 +314,7 @@ func extractZipAndStripRoot(zipPath, dest string, progressCb func(int, string)) 
 			return fmt.Errorf("读取压缩包文件失败 %s: %v", f.Name, err)
 		}
 
-		_, err = io.Copy(outFile, rc)
+		err = copyZipFileWithContext(ctx, outFile, rc)
 		outFile.Close()
 		rc.Close()
 
@@ -286,6 +325,27 @@ func extractZipAndStripRoot(zipPath, dest string, progressCb func(int, string)) 
 
 	progressCb(100, "解压完成！")
 	return nil
+}
+
+func copyZipFileWithContext(ctx context.Context, dst io.Writer, src io.Reader) error {
+	buf := make([]byte, 1024*1024)
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		n, readErr := src.Read(buf)
+		if n > 0 {
+			if _, writeErr := dst.Write(buf[:n]); writeErr != nil {
+				return writeErr
+			}
+		}
+		if readErr == io.EOF {
+			return nil
+		}
+		if readErr != nil {
+			return readErr
+		}
+	}
 }
 
 func doConcurrentDownload(ctx context.Context, client *http.Client, targetUrl string, tempFile *os.File, sendEvent func(string, int, string)) error {

@@ -54,6 +54,8 @@ type App struct {
 	startupReadyOnce   sync.Once
 	updateRuntimeMu    sync.Mutex
 	updateRuntime      *wailsUpdateRuntime
+	coreDownloadMu     sync.Mutex
+	coreDownloadCancel context.CancelFunc
 
 	forceQuit                bool       // 强制退出标志，用于跳过 OnBeforeClose 的拦截
 	quitMode                 quitMode   // 退出模式：全量退出 / 仅退出应用
@@ -1005,6 +1007,10 @@ func (a *App) BrowserCoreValidate(corePath string) BrowserCoreValidateResult {
 	return a.browserMgr.ValidateCorePath(corePath)
 }
 
+func (a *App) BrowserCoreRenamePath(corePath, newFolderName string) error {
+	return a.browserMgr.RenameCorePath(corePath, newFolderName)
+}
+
 func (a *App) BrowserCoreExtendedInfo() []BrowserCoreExtendedInfo {
 	return a.browserMgr.GetCoresExtendedInfo()
 }
@@ -1020,8 +1026,40 @@ func (a *App) BrowserCoreDownload(coreName, url, proxyConfig string) error {
 	if a.ctx == nil {
 		return fmt.Errorf("app context is nil")
 	}
-	go a.browserMgr.DownloadAndExtractCore(a.ctx, coreName, url, proxyConfig, a.emitCoreDownloadProgressEvent)
+	a.coreDownloadMu.Lock()
+	if a.coreDownloadCancel != nil {
+		a.coreDownloadMu.Unlock()
+		return fmt.Errorf("已有内核下载正在进行，请先中断或等待完成")
+	}
+	downloadCtx, cancel := context.WithCancel(a.ctx)
+	a.coreDownloadCancel = cancel
+	a.coreDownloadMu.Unlock()
+
+	go func() {
+		defer a.clearCoreDownloadCancel(cancel)
+		a.browserMgr.DownloadAndExtractCore(downloadCtx, coreName, url, proxyConfig, a.emitCoreDownloadProgressEvent)
+	}()
 	return nil
+}
+
+// BrowserCoreCancelDownload 中断当前正在进行的内核下载。
+func (a *App) BrowserCoreCancelDownload() error {
+	a.coreDownloadMu.Lock()
+	cancel := a.coreDownloadCancel
+	a.coreDownloadMu.Unlock()
+	if cancel == nil {
+		return nil
+	}
+	cancel()
+	return nil
+}
+
+func (a *App) clearCoreDownloadCancel(cancel context.CancelFunc) {
+	a.coreDownloadMu.Lock()
+	if a.coreDownloadCancel == cancel {
+		a.coreDownloadCancel = nil
+	}
+	a.coreDownloadMu.Unlock()
 }
 
 // ============================================================================

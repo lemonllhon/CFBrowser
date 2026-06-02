@@ -182,6 +182,51 @@ func TestResolveChromeBinaryAcceptsDarwinAppBundlePath(t *testing.T) {
 	}
 }
 
+func TestRenameCorePathMovesDirectoryAndUpdatesConfig(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	oldCoreDir := filepath.Join(root, "chrome", "old-core")
+	if err := os.MkdirAll(oldCoreDir, 0o755); err != nil {
+		t.Fatalf("创建旧内核目录失败: %v", err)
+	}
+	exePath := filepath.Join(oldCoreDir, filepath.FromSlash(CoreExecutableCandidates()[0]))
+	if err := os.MkdirAll(filepath.Dir(exePath), 0o755); err != nil {
+		t.Fatalf("创建可执行文件目录失败: %v", err)
+	}
+	if err := os.WriteFile(exePath, []byte("stub"), 0o755); err != nil {
+		t.Fatalf("写入可执行文件失败: %v", err)
+	}
+
+	cfg := config.DefaultConfig()
+	cfg.Browser.Cores = []config.BrowserCore{
+		{
+			CoreId:    "core-old",
+			CoreName:  "Chrome Old",
+			CorePath:  "chrome/old-core",
+			IsDefault: true,
+		},
+	}
+	mgr := NewManager(cfg, root)
+
+	if err := mgr.RenameCorePath("chrome/old-core", "new-core"); err != nil {
+		t.Fatalf("RenameCorePath 返回错误: %v", err)
+	}
+	if _, err := os.Stat(oldCoreDir); !os.IsNotExist(err) {
+		t.Fatalf("旧目录仍然存在或状态异常: %v", err)
+	}
+	newCorePath := filepath.Join(root, "chrome", "new-core")
+	if _, err := os.Stat(newCorePath); err != nil {
+		t.Fatalf("新目录不存在: %v", err)
+	}
+	if got := cfg.Browser.Cores[0].CorePath; got != "chrome/new-core" {
+		t.Fatalf("内核配置路径未更新: got=%q", got)
+	}
+	if result := mgr.ValidateCorePath("chrome/new-core"); !result.Valid {
+		t.Fatalf("重命名后路径无效: %s", result.Message)
+	}
+}
+
 func TestCountInstancesByCoreTreatsLegacyDefaultReferenceAsDefault(t *testing.T) {
 	t.Parallel()
 

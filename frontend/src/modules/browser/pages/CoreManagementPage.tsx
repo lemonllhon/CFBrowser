@@ -1,9 +1,9 @@
-import { useEffect, useState, useCallback } from 'react'
-import { Download, Edit2, FolderOpen, RefreshCw, Settings } from 'lucide-react'
+import { useEffect, useState, useCallback, useRef } from 'react'
+import { Download, Edit2, FolderOpen, RefreshCw, Settings, XCircle } from 'lucide-react'
 import { Badge, Button, Card, ConfirmModal, FormItem, Input, Modal, Table, Textarea, toast } from '../../../shared/components'
 import type { TableColumn } from '../../../shared/components/Table'
 import type { BrowserCore, BrowserCoreInput, BrowserCoreValidateResult, BrowserSettings, BrowserCoreExtended, BrowserProxy } from '../types'
-import { fetchBrowserCores, saveBrowserCore, deleteBrowserCore, setDefaultBrowserCore, validateBrowserCorePath, openCorePath, fetchBrowserSettings, saveBrowserSettings, fetchCoreExtendedInfo, scanBrowserCores, BrowserCoreDownload, fetchBrowserProxies, onBrowserCoreDownloadProgress } from '../api'
+import { fetchBrowserCores, saveBrowserCore, deleteBrowserCore, setDefaultBrowserCore, validateBrowserCorePath, openCorePath, fetchBrowserSettings, saveBrowserSettings, fetchCoreExtendedInfo, scanBrowserCores, BrowserCoreDownload, fetchBrowserProxies, onBrowserCoreDownloadProgress, cancelBrowserCoreDownload, renameBrowserCorePath } from '../api'
 import { openExternalURL } from '../../../shared/backend/runtime'
 
 interface CoreDisplayInfo {
@@ -19,6 +19,13 @@ interface CoreDisplayInfo {
 
 type CoreDownloadSource = 'github' | 'custom'
 
+type CoreDownloadProgressInfo = {
+  phase: string
+  progress: number
+  message: string
+  corePath?: string
+}
+
 interface GithubCoreAsset {
   id: number
   releaseName: string
@@ -31,6 +38,23 @@ interface GithubCoreAsset {
 
 const FINGERPRINT_CHROMIUM_RELEASES_API = 'https://api.github.com/repos/adryfish/fingerprint-chromium/releases'
 const FINGERPRINT_CHROMIUM_RELEASES_PAGE = 'https://github.com/adryfish/fingerprint-chromium/releases'
+const CORE_DOWNLOAD_TERMINAL_PHASES = new Set(['done', 'error', 'cancelled'])
+
+const isCoreDownloadActive = (progress: CoreDownloadProgressInfo | null) => {
+  return !!progress && !CORE_DOWNLOAD_TERMINAL_PHASES.has(progress.phase)
+}
+
+const getCorePathFolderName = (corePath: string) => {
+  const parts = String(corePath || '').replace(/\\/g, '/').split('/').filter(Boolean)
+  return parts[parts.length - 1] || ''
+}
+
+const buildRenamedCorePath = (corePath: string, newFolderName: string) => {
+  const parts = String(corePath || '').replace(/\\/g, '/').split('/').filter(Boolean)
+  if (parts.length === 0) return newFolderName
+  parts[parts.length - 1] = newFolderName
+  return parts.join('/')
+}
 
 const formatAssetSize = (bytes: number) => {
   if (!bytes || bytes <= 0) return '-'
@@ -87,28 +111,45 @@ export function CoreManagementPage() {
   // 内核下载
   const [downloadModalOpen, setDownloadModalOpen] = useState(false)
   const [downloadForm, setDownloadForm] = useState({ name: '', url: '', proxyMode: 'system', proxyId: '', source: 'github' as CoreDownloadSource, selectedAssetUrl: '' })
-  const [downloadProgress, setDownloadProgress] = useState<{ phase: string; progress: number; message: string } | null>(null)
+  const [downloadProgress, setDownloadProgress] = useState<CoreDownloadProgressInfo | null>(null)
+  const [downloadStarting, setDownloadStarting] = useState(false)
+  const [downloadCancelling, setDownloadCancelling] = useState(false)
+  const [downloadRenaming, setDownloadRenaming] = useState(false)
+  const [downloadRenameValue, setDownloadRenameValue] = useState('')
   const [proxies, setProxies] = useState<BrowserProxy[]>([])
   const [githubAssets, setGithubAssets] = useState<GithubCoreAsset[]>([])
   const [githubLoading, setGithubLoading] = useState(false)
   const [githubError, setGithubError] = useState('')
+  const lastDownloadPhaseRef = useRef('')
 
   useEffect(() => {
     loadData()
 
     // 监听下载进度
-    const onDownloadProgress = (data: { phase: string; progress: number; message: string }) => {
-      setDownloadProgress(data)
-      if (data.phase === 'done') {
-        toast.success(data.message)
-        setTimeout(() => {
-          setDownloadModalOpen(false)
-          setDownloadProgress(null)
-          loadData() // 更新内核列表
-        }, 1500)
-      } else if (data.phase === 'error') {
-        toast.error(data.message)
-        setDownloadProgress(null) // 清理进度使其可以重新开始
+    const onDownloadProgress = (data: CoreDownloadProgressInfo) => {
+      const phase = String(data.phase || 'downloading')
+      const next: CoreDownloadProgressInfo = {
+        phase,
+        progress: Number.isFinite(data.progress) ? Math.max(0, Math.min(100, Math.round(data.progress))) : 0,
+        message: String(data.message || ''),
+        corePath: String(data.corePath || ''),
+      }
+      setDownloadProgress(next)
+      if (CORE_DOWNLOAD_TERMINAL_PHASES.has(phase)) {
+        setDownloadStarting(false)
+        setDownloadCancelling(false)
+      }
+      if (phase !== lastDownloadPhaseRef.current) {
+        lastDownloadPhaseRef.current = phase
+        if (phase === 'done') {
+          setDownloadRenameValue(getCorePathFolderName(next.corePath || ''))
+          toast.success(next.message || '内核下载完成')
+          void loadData()
+        } else if (phase === 'error') {
+          toast.error(next.message || '内核下载失败')
+        } else if (phase === 'cancelled') {
+          toast.warning(next.message || '下载已中断')
+        }
       }
     }
     return onBrowserCoreDownloadProgress(onDownloadProgress)
@@ -402,15 +443,23 @@ export function CoreManagementPage() {
 
   // 开始下载
   const handleStartDownloadCore = async () => {
+    if (isCoreDownloadActive(downloadProgress) || downloadStarting) {
+      return
+    }
     if (!downloadForm.name.trim() || !downloadForm.url.trim()) {
       toast.error('请输入名称和下载地址')
       return
     }
-    if (cores.some(c => c.coreName.toLowerCase() === downloadForm.name.trim().toLowerCase())) {
+    const coreName = downloadForm.name.trim()
+    const downloadUrl = downloadForm.url.trim()
+    if (cores.some(c => c.coreName.toLowerCase() === coreName.toLowerCase())) {
       toast.error('该内核名称已存在')
       return
     }
-    setDownloadProgress({ phase: 'starting', progress: 0, message: '准备下载...' })
+    lastDownloadPhaseRef.current = 'starting'
+    setDownloadStarting(true)
+    setDownloadRenameValue(coreName)
+    setDownloadProgress({ phase: 'starting', progress: 0, message: '准备下载...', corePath: `chrome/${coreName}` })
     try {
       // 在这儿我们需要从 proxies 中寻找匹配到的代理设定，如果有则传过去的 url
       let targetProxy = ''
@@ -426,11 +475,81 @@ export function CoreManagementPage() {
         }
       }
 
-      await BrowserCoreDownload(downloadForm.name.trim(), downloadForm.url.trim(), targetProxy)
+      await BrowserCoreDownload(coreName, downloadUrl, targetProxy)
     } catch (err: any) {
-      toast.error(err.message || '内部启动下载失败')
-      setDownloadProgress(null)
+      const message = err?.message || '内部启动下载失败'
+      lastDownloadPhaseRef.current = 'error'
+      toast.error(message)
+      setDownloadProgress({ phase: 'error', progress: 0, message, corePath: `chrome/${coreName}` })
+    } finally {
+      setDownloadStarting(false)
     }
+  }
+
+  const handleCancelDownloadCore = async () => {
+    if (!isCoreDownloadActive(downloadProgress) || downloadCancelling) {
+      return
+    }
+    setDownloadCancelling(true)
+    setDownloadProgress(prev => prev ? { ...prev, message: '正在中断下载...' } : prev)
+    try {
+      await cancelBrowserCoreDownload()
+    } catch (err: any) {
+      toast.error(err?.message || '中断下载失败')
+      setDownloadCancelling(false)
+    }
+  }
+
+  const handleRenameDownloadedCorePath = async () => {
+    const currentPath = String(downloadProgress?.corePath || '').trim()
+    const newFolderName = downloadRenameValue.trim()
+    if (!currentPath) {
+      toast.error('缺少下载后的内核路径')
+      return
+    }
+    if (!newFolderName) {
+      toast.error('请输入新的路径文件夹名')
+      return
+    }
+    if (newFolderName.includes('/') || newFolderName.includes('\\')) {
+      toast.error('文件夹名不能包含路径分隔符')
+      return
+    }
+    if (newFolderName === getCorePathFolderName(currentPath)) {
+      toast.warning('新的文件夹名与当前路径相同')
+      return
+    }
+
+    setDownloadRenaming(true)
+    try {
+      await renameBrowserCorePath(currentPath, newFolderName)
+      const nextPath = buildRenamedCorePath(currentPath, newFolderName)
+      setDownloadProgress(prev => prev ? {
+        ...prev,
+        corePath: nextPath,
+        message: `内核路径已重命名: ${nextPath}`,
+      } : prev)
+      setDownloadRenameValue(newFolderName)
+      await loadData()
+      toast.success('内核路径已重命名')
+    } catch (err: any) {
+      toast.error(err?.message || '重命名内核路径失败')
+    } finally {
+      setDownloadRenaming(false)
+    }
+  }
+
+  const handleCloseDownloadModal = () => {
+    if (isCoreDownloadActive(downloadProgress) || downloadStarting) {
+      toast.warning('正在下载中，可点击“中断下载”停止任务')
+      return
+    }
+    setDownloadModalOpen(false)
+    setDownloadProgress(null)
+    setDownloadCancelling(false)
+    setDownloadRenaming(false)
+    setDownloadRenameValue('')
+    lastDownloadPhaseRef.current = ''
   }
 
   // 打开设置编辑弹窗
@@ -469,6 +588,16 @@ export function CoreManagementPage() {
     }
   }
 
+  const downloadActive = isCoreDownloadActive(downloadProgress)
+  const downloadFormLocked = downloadStarting || downloadActive || downloadCancelling
+  const downloadDone = downloadProgress?.phase === 'done'
+  const progressBarClass = downloadProgress?.phase === 'error'
+    ? 'bg-[var(--color-error)]'
+    : downloadProgress?.phase === 'cancelled'
+      ? 'bg-[var(--color-text-muted)]'
+      : downloadProgress?.phase === 'done'
+        ? 'bg-green-500'
+        : 'bg-[var(--color-accent)]'
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -667,21 +796,18 @@ export function CoreManagementPage() {
       />
 
       {/* 内核下载弹窗 */}
-      <Modal open={downloadModalOpen} onClose={() => {
-        if (downloadProgress && downloadProgress.phase !== 'done' && downloadProgress.phase !== 'error') {
-          toast.warning('正在下载中，请稍候...')
-          return
-        }
-        setDownloadModalOpen(false)
-        setDownloadProgress(null)
-      }} title="下载内核" width="720px"
+      <Modal open={downloadModalOpen} onClose={handleCloseDownloadModal} title="下载内核" width="720px"
         footer={
           <>
-            <Button variant="secondary" onClick={() => {
-              if (downloadProgress && downloadProgress.phase !== 'done' && downloadProgress.phase !== 'error') return;
-              setDownloadModalOpen(false)
-            }} disabled={downloadProgress !== null && downloadProgress.phase !== 'error'}>取消</Button>
-            <Button onClick={handleStartDownloadCore} loading={downloadProgress !== null && downloadProgress.phase !== 'error'}>开始下载</Button>
+            {downloadActive ? (
+              <Button variant="danger" onClick={handleCancelDownloadCore} loading={downloadCancelling}>
+                {!downloadCancelling && <XCircle className="w-4 h-4" />}
+                中断下载
+              </Button>
+            ) : (
+              <Button variant="secondary" onClick={handleCloseDownloadModal}>关闭</Button>
+            )}
+            <Button onClick={handleStartDownloadCore} loading={downloadStarting} disabled={downloadFormLocked || downloadRenaming}>开始下载</Button>
           </>
         }>
         <div className="space-y-4">
@@ -689,7 +815,7 @@ export function CoreManagementPage() {
             <Button
               variant={downloadForm.source === 'github' ? undefined : 'secondary'}
               onClick={() => setDownloadForm(prev => ({ ...prev, source: 'github' }))}
-              disabled={downloadProgress !== null}
+              disabled={downloadFormLocked}
             >
               <Download className="w-4 h-4" />
               GitHub 版本
@@ -697,7 +823,7 @@ export function CoreManagementPage() {
             <Button
               variant={downloadForm.source === 'custom' ? undefined : 'secondary'}
               onClick={() => setDownloadForm(prev => ({ ...prev, source: 'custom' }))}
-              disabled={downloadProgress !== null}
+              disabled={downloadFormLocked}
             >
               自定义地址
             </Button>
@@ -711,7 +837,7 @@ export function CoreManagementPage() {
                   <p className="text-xs text-[var(--color-text-muted)] mt-0.5">从 GitHub Releases 读取可下载压缩包，选择后会自动回填名称和地址</p>
                 </div>
                 <div className="flex gap-2 shrink-0">
-                  <Button size="sm" variant="ghost" onClick={loadGithubCoreAssets} loading={githubLoading} disabled={downloadProgress !== null}>
+                  <Button size="sm" variant="ghost" onClick={loadGithubCoreAssets} loading={githubLoading} disabled={downloadFormLocked}>
                     {!githubLoading && <RefreshCw className="w-4 h-4" />}
                     刷新
                   </Button>
@@ -742,7 +868,7 @@ export function CoreManagementPage() {
                         className="mt-1 accent-[var(--color-accent)]"
                         checked={downloadForm.selectedAssetUrl === asset.url}
                         onChange={() => handleSelectGithubAsset(asset.url)}
-                        disabled={downloadProgress !== null}
+                        disabled={downloadFormLocked}
                       />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-3">
@@ -768,7 +894,7 @@ export function CoreManagementPage() {
               value={downloadForm.name}
               onChange={e => setDownloadForm(prev => ({ ...prev, name: e.target.value }))}
               placeholder="例如: chrome-139"
-              disabled={downloadProgress !== null}
+              disabled={downloadFormLocked}
             />
             <p className="text-xs text-[var(--color-text-muted)] mt-1">该名称将同时作为数据存放的子文件夹名。</p>
           </FormItem>
@@ -777,7 +903,7 @@ export function CoreManagementPage() {
               value={downloadForm.url}
               onChange={e => setDownloadForm(prev => ({ ...prev, url: e.target.value }))}
               placeholder="https://github.com/.../release.zip"
-              disabled={downloadProgress !== null}
+              disabled={downloadFormLocked}
             />
             {downloadForm.source === 'custom' && (
               <p className="text-xs text-[var(--color-text-muted)] mt-1">可填写你自己构建、内部镜像或其他来源的 ZIP 内核压缩包下载地址。</p>
@@ -796,7 +922,7 @@ export function CoreManagementPage() {
                 }))
               }}
               className="w-full h-9 px-3 rounded-md border border-[var(--color-border-default)] bg-[var(--color-bg-primary)] text-[var(--color-text-primary)] text-sm focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)] focus:border-[var(--color-accent)]"
-              disabled={downloadProgress !== null}
+              disabled={downloadFormLocked}
             >
               <option value="system">跟随系统全局代理</option>
               <option value="direct">直连模式 (不使用代理)</option>
@@ -810,7 +936,7 @@ export function CoreManagementPage() {
                 value={downloadForm.proxyId}
                 onChange={e => setDownloadForm(prev => ({ ...prev, proxyId: e.target.value }))}
                 className="w-full h-9 px-3 rounded-md border border-[var(--color-border-default)] bg-[var(--color-bg-primary)] text-[var(--color-text-primary)] text-sm focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)] focus:border-[var(--color-accent)]"
-                disabled={downloadProgress !== null}
+                disabled={downloadFormLocked}
               >
                 {proxies.map(p => (
                   <option key={p.proxyId} value={p.proxyId}>
@@ -829,10 +955,40 @@ export function CoreManagementPage() {
               </div>
               <div className="w-full bg-[var(--color-bg-surface)] rounded-full h-2 overflow-hidden border border-[var(--color-border-muted)]">
                 <div
-                  className="bg-[var(--color-accent)] h-2 rounded-full transition-all duration-300"
+                  className={`${progressBarClass} h-2 rounded-full transition-all duration-300`}
                   style={{ width: `${Math.max(0, Math.min(100, downloadProgress.progress))}%` }}
                 ></div>
               </div>
+              {downloadProgress.corePath && (
+                <div className="mt-3 flex items-center justify-between gap-3 text-xs text-[var(--color-text-muted)]">
+                  <span className="min-w-0 truncate">保存路径：{downloadProgress.corePath}</span>
+                  {downloadDone && (
+                    <Button size="sm" variant="ghost" onClick={() => handleOpenPath(downloadProgress.corePath || '')}>
+                      <FolderOpen className="w-4 h-4" />
+                      打开
+                    </Button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {downloadDone && downloadProgress?.corePath && (
+            <div className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-4">
+              <FormItem label="重命名下载路径">
+                <div className="flex gap-2">
+                  <Input
+                    value={downloadRenameValue}
+                    onChange={e => setDownloadRenameValue(e.target.value)}
+                    placeholder="新的内核文件夹名"
+                    disabled={downloadRenaming}
+                  />
+                  <Button onClick={handleRenameDownloadedCorePath} loading={downloadRenaming}>重命名</Button>
+                </div>
+                <p className="text-xs text-[var(--color-text-muted)] mt-1">
+                  重命名会移动下载后的内核目录，并同步更新内核列表中的路径。
+                </p>
+              </FormItem>
             </div>
           )}
         </div>

@@ -7,15 +7,17 @@ import (
 )
 
 const (
-	MethodBrowserCoreList         = "trace.browser.CoreList"
-	MethodBrowserCoreSave         = "trace.browser.CoreSave"
-	MethodBrowserCoreDelete       = "trace.browser.CoreDelete"
-	MethodBrowserCoreSetDefault   = "trace.browser.CoreSetDefault"
-	MethodBrowserCoreValidate     = "trace.browser.CoreValidate"
-	MethodBrowserCoreExtendedInfo = "trace.browser.CoreExtendedInfo"
-	MethodBrowserCoreScan         = "trace.browser.CoreScan"
-	MethodBrowserCoreDownload     = "trace.browser.CoreDownload"
-	MethodBrowserCoreOpenPath     = "trace.browser.CoreOpenPath"
+	MethodBrowserCoreList           = "trace.browser.CoreList"
+	MethodBrowserCoreSave           = "trace.browser.CoreSave"
+	MethodBrowserCoreDelete         = "trace.browser.CoreDelete"
+	MethodBrowserCoreSetDefault     = "trace.browser.CoreSetDefault"
+	MethodBrowserCoreValidate       = "trace.browser.CoreValidate"
+	MethodBrowserCoreRenamePath     = "trace.browser.CoreRenamePath"
+	MethodBrowserCoreExtendedInfo   = "trace.browser.CoreExtendedInfo"
+	MethodBrowserCoreScan           = "trace.browser.CoreScan"
+	MethodBrowserCoreDownload       = "trace.browser.CoreDownload"
+	MethodBrowserCoreCancelDownload = "trace.browser.CoreCancelDownload"
+	MethodBrowserCoreOpenPath       = "trace.browser.CoreOpenPath"
 )
 
 type BrowserCore struct {
@@ -46,6 +48,11 @@ type BrowserCoreValidateResponse struct {
 	Message string
 }
 
+type BrowserCoreRenamePathRequest struct {
+	CorePath      string
+	NewFolderName string
+}
+
 type BrowserCoreExtendedInfo struct {
 	CoreID        string
 	ChromeVersion string
@@ -66,6 +73,7 @@ type BrowserCoreDownloadProgress struct {
 	Phase    string
 	Progress int32
 	Message  string
+	CorePath string
 }
 
 func EncodeBrowserCoreListResponse(message BrowserCoreListResponse) []byte {
@@ -206,6 +214,35 @@ func DecodeBrowserCoreValidateResponse(payload []byte) (BrowserCoreValidateRespo
 	return result, nil
 }
 
+func EncodeBrowserCoreRenamePathRequest(message BrowserCoreRenamePathRequest) []byte {
+	var out []byte
+	out = appendStringField(out, 1, message.CorePath)
+	out = appendStringField(out, 2, message.NewFolderName)
+	return out
+}
+
+func DecodeBrowserCoreRenamePathRequest(payload []byte) (BrowserCoreRenamePathRequest, error) {
+	var result BrowserCoreRenamePathRequest
+	err := consumeFields(payload, func(field protowire.Number, wireType protowire.Type, value []byte) error {
+		switch field {
+		case 1:
+			text, err := consumeStringValue(wireType, value)
+			result.CorePath = text
+			return err
+		case 2:
+			text, err := consumeStringValue(wireType, value)
+			result.NewFolderName = text
+			return err
+		default:
+			return nil
+		}
+	})
+	if err != nil {
+		return BrowserCoreRenamePathRequest{}, err
+	}
+	return result, nil
+}
+
 func EncodeBrowserCoreExtendedInfoResponse(message BrowserCoreExtendedInfoResponse) []byte {
 	var out []byte
 	for _, item := range message.Items {
@@ -278,6 +315,7 @@ func EncodeBrowserCoreDownloadProgress(message BrowserCoreDownloadProgress) []by
 	out = appendStringField(out, 1, message.Phase)
 	out = appendInt32Field(out, 2, message.Progress)
 	out = appendStringField(out, 3, message.Message)
+	out = appendStringField(out, 4, message.CorePath)
 	return out
 }
 
@@ -296,6 +334,10 @@ func DecodeBrowserCoreDownloadProgress(payload []byte) (BrowserCoreDownloadProgr
 		case 3:
 			text, err := consumeStringValue(wireType, value)
 			result.Message = text
+			return err
+		case 4:
+			text, err := consumeStringValue(wireType, value)
+			result.CorePath = text
 			return err
 		default:
 			return nil

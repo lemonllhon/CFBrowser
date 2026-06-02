@@ -1,9 +1,11 @@
 import {
   METHOD_BROWSER_CORE_DELETE,
+  METHOD_BROWSER_CORE_CANCEL_DOWNLOAD,
   METHOD_BROWSER_CORE_DOWNLOAD,
   METHOD_BROWSER_CORE_EXTENDED_INFO,
   METHOD_BROWSER_CORE_LIST,
   METHOD_BROWSER_CORE_OPEN_PATH,
+  METHOD_BROWSER_CORE_RENAME_PATH,
   METHOD_BROWSER_CORE_SAVE,
   METHOD_BROWSER_CORE_SCAN,
   METHOD_BROWSER_CORE_SET_DEFAULT,
@@ -48,6 +50,7 @@ export type ProtoBrowserCoreDownloadProgress = {
   phase: string
   progress: number
   message: string
+  corePath: string
 }
 
 export async function listBrowserCores(): Promise<ProtoBrowserCore[]> {
@@ -75,6 +78,11 @@ export async function validateBrowserCorePath(corePath: string): Promise<ProtoBr
   return decodeBrowserCoreValidateResponse(payload)
 }
 
+export async function renameBrowserCorePath(corePath: string, newFolderName: string): Promise<boolean> {
+  const payload = await coreProtoClient.request(METHOD_BROWSER_CORE_RENAME_PATH, encodeBrowserCoreRenamePathRequest({ corePath, newFolderName }))
+  return decodeBrowserActionResponse(payload).ok
+}
+
 export async function getBrowserCoreExtendedInfo(): Promise<ProtoBrowserCoreExtended[]> {
   const payload = await coreProtoClient.request(METHOD_BROWSER_CORE_EXTENDED_INFO, new Uint8Array())
   return decodeBrowserCoreExtendedInfoResponse(payload).items
@@ -87,6 +95,11 @@ export async function scanBrowserCores(): Promise<ProtoBrowserCore[]> {
 
 export async function downloadBrowserCore(coreName: string, url: string, proxyConfig = ''): Promise<boolean> {
   const payload = await coreProtoClient.request(METHOD_BROWSER_CORE_DOWNLOAD, encodeBrowserCoreDownloadRequest({ coreName, url, proxyConfig }), 30000)
+  return decodeBrowserActionResponse(payload).ok
+}
+
+export async function cancelBrowserCoreDownload(): Promise<boolean> {
+  const payload = await coreProtoClient.request(METHOD_BROWSER_CORE_CANCEL_DOWNLOAD, new Uint8Array())
   return decodeBrowserActionResponse(payload).ok
 }
 
@@ -109,6 +122,13 @@ export function encodeBrowserCoreIDRequest(message: { coreId: string }): Uint8Ar
 
 export function encodeBrowserCorePathRequest(message: { corePath: string }): Uint8Array {
   return concatBytes([encodeStringField(1, message.corePath)])
+}
+
+export function encodeBrowserCoreRenamePathRequest(message: { corePath: string; newFolderName: string }): Uint8Array {
+  return concatBytes([
+    encodeStringField(1, message.corePath),
+    encodeStringField(2, message.newFolderName),
+  ])
 }
 
 export function encodeBrowserCoreDownloadRequest(message: { coreName: string; url: string; proxyConfig?: string }): Uint8Array {
@@ -168,6 +188,7 @@ export function decodeBrowserCoreDownloadProgress(payload: Uint8Array): ProtoBro
     phase: '',
     progress: 0,
     message: '',
+    corePath: '',
   }
   for (const field of readFields(payload)) {
     if (field.fieldNumber === 1 && field.wireType === WireType.LengthDelimited) {
@@ -176,6 +197,8 @@ export function decodeBrowserCoreDownloadProgress(payload: Uint8Array): ProtoBro
       progress.progress = Number(decodeVarintField(field.value))
     } else if (field.fieldNumber === 3 && field.wireType === WireType.LengthDelimited) {
       progress.message = decodeString(field.value)
+    } else if (field.fieldNumber === 4 && field.wireType === WireType.LengthDelimited) {
+      progress.corePath = decodeString(field.value)
     }
   }
   return progress

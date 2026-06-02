@@ -65,6 +65,17 @@ func TestBrowserCoreOperationRoundTrip(t *testing.T) {
 		t.Fatalf("validate response was not preserved: %#v", validateResponse)
 	}
 
+	renameRequest, err := DecodeBrowserCoreRenamePathRequest(EncodeBrowserCoreRenamePathRequest(BrowserCoreRenamePathRequest{
+		CorePath:      "chrome/142",
+		NewFolderName: "chromium-142",
+	}))
+	if err != nil {
+		t.Fatalf("DecodeBrowserCoreRenamePathRequest failed: %v", err)
+	}
+	if renameRequest.CorePath != "chrome/142" || renameRequest.NewFolderName != "chromium-142" {
+		t.Fatalf("rename path request was not preserved: %#v", renameRequest)
+	}
+
 	extended := BrowserCoreExtendedInfo{
 		CoreID:        "core-1",
 		ChromeVersion: "142.0.0.0",
@@ -98,11 +109,12 @@ func TestBrowserCoreDownloadProgressRoundTrip(t *testing.T) {
 		Phase:    "downloading",
 		Progress: 42,
 		Message:  "正在下载",
+		CorePath: "chrome/142",
 	}))
 	if err != nil {
 		t.Fatalf("DecodeBrowserCoreDownloadProgress failed: %v", err)
 	}
-	if progress.Phase != "downloading" || progress.Progress != 42 || progress.Message == "" {
+	if progress.Phase != "downloading" || progress.Progress != 42 || progress.Message == "" || progress.CorePath != "chrome/142" {
 		t.Fatalf("download progress was not preserved: %#v", progress)
 	}
 }
