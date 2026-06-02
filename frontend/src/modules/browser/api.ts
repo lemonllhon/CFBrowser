@@ -8,6 +8,7 @@ import {
   checkBrowserProxyPreviewBatchIPHealth as checkBrowserProxyPreviewBatchIPHealthProto,
   clearBrowserCookies as clearBrowserCookiesProto,
   assignBrowserExtensionProfiles as assignBrowserExtensionProfilesProto,
+  chooseBrowserProfileBackupImportPackage as chooseBrowserProfileBackupImportPackageProto,
   chooseBrowserExtensionArchive as chooseBrowserExtensionArchiveProto,
   chooseBrowserExtensionDirectory as chooseBrowserExtensionDirectoryProto,
   copyBrowserProfile as copyBrowserProfileProto,
@@ -21,6 +22,7 @@ import {
   deleteBrowserProfile as deleteBrowserProfileProto,
   deleteBrowserSnapshot as deleteBrowserSnapshotProto,
   downloadBrowserCore as downloadBrowserCoreProto,
+  exportBrowserProfileBackup as exportBrowserProfileBackupProto,
   fetchClashImportFromURL as fetchClashImportFromURLProto,
   getBrowserCoreExtendedInfo as getBrowserCoreExtendedInfoProto,
   getBrowserSettings as getBrowserSettingsProto,
@@ -33,6 +35,7 @@ import {
   getBrowserExtension as getBrowserExtensionProto,
   importBrowserExtensionArchive as importBrowserExtensionArchiveProto,
   importBrowserExtensionDirectory as importBrowserExtensionDirectoryProto,
+  importBrowserProfileBackup as importBrowserProfileBackupProto,
   importBrowserCookies as importBrowserCookiesProto,
   listBrowserBookmarks as listBrowserBookmarksProto,
   listBrowserCores as listBrowserCoresProto,
@@ -57,6 +60,7 @@ import {
   onBrowserProxyPreviewSpeedResult as onBrowserProxyPreviewSpeedResultProto,
   onBrowserProxySpeedResult as onBrowserProxySpeedResultProto,
   onBrowserCoreDownloadProgress as onBrowserCoreDownloadProgressProto,
+  onBrowserProfileBackupProgress as onBrowserProfileBackupProgressProto,
   openBrowserProfileUserDataDir as openBrowserProfileUserDataDirProto,
   openBrowserCorePath as openBrowserCorePathProto,
   openBrowserUserDataDir as openBrowserUserDataDirProto,
@@ -110,6 +114,7 @@ import {
   windowSyncCloseOtherTabs as windowSyncCloseOtherTabsProto,
   windowSyncOpenUrls as windowSyncOpenUrlsProto,
 } from '../../shared/backend/client'
+import type { ProtoBrowserProfileBackupActionResult, ProtoBrowserProfileBackupExportInput, ProtoBrowserProfileBackupImportInput, ProtoBackupProgress } from '../../shared/backend/client'
 
 // ============================================================================
 // Profile API
@@ -141,6 +146,27 @@ export async function deleteBrowserProfile(profileId: string): Promise<boolean> 
 
 export async function copyBrowserProfile(profileId: string, newName: string): Promise<BrowserProfile | null> {
   return await copyBrowserProfileProto(profileId, newName)
+}
+
+export type BrowserProfileBackupActionResult = ProtoBrowserProfileBackupActionResult
+export type BrowserProfileBackupExportInput = ProtoBrowserProfileBackupExportInput
+export type BrowserProfileBackupImportInput = ProtoBrowserProfileBackupImportInput
+export type BrowserProfileBackupProgress = ProtoBackupProgress
+
+export async function exportProfileBackup(input: BrowserProfileBackupExportInput): Promise<BrowserProfileBackupActionResult> {
+  return await exportBrowserProfileBackupProto(input)
+}
+
+export async function chooseProfileBackupImportPackage(): Promise<BrowserProfileBackupActionResult> {
+  return await chooseBrowserProfileBackupImportPackageProto()
+}
+
+export async function importProfileBackup(input: BrowserProfileBackupImportInput): Promise<BrowserProfileBackupActionResult> {
+  return await importBrowserProfileBackupProto(input)
+}
+
+export function onProfileBackupProgress(callback: (progress: BrowserProfileBackupProgress) => void): () => void {
+  return onBrowserProfileBackupProgressProto(callback)
 }
 
 // ============================================================================

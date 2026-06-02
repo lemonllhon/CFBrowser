@@ -7,6 +7,7 @@ import type { BrowserCore, BrowserCoreInput, BrowserProfile, BrowserProxy, Brows
 import { InstanceFilterBar, EMPTY_FILTERS } from '../components/InstanceFilterBar'
 import type { InstanceFilters } from '../components/InstanceFilterBar'
 import { KeywordsModal } from '../components/KeywordsModal'
+import { InstanceBackupRestoreModal } from '../components/InstanceBackupRestoreModal'
 import { onRuntimeEvent } from '../../../shared/backend/runtime'
 import { resolveActionErrorMessage, resolveActionFeedback } from '../utils/actionErrors'
 import {
@@ -473,6 +474,7 @@ export function BrowserListPage() {
   const [exportingCookieIds, setExportingCookieIds] = useState<Set<string>>(new Set())
   const [clearingCookieIds, setClearingCookieIds] = useState<Set<string>>(new Set())
   const [cookieClearTarget, setCookieClearTarget] = useState<BrowserProfile | null>(null)
+  const [backupModalOpen, setBackupModalOpen] = useState(false)
   const profilesRef = useRef<BrowserProfile[]>([])
   const profileOrderChannelRef = useRef<BroadcastChannel | null>(null)
   const silentRefreshInFlightRef = useRef(false)
@@ -803,6 +805,9 @@ export function BrowserListPage() {
       return naturalCompareText(a.profileName, b.profileName)
     })
   }, [profiles, filters, defaultCore, cores, profileOrder])
+
+  const selectedProfileIds = useMemo(() => Array.from(selectedIds), [selectedIds])
+  const filteredProfileIds = useMemo(() => filteredProfiles.map(item => item.profileId), [filteredProfiles])
 
   const handleStart = async (profileId: string) => {
     const profile = profiles.find(p => p.profileId === profileId)
@@ -1690,6 +1695,7 @@ export function BrowserListPage() {
         <div className="flex gap-2">
           <Button variant="secondary" size="sm" onClick={() => setHeaderCollapsed(prev => !prev)}>{headerCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}{headerCollapsed ? '展开面板' : '收起面板'}</Button>
           <Button variant="secondary" size="sm" onClick={() => { void loadProfiles() }}><RefreshCw className="w-4 h-4" />刷新</Button>
+          <Button variant="secondary" size="sm" onClick={() => setBackupModalOpen(true)}><Download className="w-4 h-4" />实例备份与恢复</Button>
           <Button variant="secondary" size="sm" onClick={handleOpenWindowSyncModal}><MonitorUp className="w-4 h-4" />窗口同步</Button>
           <Button variant="secondary" size="sm" onClick={handleOpenSettings}><Sliders className="w-4 h-4" />基础配置</Button>
           <Button variant="secondary" size="sm" onClick={() => setExpandModalOpen(true)} className="text-[var(--color-primary)] border-[var(--color-primary)] hover:bg-[var(--color-primary)]/10">
@@ -1948,6 +1954,18 @@ export function BrowserListPage() {
           )}
         </div>
       </Card>
+
+      <InstanceBackupRestoreModal
+        open={backupModalOpen}
+        onClose={() => setBackupModalOpen(false)}
+        totalCount={profiles.length}
+        selectedProfileIds={selectedProfileIds}
+        filteredProfileIds={filteredProfileIds}
+        onRestored={() => {
+          void loadProfiles({ silent: true, syncRuntimeState: true })
+          void loadGroups()
+        }}
+      />
 
       {/* 基础配置弹窗 */}
       <Modal open={settingsModalOpen} onClose={() => setSettingsModalOpen(false)} title="基础配置" width="700px"
