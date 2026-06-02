@@ -56,6 +56,7 @@ type App struct {
 	updateRuntime      *wailsUpdateRuntime
 	coreDownloadMu     sync.Mutex
 	coreDownloadCancel context.CancelFunc
+	coreDownloadSeq    uint64
 
 	forceQuit                bool       // 强制退出标志，用于跳过 OnBeforeClose 的拦截
 	quitMode                 quitMode   // 退出模式：全量退出 / 仅退出应用
@@ -1033,10 +1034,12 @@ func (a *App) BrowserCoreDownload(coreName, url, proxyConfig string) error {
 	}
 	downloadCtx, cancel := context.WithCancel(a.ctx)
 	a.coreDownloadCancel = cancel
+	a.coreDownloadSeq++
+	downloadSeq := a.coreDownloadSeq
 	a.coreDownloadMu.Unlock()
 
 	go func() {
-		defer a.clearCoreDownloadCancel(cancel)
+		defer a.clearCoreDownloadCancel(downloadSeq)
 		a.browserMgr.DownloadAndExtractCore(downloadCtx, coreName, url, proxyConfig, a.emitCoreDownloadProgressEvent)
 	}()
 	return nil
@@ -1054,9 +1057,9 @@ func (a *App) BrowserCoreCancelDownload() error {
 	return nil
 }
 
-func (a *App) clearCoreDownloadCancel(cancel context.CancelFunc) {
+func (a *App) clearCoreDownloadCancel(downloadSeq uint64) {
 	a.coreDownloadMu.Lock()
-	if a.coreDownloadCancel == cancel {
+	if a.coreDownloadSeq == downloadSeq {
 		a.coreDownloadCancel = nil
 	}
 	a.coreDownloadMu.Unlock()
