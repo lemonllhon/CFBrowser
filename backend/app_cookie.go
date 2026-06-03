@@ -281,6 +281,7 @@ func (a *App) resetStoppedProfileFingerprint(profileId string) error {
 	} else if a.browserMgr.Config != nil {
 		defaultArgs = append(defaultArgs, a.browserMgr.Config.Browser.DefaultFingerprintArgs...)
 	}
+	nextArgs := regenerateFingerprintArgsFromConfig(defaultArgs)
 
 	a.browserMgr.Mutex.Lock()
 	defer a.browserMgr.Mutex.Unlock()
@@ -288,11 +289,7 @@ func (a *App) resetStoppedProfileFingerprint(profileId string) error {
 	if !ok || profile == nil {
 		return fmt.Errorf("profile not found: %s", profileId)
 	}
-	templateArgs := append([]string{}, profile.FingerprintArgs...)
-	if len(templateArgs) == 0 {
-		templateArgs = defaultArgs
-	}
-	profile.FingerprintArgs = regenerateFingerprintArgsFromConfig(templateArgs)
+	profile.FingerprintArgs = nextArgs
 	profile.UpdatedAt = time.Now().Format(time.RFC3339)
 	if err := a.browserMgr.SaveProfiles(); err != nil {
 		return err
