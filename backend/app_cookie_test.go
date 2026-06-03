@@ -51,6 +51,112 @@ func TestBrowserClearCookiesClearsStoppedProfileUserData(t *testing.T) {
 	}
 }
 
+func TestBrowserClearCookiesResetsEmptyStoppedProfileFingerprintFromDefaultConfig(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.DefaultConfig()
+	cfg.Browser.DefaultFingerprintArgs = []string{
+		"--fingerprint-auto-hardware=true",
+		"--fingerprint-region=JP",
+		"--lang=ja-JP",
+		"--timezone=Asia/Tokyo",
+		"--fingerprint-platform=mac",
+	}
+	app := NewApp(root)
+	app.config = cfg
+	app.browserMgr = browser.NewManager(cfg, root)
+	app.browserMgr.Profiles = map[string]*BrowserProfile{
+		"profile-1": {
+			ProfileId:       "profile-1",
+			ProfileName:     "Profile 1",
+			UserDataDir:     "profile-1",
+			FingerprintArgs: []string{},
+			Running:         false,
+		},
+	}
+
+	userDataDir := filepath.Join(root, "data", "profile-1")
+	if err := os.MkdirAll(userDataDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(userDataDir, "Preferences"), []byte("{}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := app.BrowserClearCookies("profile-1"); err != nil {
+		t.Fatalf("BrowserClearCookies returned error: %v", err)
+	}
+
+	args := app.browserMgr.Profiles["profile-1"].FingerprintArgs
+	if containsLaunchArg(args, "--fingerprint-auto-hardware=true") {
+		t.Fatalf("auto hardware marker should be resolved when stored after reset: %v", args)
+	}
+	if !containsLaunchArg(args, "--fingerprint-region=JP") || !containsLaunchArg(args, "--lang=ja-JP") || !containsLaunchArg(args, "--timezone=Asia/Tokyo") {
+		t.Fatalf("default locale fingerprint args should be preserved: %v", args)
+	}
+	if value := launchArgValue(args, "--fingerprint-platform"); value != "mac" {
+		t.Fatalf("configured platform should be preserved, got %q in %v", value, args)
+	}
+	if value := launchArgValue(args, "--fingerprint"); value == "" {
+		t.Fatalf("fingerprint seed should be generated, got %q in %v", value, args)
+	}
+	if launchArgValue(args, "--fingerprint-webgl-vendor") == "" || launchArgValue(args, "--fingerprint-fonts") == "" {
+		t.Fatalf("hardware fingerprint fields should be generated: %v", args)
+	}
+}
+
+func TestBrowserClearCookiesRegeneratesStoppedProfileFingerprintFromProfileConfig(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.DefaultConfig()
+	app := NewApp(root)
+	app.config = cfg
+	app.browserMgr = browser.NewManager(cfg, root)
+	app.browserMgr.Profiles = map[string]*BrowserProfile{
+		"profile-1": {
+			ProfileId:   "profile-1",
+			ProfileName: "Profile 1",
+			UserDataDir: "profile-1",
+			FingerprintArgs: []string{
+				"--fingerprint=123",
+				"--fingerprint-auto-hardware=true",
+				"--fingerprint-region=JP",
+				"--lang=ja-JP",
+				"--timezone=Asia/Tokyo",
+				"--fingerprint-platform=mac",
+			},
+			Running: false,
+		},
+	}
+
+	userDataDir := filepath.Join(root, "data", "profile-1")
+	if err := os.MkdirAll(userDataDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(userDataDir, "Preferences"), []byte("{}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := app.BrowserClearCookies("profile-1"); err != nil {
+		t.Fatalf("BrowserClearCookies returned error: %v", err)
+	}
+
+	args := app.browserMgr.Profiles["profile-1"].FingerprintArgs
+	if containsLaunchArg(args, "--fingerprint-auto-hardware=true") {
+		t.Fatalf("auto hardware marker should be resolved when stored after reset: %v", args)
+	}
+	if !containsLaunchArg(args, "--fingerprint-region=JP") || !containsLaunchArg(args, "--lang=ja-JP") || !containsLaunchArg(args, "--timezone=Asia/Tokyo") {
+		t.Fatalf("profile locale fingerprint args should be preserved: %v", args)
+	}
+	if value := launchArgValue(args, "--fingerprint-platform"); value != "mac" {
+		t.Fatalf("profile platform should be preserved, got %q in %v", value, args)
+	}
+	if value := launchArgValue(args, "--fingerprint"); value == "" || value == "123" {
+		t.Fatalf("fingerprint seed should be regenerated from profile config, got %q in %v", value, args)
+	}
+	if launchArgValue(args, "--fingerprint-webgl-vendor") == "" || launchArgValue(args, "--fingerprint-fonts") == "" {
+		t.Fatalf("hardware fingerprint fields should be generated from profile config: %v", args)
+	}
+}
+
 func TestBrowserClearCookiesRejectsRunningProfileWithoutDebugReady(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.DefaultConfig()

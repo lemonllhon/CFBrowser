@@ -948,7 +948,8 @@ export function BrowserListPage() {
     updatePendingIds(setClearingCookieIds, target.profileId, true)
     try {
       await clearBrowserCookies(target.profileId)
-      toast.success(target.running ? `Cookie 已清空：${target.profileName || target.profileId}` : `用户数据已清空：${target.profileName || target.profileId}`)
+      toast.success(target.running ? `Cookie 已清空：${target.profileName || target.profileId}` : `用户数据已清空，指纹已重置：${target.profileName || target.profileId}`)
+      await loadProfiles({ silent: true, syncRuntimeState: true })
     } catch (error: any) {
       toast.error(error?.message || (target.running ? '清空 Cookie 失败' : '清空用户数据失败'))
     } finally {

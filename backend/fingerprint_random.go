@@ -15,6 +15,48 @@ type fingerprintArg struct {
 	val string
 }
 
+func regenerateFingerprintArgsFromConfig(args []string) []string {
+	parsed := parseFingerprintArgs(args)
+	autoHardware := false
+	lang := ""
+	out := make([]string, 0, len(args)+16)
+	existing := make(map[string]struct{})
+
+	for _, item := range parsed {
+		if item.key == autoHardwareFingerprintArg {
+			autoHardware = strings.EqualFold(strings.TrimSpace(item.val), "true")
+			continue
+		}
+		if item.key == "--fingerprint" {
+			continue
+		}
+		if item.key == "--lang" {
+			lang = strings.TrimSpace(item.val)
+		}
+		out = append(out, item.raw)
+		if item.key != "" {
+			existing[item.key] = struct{}{}
+		}
+	}
+
+	if !autoHardware {
+		return append(out, randomFingerprintSeedArg())
+	}
+
+	for _, arg := range randomHardwareFingerprintArgs(lang) {
+		key := fingerprintArgKey(arg)
+		if key == "" {
+			continue
+		}
+		if _, ok := existing[key]; ok {
+			continue
+		}
+		out = append(out, arg)
+		existing[key] = struct{}{}
+	}
+	return out
+}
+
 func resolveFingerprintArgsForLaunch(args []string) []string {
 	parsed := parseFingerprintArgs(args)
 	autoHardware := false
@@ -85,6 +127,11 @@ func fingerprintArgKey(arg string) string {
 		return strings.TrimSpace(arg)
 	}
 	return strings.TrimSpace(arg[:eq])
+}
+
+func randomFingerprintSeedArg() string {
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	return fmt.Sprintf("--fingerprint=%d", r.Intn(2147483647)+1)
 }
 
 func randomHardwareFingerprintArgs(lang string) []string {
