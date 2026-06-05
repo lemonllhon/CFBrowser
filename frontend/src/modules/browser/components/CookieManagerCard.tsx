@@ -4,6 +4,7 @@ import { Badge, Button, Card, Input, Modal, Table, Textarea, toast } from '../..
 import type { TableColumn } from '../../../shared/components/Table'
 import type { CookieInfo } from '../types'
 import { clearBrowserCookies, exportBrowserCookies, fetchBrowserCookies, importBrowserCookies } from '../api'
+import { resolveActionErrorMessage } from '../utils/actionErrors'
 
 interface Props {
   profileId: string
@@ -97,8 +98,8 @@ export function CookieManagerCard({ profileId, profileName, running, ready }: Pr
       setImportOpen(false)
       setImportText('')
       await loadCookies()
-    } catch (error: any) {
-      toast.error(error?.message || '导入 Cookie 失败')
+    } catch (error: unknown) {
+      toast.error(resolveActionErrorMessage(error, '导入 Cookie 失败'))
     } finally {
       setImporting(false)
     }
@@ -115,13 +116,13 @@ export function CookieManagerCard({ profileId, profileName, running, ready }: Pr
   }
 
   const columns: TableColumn<CookieInfo>[] = [
-    { key: 'domain', title: '域名', render: v => <span className="font-mono text-xs">{v}</span> },
-    { key: 'name', title: '名称', render: v => <span className="font-mono text-xs">{v}</span> },
+    { key: 'domain', title: '域名', render: v => <span className="font-mono text-xs">{String(v ?? '')}</span> },
+    { key: 'name', title: '名称', render: v => <span className="font-mono text-xs">{String(v ?? '')}</span> },
     {
       key: 'value',
       title: '值',
       render: v => (
-        <span className="font-mono text-xs max-w-[120px] truncate block" title={v as string}>{v}</span>
+        <span className="font-mono text-xs max-w-[120px] truncate block" title={String(v ?? '')}>{String(v ?? '')}</span>
       ),
     },
     { key: 'expires', title: '过期时间', render: v => formatExpires(v as number) },

@@ -5,6 +5,7 @@ import type { TableColumn } from '../../../shared/components/Table'
 import type { BrowserCore, BrowserCoreInput, BrowserCoreValidateResult, BrowserSettings, BrowserCoreExtended, BrowserProxy } from '../types'
 import { fetchBrowserCores, saveBrowserCore, deleteBrowserCore, setDefaultBrowserCore, validateBrowserCorePath, openCorePath, fetchBrowserSettings, saveBrowserSettings, fetchCoreExtendedInfo, scanBrowserCores, BrowserCoreDownload, fetchBrowserProxies, onBrowserCoreDownloadProgress, cancelBrowserCoreDownload, renameBrowserCorePath } from '../api'
 import { openExternalURL } from '../../../shared/backend/runtime'
+import { resolveActionErrorMessage } from '../utils/actionErrors'
 
 interface CoreDisplayInfo {
   coreId: string
@@ -34,6 +35,21 @@ interface GithubCoreAsset {
   url: string
   size: number
   updatedAt: string
+}
+
+type GithubReleasePayload = {
+  name?: unknown
+  tag_name?: unknown
+  assets?: unknown
+  published_at?: unknown
+}
+
+type GithubAssetPayload = {
+  id?: unknown
+  name?: unknown
+  browser_download_url?: unknown
+  size?: unknown
+  updated_at?: unknown
 }
 
 const FINGERPRINT_CHROMIUM_RELEASES_API = 'https://api.github.com/repos/adryfish/fingerprint-chromium/releases'
@@ -232,22 +248,24 @@ export function CoreManagementPage() {
         throw new Error(`GitHub Releases 获取失败：HTTP ${response.status}`)
       }
       const releases = await response.json()
+      const releaseItems = Array.isArray(releases) ? releases as GithubReleasePayload[] : []
       const assets: GithubCoreAsset[] = []
-      ;(Array.isArray(releases) ? releases : []).forEach((release: any) => {
-        const releaseName = String(release?.name || release?.tag_name || '未命名版本')
-        const tagName = String(release?.tag_name || '')
-        ;(Array.isArray(release?.assets) ? release.assets : []).forEach((asset: any) => {
-          const assetName = String(asset?.name || '')
-          const url = String(asset?.browser_download_url || '')
-          if (!assetName || !url || !/\.(zip|7z|tar\.gz|tgz)$/i.test(assetName)) return
+      releaseItems.forEach(release => {
+        const releaseName = String(release.name || release.tag_name || '未命名版本')
+        const tagName = String(release.tag_name || '')
+        const assetItems = Array.isArray(release.assets) ? release.assets as GithubAssetPayload[] : []
+        assetItems.forEach(asset => {
+          const assetName = String(asset.name || '')
+          const url = String(asset.browser_download_url || '')
+          if (!assetName || !url || /\.(zip|7z|tar\.gz|tgz)$/i.test(assetName) === false) return
           assets.push({
-            id: Number(asset?.id || assets.length + 1),
+            id: Number(asset.id || assets.length + 1),
             releaseName,
             tagName,
             assetName,
             url,
-            size: Number(asset?.size || 0),
-            updatedAt: String(asset?.updated_at || release?.published_at || ''),
+            size: Number(asset.size || 0),
+            updatedAt: String(asset.updated_at || release.published_at || ''),
           })
         })
       })
@@ -255,8 +273,8 @@ export function CoreManagementPage() {
       if (assets.length === 0) {
         setGithubError('未找到可下载的压缩包资产')
       }
-    } catch (error: any) {
-      setGithubError(error?.message || '获取 GitHub 版本失败')
+    } catch (error: unknown) {
+      setGithubError(resolveActionErrorMessage(error, '获取 GitHub 版本失败'))
       setGithubAssets([])
     } finally {
       setGithubLoading(false)
@@ -287,13 +305,13 @@ export function CoreManagementPage() {
       key: 'chromeVersion',
       title: 'Chrome 版本',
       width: '130px',
-      render: (val) => val || '-',
+      render: (val) => String(val ?? '-') || '-',
     },
     {
       key: 'instanceCount',
       title: '使用实例',
       width: '90px',
-      render: (val) => <Badge variant="default">{val}</Badge>,
+      render: (val) => <Badge variant="default">{String(val ?? 0)}</Badge>,
     },
     {
       key: 'isDefault',
@@ -340,8 +358,8 @@ export function CoreManagementPage() {
   const handleOpenPath = async (corePath: string) => {
     try {
       await openCorePath(corePath)
-    } catch (error: any) {
-      toast.error(error?.message || '打开目录失败')
+    } catch (error: unknown) {
+      toast.error(resolveActionErrorMessage(error, '打开目录失败'))
     }
   }
 
@@ -352,8 +370,8 @@ export function CoreManagementPage() {
       await scanBrowserCores()
       await loadData()
       toast.success('扫描完成')
-    } catch (error: any) {
-      toast.error(error?.message || '扫描失败')
+    } catch (error: unknown) {
+      toast.error(resolveActionErrorMessage(error, '扫描失败'))
     } finally {
       setScanning(false)
     }
@@ -400,8 +418,8 @@ export function CoreManagementPage() {
       await loadData()
       setEditModalOpen(false)
       toast.success(editingCore ? '内核已更新' : '内核已添加')
-    } catch (error: any) {
-      toast.error(error?.message || '保存失败')
+    } catch (error: unknown) {
+      toast.error(resolveActionErrorMessage(error, '保存失败'))
     } finally {
       setSaving(false)
     }
@@ -424,8 +442,8 @@ export function CoreManagementPage() {
       await deleteBrowserCore(deletingCore.coreId)
       await loadData()
       toast.success('内核已删除')
-    } catch (error: any) {
-      toast.error(error?.message || '删除失败')
+    } catch (error: unknown) {
+      toast.error(resolveActionErrorMessage(error, '删除失败'))
     }
     setDeletingCore(null)
   }
@@ -436,8 +454,8 @@ export function CoreManagementPage() {
       await setDefaultBrowserCore(coreId)
       await loadData()
       toast.success('已设为默认内核')
-    } catch (error: any) {
-      toast.error(error?.message || '设置失败')
+    } catch (error: unknown) {
+      toast.error(resolveActionErrorMessage(error, '设置失败'))
     }
   }
 
@@ -476,8 +494,8 @@ export function CoreManagementPage() {
       }
 
       await BrowserCoreDownload(coreName, downloadUrl, targetProxy)
-    } catch (err: any) {
-      const message = err?.message || '内部启动下载失败'
+    } catch (error: unknown) {
+      const message = resolveActionErrorMessage(error, '内部启动下载失败')
       lastDownloadPhaseRef.current = 'error'
       toast.error(message)
       setDownloadProgress({ phase: 'error', progress: 0, message, corePath: `chrome/${coreName}` })
@@ -494,8 +512,8 @@ export function CoreManagementPage() {
     setDownloadProgress(prev => prev ? { ...prev, message: '正在中断下载...' } : prev)
     try {
       await cancelBrowserCoreDownload()
-    } catch (err: any) {
-      toast.error(err?.message || '中断下载失败')
+    } catch (error: unknown) {
+      toast.error(resolveActionErrorMessage(error, '中断下载失败'))
       setDownloadCancelling(false)
     }
   }
@@ -532,8 +550,8 @@ export function CoreManagementPage() {
       setDownloadRenameValue(newFolderName)
       await loadData()
       toast.success('内核路径已重命名')
-    } catch (err: any) {
-      toast.error(err?.message || '重命名内核路径失败')
+    } catch (error: unknown) {
+      toast.error(resolveActionErrorMessage(error, '重命名内核路径失败'))
     } finally {
       setDownloadRenaming(false)
     }
@@ -581,8 +599,8 @@ export function CoreManagementPage() {
       setSettings(newSettings)
       setSettingsModalOpen(false)
       toast.success('设置已保存')
-    } catch (error: any) {
-      toast.error(error?.message || '保存失败')
+    } catch (error: unknown) {
+      toast.error(resolveActionErrorMessage(error, '保存失败'))
     } finally {
       setSavingSettings(false)
     }

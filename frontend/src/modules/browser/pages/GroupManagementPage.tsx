@@ -3,6 +3,7 @@ import { Folder, FolderInput, FolderPlus, Pencil, Plus, Trash2, X } from 'lucide
 import { Badge, Button, Card, FormItem, Input, Select, toast } from '../../../shared/components'
 import type { BrowserGroupInput, BrowserGroupWithCount, BrowserProfile } from '../types'
 import { createGroup, deleteGroup, fetchBrowserProfiles, fetchGroups, moveInstancesToGroup, updateGroup } from '../api'
+import { resolveActionErrorMessage } from '../utils/actionErrors'
 import { onRuntimeEvent } from '../../../shared/backend/runtime'
 
 interface TreeGroup extends BrowserGroupWithCount {
@@ -228,8 +229,8 @@ function GroupEditor({ groups, editingGroup, defaultParentId, onCancel, onSaved 
         toast.success('分组已创建')
       }
       onSaved()
-    } catch (error: any) {
-      toast.error(error?.message || '保存分组失败')
+    } catch (error: unknown) {
+      toast.error(resolveActionErrorMessage(error, '保存分组失败'))
     } finally {
       setSaving(false)
     }
@@ -399,8 +400,8 @@ export function GroupManagementPage({ embedded = false }: { embedded?: boolean }
       }
       toast.success('分组已删除')
       await load()
-    } catch (error: any) {
-      toast.error(error?.message || '删除分组失败')
+    } catch (error: unknown) {
+      toast.error(resolveActionErrorMessage(error, '删除分组失败'))
     } finally {
       setSaving(false)
     }
@@ -416,8 +417,8 @@ export function GroupManagementPage({ embedded = false }: { embedded?: boolean }
       toast.success(`已移动 ${ids.length} 个实例`)
       setSelectedIds(new Set())
       await load()
-    } catch (error: any) {
-      toast.error(error?.message || '移动实例失败')
+    } catch (error: unknown) {
+      toast.error(resolveActionErrorMessage(error, '移动实例失败'))
     } finally {
       setSaving(false)
     }

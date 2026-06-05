@@ -35,6 +35,7 @@ import {
 } from './protobuf'
 import { ProtoIpcClient } from './transport'
 import { decodeBrowserActionResponse } from './browser'
+import { decodeProtoJSONObject, isProtoJSONObject, type ProtoJSONObject } from './json'
 
 const appProtoClient = new ProtoIpcClient()
 
@@ -64,7 +65,7 @@ export type ProtoAppLogEntry = {
   level: string
   component: string
   message: string
-  fields?: Record<string, any>
+  fields?: ProtoJSONObject
 }
 
 export type ProtoAppRuntimeEventPayload = {
@@ -184,7 +185,7 @@ export async function generateCDKeys(count: number): Promise<string[]> {
   return decodeAppCDKeysGenerateResponse(payload)
 }
 
-export async function fetchRemoteAuthorProfile(url: string, timeoutMs: number): Promise<Record<string, any>> {
+export async function fetchRemoteAuthorProfile(url: string, timeoutMs: number): Promise<ProtoJSONObject> {
   const requestTimeoutMs = Number.isFinite(timeoutMs) ? Math.max(15000, timeoutMs + 3000) : 15000
   const payload = await appProtoClient.request(
     METHOD_APP_REMOTE_AUTHOR_PROFILE_FETCH,
@@ -404,7 +405,7 @@ export function decodeAppCDKeysGenerateResponse(payload: Uint8Array): string[] {
   return keys
 }
 
-export function decodeAppRemoteAuthorProfileResponse(payload: Uint8Array): Record<string, any> {
+export function decodeAppRemoteAuthorProfileResponse(payload: Uint8Array): ProtoJSONObject {
   let json = ''
   for (const field of readFields(payload)) {
     if (field.wireType === WireType.LengthDelimited && field.fieldNumber === 1) {
@@ -414,11 +415,11 @@ export function decodeAppRemoteAuthorProfileResponse(payload: Uint8Array): Recor
   if (!json) {
     return {}
   }
-  const parsed = JSON.parse(json)
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+  const parsed: unknown = JSON.parse(json)
+  if (!isProtoJSONObject(parsed)) {
     throw new Error('远程作者配置格式无效')
   }
-  return parsed as Record<string, any>
+  return parsed
 }
 
 export function decodeAppLogListResponse(payload: Uint8Array): ProtoAppLogEntry[] {
@@ -463,13 +464,9 @@ export function decodeAppLogEntry(payload: Uint8Array): ProtoAppLogEntry {
     }
   }
   if (fieldsJSON) {
-    try {
-      const fields = JSON.parse(fieldsJSON)
-      if (fields && typeof fields === 'object' && !Array.isArray(fields)) {
-        entry.fields = fields as Record<string, any>
-      }
-    } catch {
-      entry.fields = { raw: fieldsJSON }
+    const fields = decodeProtoJSONObject(fieldsJSON, { raw: fieldsJSON })
+    if (Object.keys(fields).length > 0) {
+      entry.fields = fields
     }
   }
   return entry

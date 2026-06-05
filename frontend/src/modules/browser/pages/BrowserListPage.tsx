@@ -1,497 +1,83 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Activity, CheckCircle, ChevronDown, ChevronRight, ChevronUp, Copy, Download, Edit2, Eraser, FileText, Focus, GripVertical, Key, Layers, Pencil, Play, Plus, RefreshCw, RotateCcw, Settings, Shuffle, Sliders, Square, Star, Trash2, XCircle, LayoutGrid, List, MonitorUp, Wand2 } from 'lucide-react'
-import { Badge, Button, Card, ConfirmModal, FormItem, Input, Modal, StatCard, Switch, Table, Textarea, toast } from '../../../shared/components'
+import { Edit2, Star, Trash2 } from 'lucide-react'
+import { Badge, Button, Card, Table } from '../../../shared/components'
 import type { TableColumn } from '../../../shared/components/Table'
-import type { BrowserCore, BrowserCoreInput, BrowserProfile, BrowserProxy, BrowserSettings, BrowserGroupWithCount, WindowSyncCandidate, WindowSyncLayoutSettings, WindowSyncSettings, WindowSyncState } from '../types'
-import { InstanceFilterBar, EMPTY_FILTERS } from '../components/InstanceFilterBar'
-import type { InstanceFilters } from '../components/InstanceFilterBar'
+import type { BrowserCore, BrowserProfile } from '../types'
 import { KeywordsModal } from '../components/KeywordsModal'
+import { BrowserListHeaderPanel } from '../components/browser-list/BrowserListHeaderPanel'
+import { BrowserListSettingsModal } from '../components/browser-list/BrowserListSettingsModal'
+import { BrowserCoreEditModal } from '../components/browser-list/BrowserCoreEditModal'
+import { BrowserWindowSyncLayoutModal, BrowserWindowSyncModal, BrowserWindowSyncSettingsModal } from '../components/browser-list/BrowserWindowSyncModals'
+import { BrowserListFeedbackModals } from '../components/browser-list/BrowserListFeedbackModals'
+import { CopyProfileNameButton, KeywordInlineRow, LaunchCodeCell } from '../components/browser-list/BrowserListCells'
+import { BrowserBatchToolbar } from '../components/browser-list/BrowserBatchToolbar'
+import { BrowserProfileActions } from '../components/browser-list/BrowserProfileActions'
+import { useBrowserProfileOrderDnD } from '../hooks/useBrowserProfileOrderDnD'
+import { useBrowserListViewState } from '../hooks/useBrowserListViewState'
+import { useBrowserListData } from '../hooks/useBrowserListData'
+import { useBrowserListRuntimeSync } from '../hooks/useBrowserListRuntimeSync'
+import { useBrowserWindowSync } from '../hooks/useBrowserWindowSync'
+import { useBrowserCoreSettings } from '../hooks/useBrowserCoreSettings'
+import { useBrowserProfileBatchActions } from '../hooks/useBrowserProfileBatchActions'
+import { useBrowserProfileRuntimeActions } from '../hooks/useBrowserProfileRuntimeActions'
 import { InstanceBackupRestoreModal } from '../components/InstanceBackupRestoreModal'
 import { BatchRandomFingerprintModal } from '../components/BatchRandomFingerprintModal'
-import { onRuntimeEvent } from '../../../shared/backend/runtime'
-import { resolveActionErrorMessage, resolveActionFeedback } from '../utils/actionErrors'
-import {
-  applyWindowSyncLayout,
-  clearBrowserCookies,
-  copyBrowserProfile,
-  deleteBrowserCore,
-  deleteBrowserProfile,
-  defaultWindowSyncSettings,
-  defaultWindowSyncLayoutSettings,
-  exportBrowserCookies,
-  fetchBrowserCores,
-  fetchBrowserProfiles,
-  fetchBrowserProxies,
-  fetchBrowserSettings,
-  fetchGroups,
-  getWindowSyncState,
-  getWindowSyncLayoutSettings,
-  getWindowSyncSettings,
-  listWindowSyncCandidates,
-  onWindowSyncStateChanged,
-  pinCenterBrowserInstance,
-  regenerateBrowserProfileCode,
-  restartBrowserInstance,
-  saveBrowserCore,
-  saveBrowserSettings,
-  saveWindowSyncSettings,
-  saveWindowSyncLayoutSettings,
-  setBrowserProfileCode,
-  setDefaultBrowserCore,
-  startWindowSync,
-  startBrowserInstance,
-  stopBrowserInstance,
-  stopWindowSync,
-  switchBrowserProfileProxyNow,
-  validateBrowserCorePath,
-  validateProxyConfig,
-} from '../api'
-
-type ColumnOption = {
-  key: string
-  label: string
-  locked?: boolean
-}
-
-const PROFILE_COLUMN_OPTIONS: ColumnOption[] = [
-  { key: 'selection', label: '选择', locked: true },
-  { key: 'instanceMarkerIndex', label: '窗口标识' },
-  { key: 'profileName', label: '实例名称' },
-  { key: 'running', label: '状态' },
-  { key: 'coreId', label: '核心' },
-  { key: 'proxyId', label: '代理' },
-  { key: 'launchCode', label: '快捷打开码' },
-  { key: 'keywords', label: '关键字' },
-  { key: 'updatedAt', label: '上次更新' },
-  { key: 'actions', label: '操作', locked: true },
-]
-
-const DEFAULT_PROFILE_COLUMN_KEYS = ['selection', 'instanceMarkerIndex', 'profileName', 'running', 'coreId', 'proxyId', 'launchCode', 'actions']
-const PROFILE_COLUMNS_STORAGE_KEY = 'browser:profileTableColumns:v2'
-const PROFILE_ORDER_STORAGE_KEY = 'browser:profileOrder:v1'
-const PROFILE_ORDER_CHANNEL_NAME = 'browser:profileOrder:changed'
-function readStoredColumnKeys(storageKey: string, defaults: string[], allowedKeys: readonly string[]) {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(storageKey) || '[]')
-    if (Array.isArray(parsed)) {
-      const valid = parsed.filter((key): key is string => typeof key === 'string' && allowedKeys.includes(key))
-      if (valid.length > 0) return valid
-    }
-  } catch { /* ignore */ }
-  return defaults
-}
-
-function sanitizeProfileOrder(value: unknown) {
-  if (!Array.isArray(value)) return []
-  return Array.from(new Set(value.filter((item): item is string => typeof item === 'string' && item.length > 0)))
-}
-
-function parseProfileOrderValue(value: string | null) {
-  try {
-    return sanitizeProfileOrder(JSON.parse(value || '[]'))
-  } catch {
-    return []
-  }
-}
-
-function readStoredProfileOrder() {
-  return parseProfileOrderValue(localStorage.getItem(PROFILE_ORDER_STORAGE_KEY))
-}
-
-const areStringArraysEqual = (left: string[], right: string[]) => {
-  if (left.length !== right.length) return false
-  return left.every((item, index) => item === right[index])
-}
-
-const naturalCompareText = (a: string, b: string): number => {
-  const re = /(\d+)|(\D+)/g
-  const partsA = a.match(re) || []
-  const partsB = b.match(re) || []
-  for (let i = 0; i < Math.max(partsA.length, partsB.length); i++) {
-    if (i >= partsA.length) return -1
-    if (i >= partsB.length) return 1
-    const pa = partsA[i], pb = partsB[i]
-    const na = Number(pa), nb = Number(pb)
-    if (!isNaN(na) && !isNaN(nb)) {
-      if (na !== nb) return na - nb
-    } else {
-      const cmp = pa.localeCompare(pb, 'zh-CN')
-      if (cmp !== 0) return cmp
-    }
-  }
-  return 0
-}
-
-// 批量操作工具栏
-function BatchToolbar({
-  selectedCount,
-  totalCount,
-  onSelectAll,
-  onDeselectAll,
-  onBatchStart,
-  onBatchStop,
-  onBatchDelete,
-  batchLoading,
-}: {
-  selectedCount: number
-  totalCount: number
-  onSelectAll: () => void
-  onDeselectAll: () => void
-  onBatchStart: () => void
-  onBatchStop: () => void
-  onBatchDelete: () => void
-  batchLoading: boolean
-}) {
-  if (selectedCount === 0) return null
-  return (
-    <div className="flex items-center gap-3 px-4 py-2.5 bg-[var(--color-accent)]/10 border border-[var(--color-accent)]/20 rounded-lg">
-      <span className="text-sm font-medium text-[var(--color-accent)]">已选 {selectedCount} / {totalCount}</span>
-      <div className="flex gap-1.5 ml-auto">
-        <Button size="sm" variant="ghost" onClick={onSelectAll}>全选</Button>
-        <Button size="sm" variant="ghost" onClick={onDeselectAll}>取消</Button>
-        <Button size="sm" onClick={onBatchStart} loading={batchLoading} title="批量启动">
-          <Play className="w-3.5 h-3.5" />启动
-        </Button>
-        <Button size="sm" variant="secondary" onClick={onBatchStop} loading={batchLoading} title="批量停止">
-          <Square className="w-3.5 h-3.5" />停止
-        </Button>
-        <Button size="sm" variant="ghost" onClick={onBatchDelete} title="批量删除" className="text-red-500 hover:text-red-600">
-          <Trash2 className="w-3.5 h-3.5" />删除
-        </Button>
-      </div>
-    </div>
-  )
-}
-
-const resolveProfileStatus = (running: boolean, debugReady: boolean, starting: boolean, stopping: boolean) => {
-  if (starting) {
-    return { variant: 'info' as const, label: '启动中' }
-  }
-  if (stopping) {
-    return { variant: 'default' as const, label: '停止中' }
-  }
-  if (running && !debugReady) {
-    return { variant: 'info' as const, label: '运行中（待就绪）' }
-  }
-  if (running) {
-    return { variant: 'success' as const, label: '运行中' }
-  }
-  return { variant: 'warning' as const, label: '已停止' }
-}
-
-const formatInstanceMarkerLabel = (profile: BrowserProfile) => {
-  const index = Number(profile.instanceMarkerIndex || 0)
-  if (index > 0) {
-    return `#${String(index).padStart(2, '0')}`
-  }
-  const match = String(profile.instanceMarker || '').match(/#(\d{1,3})/)
-  return match ? `#${match[1].padStart(2, '0')}` : '-'
-}
-
-const formatTime = (value?: string) => {
-  if (!value) return '-'
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? '-' : date.toLocaleString('zh-CN')
-}
-
-const sanitizeFilenamePart = (value: string) => {
-  const safe = value
-    .trim()
-    .replace(/[<>:"/\\|?*\x00-\x1F]/g, '_')
-    .replace(/\s+/g, '_')
-    .replace(/_+/g, '_')
-    .replace(/^_+|_+$/g, '')
-  return (safe || 'profile').slice(0, 80)
-}
-
-const downloadTextFile = (filename: string, content: string) => {
-  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = filename
-  document.body.appendChild(link)
-  link.click()
-  link.remove()
-  URL.revokeObjectURL(url)
-}
-
-const getCookieActionTitle = (profile: BrowserProfile, action: 'export' | 'clear') => {
-  if (action === 'export') {
-    if (!profile.running) return '实例启动后才能导出 Cookie'
-    if (!profile.debugReady) return '调试接口就绪后才能导出 Cookie'
-    return '导出 Cookie 文本'
-  }
-  if (!profile.running) return '清空用户数据目录'
-  if (!profile.debugReady) return '调试接口就绪后才能清空 Cookie'
-  return '清空全部 Cookie'
-}
-
-const normalizeWindowSyncColor = (value?: string) => {
-  const raw = (value || '').trim()
-  if (!raw) return '#2563eb'
-  const color = raw.startsWith('#') ? raw : `#${raw}`
-  if (/^#[0-9a-fA-F]{3}$/.test(color)) {
-    return `#${color[1]}${color[1]}${color[2]}${color[2]}${color[3]}${color[3]}`.toLowerCase()
-  }
-  if (/^#[0-9a-fA-F]{6}$/.test(color)) {
-    return color.toLowerCase()
-  }
-  return null
-}
-
-function LaunchCodeCell({ profileId, code, onRefresh }: { profileId: string; code: string; onRefresh: () => void }) {
-  const [loading, setLoading] = useState(false)
-
-  const handleCopy = () => {
-    if (!code) return
-    navigator.clipboard.writeText(code).then(() => toast.success('已复制快捷码'))
-  }
-
-  const handleRegenerate = async () => {
-    setLoading(true)
-    try {
-      await regenerateBrowserProfileCode(profileId)
-      onRefresh()
-      toast.success('快捷码已重新生成')
-    } catch {
-      toast.error('重新生成失败')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const handleCustomCode = async () => {
-    const next = prompt('请输入自定义 Code（4-32位，仅支持字母/数字/_/-）', code || '')
-    if (next == null) return
-    const value = next.trim()
-    if (!value) {
-      toast.error('Code 不能为空')
-      return
-    }
-    setLoading(true)
-    try {
-      const applied = await setBrowserProfileCode(profileId, value)
-      onRefresh()
-      toast.success(`Code 已更新为 ${applied}`)
-    } catch (error: any) {
-      toast.error(error?.message || '设置自定义 Code 失败')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  if (!code) return <span className="text-[var(--color-text-muted)] text-xs">-</span>
-
-  return (
-    <div className="flex items-center gap-1">
-      <code className="text-xs font-mono bg-[var(--color-bg-secondary)] px-1.5 py-0.5 rounded text-[var(--color-accent)]">{code}</code>
-      <button onClick={handleCopy} className="p-0.5 hover:text-[var(--color-accent)] text-[var(--color-text-muted)] transition-colors" title="复制">
-        <Copy className="w-3 h-3" />
-      </button>
-      <button onClick={handleRegenerate} disabled={loading} className="p-0.5 hover:text-[var(--color-accent)] text-[var(--color-text-muted)] transition-colors disabled:opacity-50" title="重新生成">
-        <RefreshCw className="w-3 h-3" />
-      </button>
-      <button onClick={handleCustomCode} disabled={loading} className="p-0.5 hover:text-[var(--color-accent)] text-[var(--color-text-muted)] transition-colors disabled:opacity-50" title="自定义">
-        <Pencil className="w-3 h-3" />
-      </button>
-    </div>
-  )
-}
-
-function CopyProfileNameButton({ name }: { name: string }) {
-  const handleCopy = (event: React.MouseEvent) => {
-    event.preventDefault()
-    event.stopPropagation()
-    if (!name) return
-    navigator.clipboard.writeText(name).then(() => toast.success('已复制实例名称'))
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={handleCopy}
-      className="p-0.5 rounded text-[var(--color-text-muted)] hover:text-[var(--color-accent)] hover:bg-[var(--color-bg-secondary)] transition-colors shrink-0"
-      title="复制实例名称"
-    >
-      <Copy className="w-3 h-3" />
-    </button>
-  )
-}
-
-function KeywordInlineRow({ keywords }: { keywords: string[] }) {
-  const [expanded, setExpanded] = useState(false)
-  const cRef = (useMemo(() => ({ current: null as HTMLDivElement | null }), []) as unknown) as React.MutableRefObject<HTMLDivElement | null>
-  const [isOverflowing, setIsOverflowing] = useState(false)
-
-  useEffect(() => {
-    if (cRef.current) {
-      setIsOverflowing(cRef.current.scrollHeight > 36)
-    }
-  }, [keywords])
-
-  if (!keywords?.length) {
-    return <span className="text-xs text-[var(--color-text-muted)] italic">暂无关键字</span>
-  }
-
-  return (
-    <div className="flex items-start gap-4 w-full">
-      <div
-        ref={cRef}
-        className={`flex flex-wrap gap-2 flex-1 transition-all duration-300 ${expanded ? '' : 'overflow-hidden max-h-[32px]'}`}
-      >
-        {keywords.map((kw, i) => (
-          <span
-            key={i}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs
-              bg-[var(--color-bg-surface)] border border-[var(--color-border-default)]
-              text-[var(--color-text-secondary)] max-w-[200px]"
-            title={kw}
-          >
-            <span className="text-[var(--color-text-muted)] font-mono shrink-0">{i + 1}.</span>
-            <span className="truncate">{kw}</span>
-          </span>
-        ))}
-      </div>
-      {isOverflowing && (
-        <button
-          onClick={() => setExpanded(!expanded)}
-          className="shrink-0 flex items-center gap-1 text-xs font-medium text-[var(--color-accent)] hover:text-indigo-400 mt-1 focus:outline-none"
-        >
-          {expanded ? (
-            <>收回 <ChevronUp className="w-3.5 h-3.5" /></>
-          ) : (
-            <>展开详情 <ChevronDown className="w-3.5 h-3.5" /></>
-          )}
-        </button>
-      )}
-    </div>
-  )
-}
-
+import { formatInstanceMarkerLabel, formatTime, getCookieActionTitle, resolveProfileStatus } from '../utils/browserListFormat'
+import { filterAndSortBrowserProfiles, getBrowserProfileCoreLabel, resolveBrowserProfileCore } from '../utils/browserListFilters'
+import { getBrowserProfileProxyDisplayName } from '../utils/browserListProxyDisplay'
 export function BrowserListPage() {
-  const [profiles, setProfiles] = useState<BrowserProfile[]>([])
-  const [loading, setLoading] = useState(true)
-  const [proxies, setProxies] = useState<BrowserProxy[]>([])
-  const [groups, setGroups] = useState<BrowserGroupWithCount[]>([])
-
-  // 视图模式
-  const [viewMode, setViewMode] = useState<'card' | 'table'>(() => {
-    return (localStorage.getItem('browser:viewMode') as 'card' | 'table') || 'table'
-  })
-  const [visibleColumnKeys, setVisibleColumnKeys] = useState<string[]>(() => (
-    Array.from(new Set([
-      ...PROFILE_COLUMN_OPTIONS.filter(item => item.locked).map(item => item.key),
-      ...readStoredColumnKeys(PROFILE_COLUMNS_STORAGE_KEY, DEFAULT_PROFILE_COLUMN_KEYS, PROFILE_COLUMN_OPTIONS.map(item => item.key)),
-    ]))
-  ))
-  const [profileOrder, setProfileOrder] = useState<string[]>(readStoredProfileOrder)
-  const [draggingProfileId, setDraggingProfileId] = useState<string | null>(null)
-  const [dragOverProfileId, setDragOverProfileId] = useState<string | null>(null)
-  const [dragOverPlacement, setDragOverPlacement] = useState<'before' | 'after'>('before')
+  const {
+    viewMode,
+    setViewMode,
+    visibleColumnKeys,
+    filters,
+    setFilters,
+    headerCollapsed,
+    toggleHeaderCollapsed,
+    toggleVisibleColumn,
+  } = useBrowserListViewState()
 
   // 勾选状态
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  const [batchLoading, setBatchLoading] = useState(false)
 
-  // 筛选状态（从 localStorage 恢复）
-  const [filters, setFilters] = useState<InstanceFilters>(() => {
-    try {
-      const saved = localStorage.getItem('browser:filters')
-      if (saved) {
-        const parsed = JSON.parse(saved)
-        return { ...EMPTY_FILTERS, ...parsed, tags: new Set(parsed.tags || []) }
-      }
-    } catch { /* ignore */ }
-    return EMPTY_FILTERS
-  })
-  const [headerCollapsed, setHeaderCollapsed] = useState(() => {
-    return localStorage.getItem('browser:headerCollapsed') === 'true'
-  })
-
-  // 持久化筛选状态
-  useEffect(() => {
-    const serializable = { ...filters, tags: Array.from(filters.tags) }
-    localStorage.setItem('browser:filters', JSON.stringify(serializable))
-  }, [filters])
-
-  useEffect(() => {
-    localStorage.setItem('browser:viewMode', viewMode)
-  }, [viewMode])
-
-  useEffect(() => {
-    localStorage.setItem(PROFILE_ORDER_STORAGE_KEY, JSON.stringify(profileOrder))
-    profileOrderChannelRef.current?.postMessage(profileOrder)
-  }, [profileOrder])
-
-  useEffect(() => {
-    const applyExternalProfileOrder = (nextOrder: string[]) => {
-      setProfileOrder(prev => areStringArraysEqual(prev, nextOrder) ? prev : nextOrder)
-    }
-
-    let channel: BroadcastChannel | null = null
-    if (typeof BroadcastChannel !== 'undefined') {
-      channel = new BroadcastChannel(PROFILE_ORDER_CHANNEL_NAME)
-      profileOrderChannelRef.current = channel
-      channel.onmessage = (event) => {
-        applyExternalProfileOrder(sanitizeProfileOrder(event.data))
-      }
-    }
-
-    const handleStorage = (event: StorageEvent) => {
-      if (event.key !== PROFILE_ORDER_STORAGE_KEY) return
-      applyExternalProfileOrder(parseProfileOrderValue(event.newValue))
-    }
-    window.addEventListener('storage', handleStorage)
-
-    return () => {
-      window.removeEventListener('storage', handleStorage)
-      channel?.close()
-      if (profileOrderChannelRef.current === channel) {
-        profileOrderChannelRef.current = null
-      }
-    }
-  }, [])
-
-  useEffect(() => {
-    const lockedKeys = PROFILE_COLUMN_OPTIONS.filter(item => item.locked).map(item => item.key)
-    localStorage.setItem(PROFILE_COLUMNS_STORAGE_KEY, JSON.stringify(Array.from(new Set([...lockedKeys, ...visibleColumnKeys]))))
-  }, [visibleColumnKeys])
-
-  useEffect(() => {
-    localStorage.setItem('browser:headerCollapsed', String(headerCollapsed))
-  }, [headerCollapsed])
+  const {
+    windowSyncModalOpen,
+    windowSyncCandidates,
+    windowSyncSelectedIds,
+    windowSyncMasterId,
+    windowSyncState,
+    windowSyncLoading,
+    windowSyncLayoutModalOpen,
+    windowSyncLayout,
+    windowSyncSettingsModalOpen,
+    windowSyncSettings,
+    setWindowSyncModalOpen,
+    setWindowSyncMasterId,
+    setWindowSyncState,
+    setWindowSyncLayoutModalOpen,
+    setWindowSyncLayout,
+    setWindowSyncSettingsModalOpen,
+    setWindowSyncSettings,
+    loadWindowSyncCandidates,
+    handleOpenWindowSyncModal,
+    toggleWindowSyncCandidate,
+    selectAllWindowSyncCandidates,
+    clearWindowSyncCandidates,
+    handleStartWindowSync,
+    handleStopWindowSync,
+    updateWindowSyncLayout,
+    updateWindowSyncSettings,
+    handleApplyWindowSyncLayout,
+    handleSaveWindowSyncSettings,
+  } = useBrowserWindowSync({ selectedIds })
 
   // 代理不支持弹窗
-  const [proxyErrorModal, setProxyErrorModal] = useState(false)
-  const [proxyErrorMsg, setProxyErrorMsg] = useState('')
   const [opError, setOpError] = useState('')
-  const [pendingStartId, setPendingStartId] = useState<string | null>(null)
   const [startingIds, setStartingIds] = useState<Set<string>>(new Set())
   const [stoppingIds, setStoppingIds] = useState<Set<string>>(new Set())
-  const [switchingProxyIds, setSwitchingProxyIds] = useState<Set<string>>(new Set())
-  const [pinningIds, setPinningIds] = useState<Set<string>>(new Set())
-  const [exportingCookieIds, setExportingCookieIds] = useState<Set<string>>(new Set())
-  const [clearingCookieIds, setClearingCookieIds] = useState<Set<string>>(new Set())
-  const [cookieClearTarget, setCookieClearTarget] = useState<BrowserProfile | null>(null)
   const [backupModalOpen, setBackupModalOpen] = useState(false)
   const [batchRandomModalOpen, setBatchRandomModalOpen] = useState(false)
-  const profilesRef = useRef<BrowserProfile[]>([])
-  const profileOrderChannelRef = useRef<BroadcastChannel | null>(null)
-  const silentRefreshInFlightRef = useRef(false)
-
-  // 窗口同步
-  const [windowSyncModalOpen, setWindowSyncModalOpen] = useState(false)
-  const [windowSyncCandidates, setWindowSyncCandidates] = useState<WindowSyncCandidate[]>([])
-  const [windowSyncSelectedIds, setWindowSyncSelectedIds] = useState<Set<string>>(new Set())
-  const [windowSyncMasterId, setWindowSyncMasterId] = useState('')
-  const [windowSyncState, setWindowSyncState] = useState<WindowSyncState | null>(null)
-  const [windowSyncLoading, setWindowSyncLoading] = useState(false)
-  const [windowSyncLayoutModalOpen, setWindowSyncLayoutModalOpen] = useState(false)
-  const [windowSyncLayout, setWindowSyncLayout] = useState<WindowSyncLayoutSettings>(() => defaultWindowSyncLayoutSettings())
-  const [windowSyncSettingsModalOpen, setWindowSyncSettingsModalOpen] = useState(false)
-  const [windowSyncSettings, setWindowSyncSettings] = useState<WindowSyncSettings>(() => defaultWindowSyncSettings())
 
   // 关键字弹窗
   const [kwModal, setKwModal] = useState<{ open: boolean; profile: BrowserProfile | null }>({ open: false, profile: null })
@@ -499,234 +85,57 @@ export function BrowserListPage() {
   const openKwModal = (profile: BrowserProfile) => setKwModal({ open: true, profile })
   const closeKwModal = () => setKwModal({ open: false, profile: null })
 
-  // 复制弹窗
-  const [copyModal, setCopyModal] = useState<{ open: boolean; profile: BrowserProfile | null }>({ open: false, profile: null })
-  const [copyName, setCopyName] = useState('')
-  const [copying, setCopying] = useState(false)
-  const [deleteTarget, setDeleteTarget] = useState<BrowserProfile | null>(null)
-  const [batchDeleteConfirmOpen, setBatchDeleteConfirmOpen] = useState(false)
+  const {
+    profiles,
+    loading,
+    proxies,
+    groups,
+    cores,
+    updateProfilesState,
+    mergeProfileState,
+    loadProfiles,
+    loadGroups,
+    loadCores,
+  } = useBrowserListData({ setStartingIds, setStoppingIds })
 
-  const openCopyModal = (profile: BrowserProfile) => {
-    setCopyName(profile.profileName + ' (副本)')
-    setCopyModal({ open: true, profile })
-  }
-  const closeCopyModal = () => {
-    setCopyModal({ open: false, profile: null })
-    setCopyName('')
-  }
-
-  // 基础配置弹窗
-  const [settingsModalOpen, setSettingsModalOpen] = useState(false)
-  const [settings, setSettings] = useState<BrowserSettings>({
-    userDataRoot: 'data',
-    defaultFingerprintArgs: [],
-    defaultLaunchArgs: [],
-    defaultProxy: '',
-    startReadyTimeoutMs: 3000,
-    startStableWindowMs: 1200,
-  })
-  const [fingerprintText, setFingerprintText] = useState('')
-  const [launchText, setLaunchText] = useState('')
-  const [savingSettings, setSavingSettings] = useState(false)
-
-  // 内核管理
-  const [cores, setCores] = useState<BrowserCore[]>([])
-  const [coreModalOpen, setCoreModalOpen] = useState(false)
-  const [coreForm, setCoreForm] = useState<BrowserCoreInput>({ coreId: '', coreName: '', corePath: '', isDefault: false })
-  const [coreValidation, setCoreValidation] = useState<{ valid: boolean; message: string } | null>(null)
-  const [savingCore, setSavingCore] = useState(false)
+  const {
+    settingsModalOpen,
+    settings,
+    fingerprintText,
+    launchText,
+    savingSettings,
+    coreModalOpen,
+    coreForm,
+    coreValidation,
+    savingCore,
+    setSettingsModalOpen,
+    setSettings,
+    setFingerprintText,
+    setLaunchText,
+    setCoreModalOpen,
+    setCoreForm,
+    setCoreValidation,
+    handleOpenSettings,
+    handleSaveSettings,
+    handleOpenCoreModal,
+    handleValidateCorePath,
+    handleSaveCore,
+    handleDeleteCore,
+    handleSetDefaultCore,
+  } = useBrowserCoreSettings({ cores, loadCores })
 
   // 扩容管理
   const [expandModalOpen, setExpandModalOpen] = useState(false)
 
-  const updatePendingIds = (
-    setter: React.Dispatch<React.SetStateAction<Set<string>>>,
-    profileId: string,
-    active: boolean
-  ) => {
-    setter(prev => {
-      const next = new Set(prev)
-      if (active) {
-        next.add(profileId)
-      } else {
-        next.delete(profileId)
-      }
-      return next
-    })
-  }
-
-  const replaceProfilesState = (items: BrowserProfile[]) => {
-    profilesRef.current = items
-    setProfiles(items)
-  }
-
-  const updateProfilesState = (updater: (items: BrowserProfile[]) => BrowserProfile[]) => {
-    const next = updater(profilesRef.current)
-    profilesRef.current = next
-    setProfiles(next)
-  }
-
-  const reconcileProfileOrder = (items: BrowserProfile[]) => {
-    setProfileOrder(prev => {
-      const existingIds = new Set(items.map(item => item.profileId))
-      const keptIds = prev.filter(id => existingIds.has(id))
-      const keptSet = new Set(keptIds)
-      const appendedIds = items
-        .filter(item => !keptSet.has(item.profileId))
-        .sort((a, b) => naturalCompareText(a.profileName, b.profileName))
-        .map(item => item.profileId)
-      const next = [...keptIds, ...appendedIds]
-      return areStringArraysEqual(prev, next) ? prev : next
-    })
-  }
-
-  const mergeProfileState = (profile: BrowserProfile | null | undefined) => {
-    if (!profile) return
-    updateProfilesState(prev => prev.map(item => (
-      item.profileId === profile.profileId ? { ...item, ...profile } : item
-    )))
-  }
-
-  const syncProfiles = (items: BrowserProfile[], syncRuntimeState: boolean) => {
-    if (syncRuntimeState) {
-      const previousById = new Map(profilesRef.current.map(item => [item.profileId, item]))
-      const newlyRunning = items.find(item => item.running && !previousById.get(item.profileId)?.running)
-      if (newlyRunning) {
-        updatePendingIds(setStartingIds, newlyRunning.profileId, false)
-        updatePendingIds(setStoppingIds, newlyRunning.profileId, false)
-      }
-      items.forEach(item => {
-        if (!item.running && previousById.get(item.profileId)?.running) {
-          updatePendingIds(setStartingIds, item.profileId, false)
-          updatePendingIds(setStoppingIds, item.profileId, false)
-        }
-      })
-    }
-    replaceProfilesState(items)
-    reconcileProfileOrder(items)
-  }
-
-  const loadProfiles = async ({ silent = false, syncRuntimeState = false }: { silent?: boolean; syncRuntimeState?: boolean } = {}) => {
-    if (silent && silentRefreshInFlightRef.current) {
-      return profilesRef.current
-    }
-    if (!silent) {
-      setLoading(true)
-    } else {
-      silentRefreshInFlightRef.current = true
-    }
-    try {
-      const items = await fetchBrowserProfiles()
-      syncProfiles(items, syncRuntimeState)
-      return items
-    } finally {
-      if (silent) {
-        silentRefreshInFlightRef.current = false
-      } else {
-        setLoading(false)
-      }
-    }
-  }
-
-  const loadGroups = async () => {
-    setGroups(await fetchGroups())
-  }
-
-  const loadSettings = async () => {
-    const data = await fetchBrowserSettings()
-    setSettings(data)
-    setFingerprintText((data.defaultFingerprintArgs || []).join('\n'))
-    setLaunchText((data.defaultLaunchArgs || []).join('\n'))
-  }
-
-  const loadCores = async () => {
-    setCores(await fetchBrowserCores())
-  }
-
-  useEffect(() => {
-    void loadProfiles()
-    loadGroups()
-    fetchBrowserProxies().then(setProxies)
-    fetchBrowserCores().then(setCores)
-
-    // 监听浏览器实例生命周期事件，自动更新状态
-    const offStarted = onRuntimeEvent('browser:instance:started', (payload: any) => {
-      const profileId = typeof payload === 'string' ? payload : payload?.profileId
-      if (profileId) {
-        updatePendingIds(setStartingIds, profileId, false)
-        updatePendingIds(setStoppingIds, profileId, false)
-      }
-      void loadProfiles({ silent: true, syncRuntimeState: true })
-    })
-    const offUpdated = onRuntimeEvent('browser:instance:updated', () => {
-      void loadProfiles({ silent: true, syncRuntimeState: true })
-    })
-    const offProfilesUpdated = onRuntimeEvent('browser:profiles:updated', () => {
-      void loadProfiles({ silent: true, syncRuntimeState: true })
-    })
-    const offGroupsUpdated = onRuntimeEvent('browser:groups:updated', () => {
-      void loadGroups()
-    })
-    const offStopped = onRuntimeEvent('browser:instance:stopped', (payload: any) => {
-      const profileId = typeof payload === 'string' ? payload : payload?.profileId
-      if (profileId) {
-        updatePendingIds(setStartingIds, profileId, false)
-        updatePendingIds(setStoppingIds, profileId, false)
-      }
-      void loadProfiles({ silent: true, syncRuntimeState: true })
-    })
-    const offCrashed = onRuntimeEvent('browser:instance:crashed', (payload: any) => {
-      const profileId = typeof payload === 'string' ? payload : payload?.profileId
-      if (profileId) {
-        updatePendingIds(setStartingIds, profileId, false)
-        updatePendingIds(setStoppingIds, profileId, false)
-      }
-      void loadProfiles({ silent: true, syncRuntimeState: true })
-    })
-    const offWindowSyncChanged = onWindowSyncStateChanged(state => {
-      setWindowSyncState(state?.active ? state : null)
-      if (state?.active) {
-        setWindowSyncSettings({
-          masterColor: state.masterColor || '#2563eb',
-          syncKeyboard: state.syncKeyboard !== false,
-          syncMouse: state.syncMouse !== false,
-        })
-      }
-    })
-
-    void getWindowSyncState().then(state => {
-      setWindowSyncState(state?.active ? state : null)
-      if (state?.layout) {
-        setWindowSyncLayout(state.layout)
-      }
-      if (state?.active) {
-        setWindowSyncSettings({
-          masterColor: state.masterColor || '#2563eb',
-          syncKeyboard: state.syncKeyboard !== false,
-          syncMouse: state.syncMouse !== false,
-        })
-      }
-    })
-    void getWindowSyncLayoutSettings().then(setWindowSyncLayout)
-    void getWindowSyncSettings().then(setWindowSyncSettings)
-
-    const timer = window.setInterval(() => {
-      if (document.visibilityState !== 'visible') return
-      void loadProfiles({ silent: true, syncRuntimeState: true })
-      void loadGroups()
-    }, 2000)
-
-    return () => {
-      window.clearInterval(timer)
-      offStarted?.()
-      offUpdated?.()
-      offProfilesUpdated?.()
-      offGroupsUpdated?.()
-      offStopped?.()
-      offCrashed?.()
-      offWindowSyncChanged?.()
-    }
-  }, [])
+  useBrowserListRuntimeSync({
+    loadProfiles,
+    loadGroups,
+    setStartingIds,
+    setStoppingIds,
+    setWindowSyncState,
+    setWindowSyncSettings,
+    setWindowSyncLayout,
+  })
 
   const runningCount = useMemo(() => profiles.filter(p => p.running).length, [profiles])
   const allTags = useMemo(() => {
@@ -739,33 +148,39 @@ export function BrowserListPage() {
     return cores.find(core => core.isDefault) || cores[0] || null
   }, [cores])
 
-  const resolveProfileCore = (profile: BrowserProfile) => {
-    const coreId = (profile.coreId || '').trim()
-    if (coreId && !/^default$/i.test(coreId)) {
-      return cores.find(core => core.coreId === coreId) || null
-    }
-    return defaultCore
-  }
-
-  const getProfileCoreLabel = (profile: BrowserProfile) => {
-    const resolvedCore = resolveProfileCore(profile)
-    if (resolvedCore) {
-      return resolvedCore.coreName
-    }
-
-    const coreId = (profile.coreId || '').trim()
-    if (!coreId || /^default$/i.test(coreId)) {
-      return '使用默认内核'
-    }
-    return coreId
-  }
+  const resolveProfileCore = (profile: BrowserProfile) => resolveBrowserProfileCore(profile, cores, defaultCore)
+  const getProfileCoreLabel = (profile: BrowserProfile) => getBrowserProfileCoreLabel(profile, cores, defaultCore)
 
   const isProfileStarting = (profileId: string) => startingIds.has(profileId)
   const isProfileStopping = (profileId: string) => stoppingIds.has(profileId)
-  const isProfileSwitchingProxy = (profileId: string) => switchingProxyIds.has(profileId)
-  const isProfilePinning = (profileId: string) => pinningIds.has(profileId)
-  const isProfileExportingCookies = (profileId: string) => exportingCookieIds.has(profileId)
-  const isProfileClearingCookies = (profileId: string) => clearingCookieIds.has(profileId)
+  const {
+    proxyErrorModal,
+    proxyErrorMsg,
+    pendingStartId,
+    cookieClearTarget,
+    setCookieClearTarget,
+    closeProxyError,
+    isProfileSwitchingProxy,
+    isProfilePinning,
+    isProfileExportingCookies,
+    isProfileClearingCookies,
+    handleStart,
+    handleStop,
+    handleRestart,
+    handleSwitchProxyNow,
+    handlePinCenter,
+    handleExportCookies,
+    handleConfirmClearCookies,
+  } = useBrowserProfileRuntimeActions({
+    profiles,
+    proxies,
+    setStartingIds,
+    setStoppingIds,
+    mergeProfileState,
+    loadProfiles,
+    setOpError,
+  })
+
   const isProfileBusy = (profileId: string) => isProfileStarting(profileId) || isProfileStopping(profileId) || isProfileSwitchingProxy(profileId) || isProfilePinning(profileId)
   const isWindowSyncMaster = (profileId: string) => !!windowSyncState?.active && windowSyncState.masterProfileId === profileId
 
@@ -773,704 +188,61 @@ export function BrowserListPage() {
     resolveProfileStatus(profile.running, profile.debugReady, isProfileStarting(profile.profileId), isProfileStopping(profile.profileId))
   )
 
-  const filteredProfiles = useMemo(() => {
-    const profileOrderIndex = new Map(profileOrder.map((profileId, index) => [profileId, index]))
-    return profiles.filter(p => {
-      // 分组筛选
-      if (filters.groupId === '__ungrouped__' && p.groupId) return false
-      if (filters.groupId && filters.groupId !== '__ungrouped__' && p.groupId !== filters.groupId) return false
+  const {
+    profileOrder,
+    handleProfileDragOver,
+    handleProfileDragLeave,
+    handleProfileDrop,
+    getProfileDragClassName,
+    renderProfileDragHandle,
+  } = useBrowserProfileOrderDnD({ profiles })
 
-      if (filters.keyword && !p.profileName.toLowerCase().includes(filters.keyword.toLowerCase())) return false
-      if (filters.status === 'running' && !p.running) return false
-      if (filters.status === 'stopped' && p.running) return false
-      if (filters.proxyId === '__none__' && (p.proxyId || p.proxyConfig)) return false
-      if (filters.proxyId && filters.proxyId !== '__none__' && p.proxyId !== filters.proxyId) return false
-      if (filters.coreId) {
-        const effectiveCore = resolveProfileCore(p)
-        if (!effectiveCore || effectiveCore.coreId !== filters.coreId) return false
-      }
-      if (filters.tags.size > 0 && !p.tags?.some(t => filters.tags.has(t))) return false
-      if (filters.kwSearch) {
-        const q = filters.kwSearch.toLowerCase()
-        const hit = p.keywords?.some(v => v.toLowerCase().includes(q))
-        if (!hit) return false
-      }
-      return true
-    }).sort((a, b) => {
-      const orderA = profileOrderIndex.get(a.profileId)
-      const orderB = profileOrderIndex.get(b.profileId)
-      if (orderA !== undefined || orderB !== undefined) {
-        if (orderA === undefined) return 1
-        if (orderB === undefined) return -1
-        if (orderA !== orderB) return orderA - orderB
-      }
-      return naturalCompareText(a.profileName, b.profileName)
-    })
-  }, [profiles, filters, defaultCore, cores, profileOrder])
+  const filteredProfiles = useMemo(() => filterAndSortBrowserProfiles({
+    profiles,
+    filters,
+    profileOrder,
+    cores,
+    defaultCore,
+  }), [profiles, filters, defaultCore, cores, profileOrder])
 
   const selectedProfileIds = useMemo(() => Array.from(selectedIds), [selectedIds])
   const filteredProfileIds = useMemo(() => filteredProfiles.map(item => item.profileId), [filteredProfiles])
 
-  const handleStart = async (profileId: string) => {
-    const profile = profiles.find(p => p.profileId === profileId)
-    updatePendingIds(setStartingIds, profileId, true)
-    try {
-      if (profile) {
-        const result = await validateProxyConfig(profile.proxyConfig || '', profile.proxyId || '')
-        if (!result.supported) {
-          setProxyErrorMsg(result.errorMsg)
-          setPendingStartId(profileId)
-          setProxyErrorModal(true)
-          return
-        }
-      }
+  const {
+    batchLoading,
+    copyModal,
+    copyName,
+    copying,
+    deleteTarget,
+    batchDeleteConfirmOpen,
+    setCopyName,
+    setDeleteTarget,
+    setBatchDeleteConfirmOpen,
+    openCopyModal,
+    closeCopyModal,
+    toggleSelect,
+    handleSelectAll,
+    handleDeselectAll,
+    handleDelete,
+    handleConfirmDelete,
+    handleBatchStart,
+    handleBatchStop,
+    handleBatchDelete,
+    handleConfirmBatchDelete,
+    handleCopy,
+  } = useBrowserProfileBatchActions({
+    profiles,
+    filteredProfiles,
+    selectedIds,
+    setSelectedIds,
+    setStartingIds,
+    setStoppingIds,
+    mergeProfileState,
+    loadProfiles,
+    setOpError,
+  })
 
-      const startedProfile = await startBrowserInstance(profileId)
-      mergeProfileState(startedProfile)
-      if (startedProfile?.running && !startedProfile.debugReady && startedProfile.runtimeWarning) {
-        toast.warning(startedProfile.runtimeWarning)
-      } else {
-        toast.success(`实例已启动${startedProfile?.profileName ? `：${startedProfile.profileName}` : ''}`)
-      }
-      await loadProfiles({ silent: true, syncRuntimeState: true })
-    } catch (error: any) {
-      const feedback = resolveActionFeedback(error, '实例启动失败')
-      if (feedback.tone === 'warning') {
-        toast.warning(feedback.message)
-      } else {
-        toast.error(feedback.message)
-      }
-      await loadProfiles({ silent: true, syncRuntimeState: true })
-    } finally {
-      updatePendingIds(setStartingIds, profileId, false)
-    }
-  }
-
-  const handleStop = async (profileId: string) => {
-    updatePendingIds(setStoppingIds, profileId, true)
-    try {
-      const stoppedProfile = await stopBrowserInstance(profileId)
-      mergeProfileState(stoppedProfile)
-      toast.success('实例已停止')
-      await loadProfiles({ silent: true, syncRuntimeState: true })
-    } catch (error: any) {
-      toast.error(resolveActionErrorMessage(error, '实例停止失败'))
-      await loadProfiles({ silent: true, syncRuntimeState: true })
-    } finally {
-      updatePendingIds(setStoppingIds, profileId, false)
-    }
-  }
-
-  const handleRestart = async (profileId: string) => {
-    updatePendingIds(setStoppingIds, profileId, true)
-    try {
-      const restartedProfile = await restartBrowserInstance(profileId)
-      mergeProfileState(restartedProfile)
-      toast.success(`实例已重启${restartedProfile?.profileName ? `：${restartedProfile.profileName}` : ''}`)
-      await loadProfiles({ silent: true, syncRuntimeState: true })
-    } catch (error: any) {
-      const feedback = resolveActionFeedback(error, '实例重启失败')
-      if (feedback.tone === 'warning') {
-        toast.warning(feedback.message)
-      } else {
-        setOpError(feedback.message)
-      }
-      await loadProfiles({ silent: true, syncRuntimeState: true })
-    } finally {
-      updatePendingIds(setStoppingIds, profileId, false)
-    }
-  }
-
-  const getProxyDisplayName = (profile: BrowserProfile) => {
-    if (profile.autoProxySwitchEnabled) {
-      const proxy = proxies.find(p => p.proxyId === profile.autoProxySwitchLastProxyId)
-      const mode = profile.autoProxySwitchMode === 'manual' ? '手动' : '定时'
-      const group = profile.autoProxySwitchGroupName || '全部'
-      return `切换(${mode}/${group})：${proxy?.proxyName || profile.autoProxySwitchLastProxyId || '待启动随机'}`
-    }
-    const proxy = proxies.find(p => p.proxyId === profile.proxyId)
-    return proxy ? proxy.proxyName : profile.proxyId || profile.proxyConfig || '-'
-  }
-
-  const handleSwitchProxyNow = async (profileId: string) => {
-    updatePendingIds(setSwitchingProxyIds, profileId, true)
-    try {
-      const updatedProfile = await switchBrowserProfileProxyNow(profileId)
-      mergeProfileState(updatedProfile)
-      const proxy = proxies.find(p => p.proxyId === updatedProfile?.autoProxySwitchLastProxyId)
-      toast.success(`出口已切换${proxy?.proxyName ? `：${proxy.proxyName}` : ''}`)
-      await loadProfiles({ silent: true, syncRuntimeState: true })
-    } catch (error: any) {
-      toast.error(error?.message || '手动切换出口失败')
-    } finally {
-      updatePendingIds(setSwitchingProxyIds, profileId, false)
-    }
-  }
-
-  const handlePinCenter = async (profileId: string) => {
-    updatePendingIds(setPinningIds, profileId, true)
-    try {
-      await pinCenterBrowserInstance(profileId)
-      toast.success('实例窗口已置顶居中')
-    } catch (error: any) {
-      toast.error(error?.message || '置顶居中失败')
-    } finally {
-      updatePendingIds(setPinningIds, profileId, false)
-    }
-  }
-
-  const handleExportCookies = async (profile: BrowserProfile) => {
-    if (!profile.running || !profile.debugReady) {
-      toast.warning(getCookieActionTitle(profile, 'export'))
-      return
-    }
-    updatePendingIds(setExportingCookieIds, profile.profileId, true)
-    try {
-      const content = await exportBrowserCookies(profile.profileId)
-      const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-      const filename = `cookies_${sanitizeFilenamePart(profile.profileName || profile.profileId)}_${stamp}.txt`
-      downloadTextFile(filename, content)
-      toast.success(`Cookie 已导出：${profile.profileName || profile.profileId}`)
-    } catch (error: any) {
-      toast.error(error?.message || '导出 Cookie 失败')
-    } finally {
-      updatePendingIds(setExportingCookieIds, profile.profileId, false)
-    }
-  }
-
-  const handleConfirmClearCookies = async () => {
-    const target = cookieClearTarget
-    if (!target) return
-    if (target.running && !target.debugReady) {
-      toast.warning(getCookieActionTitle(target, 'clear'))
-      return
-    }
-    updatePendingIds(setClearingCookieIds, target.profileId, true)
-    try {
-      await clearBrowserCookies(target.profileId)
-      toast.success(target.running ? `Cookie 已清空：${target.profileName || target.profileId}` : `用户数据已清空，指纹已重置：${target.profileName || target.profileId}`)
-      await loadProfiles({ silent: true, syncRuntimeState: true })
-    } catch (error: any) {
-      toast.error(error?.message || (target.running ? '清空 Cookie 失败' : '清空用户数据失败'))
-    } finally {
-      updatePendingIds(setClearingCookieIds, target.profileId, false)
-      setCookieClearTarget(null)
-    }
-  }
-
-  const loadWindowSyncCandidates = async () => {
-    setWindowSyncLoading(true)
-    try {
-      const items = await listWindowSyncCandidates()
-      setWindowSyncCandidates(items)
-      const selectableIds = new Set(items.filter(item => item.canSync || item.canAutoStart).map(item => item.profileId))
-      setWindowSyncSelectedIds(prev => {
-        const next = new Set(Array.from(prev).filter(id => selectableIds.has(id)))
-        if (next.size === 0) {
-          const selectedSelectable = Array.from(selectedIds).filter(id => selectableIds.has(id))
-          selectedSelectable.forEach(id => next.add(id))
-        }
-        return next
-      })
-      setWindowSyncMasterId(prev => {
-        if (prev && selectableIds.has(prev)) return prev
-        const activeMaster = items.find(item => item.master && item.canSync)?.profileId
-        if (activeMaster) return activeMaster
-        const selectedSelectable = Array.from(selectedIds).find(id => selectableIds.has(id))
-        if (selectedSelectable) return selectedSelectable
-        return items.find(item => item.canSync || item.canAutoStart)?.profileId || ''
-      })
-    } finally {
-      setWindowSyncLoading(false)
-    }
-  }
-
-  const handleOpenWindowSyncModal = async () => {
-    setWindowSyncModalOpen(true)
-    await loadWindowSyncCandidates()
-  }
-
-  const toggleWindowSyncCandidate = (profileId: string) => {
-    const candidate = windowSyncCandidates.find(item => item.profileId === profileId)
-    if (!candidate || (!candidate.canSync && !candidate.canAutoStart)) return
-    setWindowSyncSelectedIds(prev => {
-      const next = new Set(prev)
-      if (next.has(profileId)) {
-        next.delete(profileId)
-        if (windowSyncMasterId === profileId) {
-          setWindowSyncMasterId(Array.from(next)[0] || '')
-        }
-      } else {
-        next.add(profileId)
-        if (!windowSyncMasterId) {
-          setWindowSyncMasterId(profileId)
-        }
-      }
-      return next
-    })
-  }
-
-  const selectableWindowSyncCandidates = () => windowSyncCandidates.filter(candidate => candidate.canSync || !!candidate.canAutoStart)
-
-  const selectAllWindowSyncCandidates = () => {
-    if (windowSyncState?.active) return
-    const selectable = selectableWindowSyncCandidates()
-    const nextIds = new Set(selectable.map(candidate => candidate.profileId))
-    setWindowSyncSelectedIds(nextIds)
-    setWindowSyncMasterId(prev => (prev && nextIds.has(prev) ? prev : selectable[0]?.profileId || ''))
-  }
-
-  const clearWindowSyncCandidates = () => {
-    if (windowSyncState?.active) return
-    setWindowSyncSelectedIds(new Set())
-    setWindowSyncMasterId('')
-  }
-
-  const handleStartWindowSync = async () => {
-    const profileIds = Array.from(windowSyncSelectedIds)
-    if (profileIds.length < 2) {
-      toast.error('至少选择 2 个窗口')
-      return
-    }
-    if (!windowSyncMasterId || !windowSyncSelectedIds.has(windowSyncMasterId)) {
-      toast.error('请选择一个已选窗口作为主控窗口')
-      return
-    }
-    setWindowSyncLoading(true)
-    try {
-      const state = await startWindowSync({ profileIds, masterProfileId: windowSyncMasterId })
-      setWindowSyncState(state?.active ? state : null)
-      if (state?.layout) {
-        setWindowSyncLayout(state.layout)
-      }
-      if (state?.active) {
-        setWindowSyncSettings({
-          masterColor: state.masterColor || '#2563eb',
-          syncKeyboard: state.syncKeyboard !== false,
-          syncMouse: state.syncMouse !== false,
-        })
-      }
-      setWindowSyncModalOpen(false)
-      toast.success('窗口同步已创建，未运行实例已自动启动并加入同步')
-    } catch (error: any) {
-      toast.error(error?.message || '开始窗口同步失败')
-    } finally {
-      setWindowSyncLoading(false)
-    }
-  }
-
-  const handleStopWindowSync = async () => {
-    setWindowSyncLoading(true)
-    try {
-      await stopWindowSync()
-      setWindowSyncState(null)
-      toast.success('窗口同步已停止')
-    } catch (error: any) {
-      toast.error(error?.message || '停止窗口同步失败')
-    } finally {
-      setWindowSyncLoading(false)
-    }
-  }
-
-  const updateWindowSyncLayout = (patch: Partial<WindowSyncLayoutSettings>) => {
-    setWindowSyncLayout(prev => ({ ...prev, ...patch }))
-  }
-
-  const updateWindowSyncSettings = (patch: Partial<WindowSyncSettings>) => {
-    setWindowSyncSettings(prev => ({ ...prev, ...patch }))
-  }
-
-  const handleApplyWindowSyncLayout = async (settings?: WindowSyncLayoutSettings) => {
-    const nextSettings = settings || windowSyncLayout
-    setWindowSyncLoading(true)
-    try {
-      await saveWindowSyncLayoutSettings(nextSettings)
-      const state = await applyWindowSyncLayout(nextSettings)
-      if (state?.active) {
-        setWindowSyncState(state)
-        if (state.layout) {
-          setWindowSyncLayout(state.layout)
-        }
-      } else {
-        setWindowSyncLayout(nextSettings)
-      }
-      toast.success('窗口布局已应用')
-    } catch (error: any) {
-      toast.error(error?.message || '应用窗口布局失败')
-    } finally {
-      setWindowSyncLoading(false)
-    }
-  }
-
-  const handleSaveWindowSyncSettings = async () => {
-    const masterColor = normalizeWindowSyncColor(windowSyncSettings.masterColor)
-    if (!masterColor) {
-      toast.error('主控窗口颜色格式应为 #RGB 或 #RRGGBB')
-      return
-    }
-    setWindowSyncLoading(true)
-    try {
-      const state = await saveWindowSyncSettings({ ...windowSyncSettings, masterColor })
-      if (state?.active) {
-        setWindowSyncState(state)
-        setWindowSyncSettings({
-          masterColor: state.masterColor || '#2563eb',
-          syncKeyboard: state.syncKeyboard !== false,
-          syncMouse: state.syncMouse !== false,
-        })
-      }
-      setWindowSyncSettingsModalOpen(false)
-      toast.success('同步基础设置已保存')
-    } catch (error: any) {
-      toast.error(error?.message || '保存同步基础设置失败')
-    } finally {
-      setWindowSyncLoading(false)
-    }
-  }
-
-  const handleDelete = async (profileId: string) => {
-    const profile = profiles.find(item => item.profileId === profileId)
-    if (!profile) {
-      toast.error('实例不存在或已被删除')
-      return
-    }
-    setDeleteTarget(profile)
-  }
-
-  const handleConfirmDelete = async () => {
-    if (!deleteTarget) return
-    await deleteBrowserProfile(deleteTarget.profileId)
-    toast.success('实例和用户数据目录已删除')
-    setDeleteTarget(null)
-    await loadProfiles()
-  }
-
-  // 批量操作
-  const toggleSelect = (profileId: string) => {
-    setSelectedIds(prev => {
-      const next = new Set(prev)
-      next.has(profileId) ? next.delete(profileId) : next.add(profileId)
-      return next
-    })
-  }
-
-  const getProfileDragPlacement = (event: React.DragEvent<HTMLElement>, layout: 'table' | 'card'): 'before' | 'after' => {
-    const rect = event.currentTarget.getBoundingClientRect()
-    if (layout === 'card' && rect.width > rect.height) {
-      const verticalDistance = Math.abs(event.clientY - (rect.top + rect.height / 2))
-      if (verticalDistance < rect.height * 0.35) {
-        return event.clientX > rect.left + rect.width / 2 ? 'after' : 'before'
-      }
-    }
-    return event.clientY > rect.top + rect.height / 2 ? 'after' : 'before'
-  }
-
-  const reorderProfileOrder = (sourceId: string, targetId: string, placement: 'before' | 'after') => {
-    if (sourceId === targetId) return
-    const visibleIds = filteredProfiles.map(item => item.profileId)
-    if (!visibleIds.includes(sourceId) || !visibleIds.includes(targetId)) return
-
-    const visibleWithoutSource = visibleIds.filter(id => id !== sourceId)
-    const targetIndex = visibleWithoutSource.indexOf(targetId)
-    if (targetIndex < 0) return
-
-    const insertIndex = placement === 'after' ? targetIndex + 1 : targetIndex
-    const nextVisibleIds = [
-      ...visibleWithoutSource.slice(0, insertIndex),
-      sourceId,
-      ...visibleWithoutSource.slice(insertIndex),
-    ]
-    const visibleSet = new Set(nextVisibleIds)
-
-    setProfileOrder(prev => {
-      const currentProfiles = profilesRef.current
-      const currentIds = currentProfiles.map(item => item.profileId)
-      const currentIdSet = new Set(currentIds)
-      const prevSet = new Set(prev)
-      const appendedIds = currentProfiles
-        .filter(item => !prevSet.has(item.profileId))
-        .sort((a, b) => naturalCompareText(a.profileName, b.profileName))
-        .map(item => item.profileId)
-      const fullOrder = [
-        ...prev.filter(id => currentIdSet.has(id)),
-        ...appendedIds,
-      ]
-
-      let visibleIndex = 0
-      const next = fullOrder.map(id => {
-        if (!visibleSet.has(id)) return id
-        return nextVisibleIds[visibleIndex++]
-      })
-      return areStringArraysEqual(prev, next) ? prev : next
-    })
-  }
-
-  const handleProfileDragStart = (event: React.DragEvent<HTMLElement>, profileId: string) => {
-    event.stopPropagation()
-    event.dataTransfer.effectAllowed = 'move'
-    event.dataTransfer.setData('application/x-trace-profile-id', profileId)
-    event.dataTransfer.setData('text/plain', profileId)
-    setDraggingProfileId(profileId)
-    setDragOverProfileId(null)
-  }
-
-  const handleProfileDragOver = (event: React.DragEvent<HTMLElement>, targetId: string, layout: 'table' | 'card') => {
-    if (!draggingProfileId || draggingProfileId === targetId) return
-    event.preventDefault()
-    event.dataTransfer.dropEffect = 'move'
-    const placement = getProfileDragPlacement(event, layout)
-    setDragOverProfileId(prev => prev === targetId ? prev : targetId)
-    setDragOverPlacement(prev => prev === placement ? prev : placement)
-  }
-
-  const handleProfileDragLeave = (event: React.DragEvent<HTMLElement>, targetId: string) => {
-    const relatedTarget = event.relatedTarget as Node | null
-    if (relatedTarget && event.currentTarget.contains(relatedTarget)) return
-    setDragOverProfileId(prev => prev === targetId ? null : prev)
-  }
-
-  const handleProfileDrop = (event: React.DragEvent<HTMLElement>, targetId: string, layout: 'table' | 'card') => {
-    event.preventDefault()
-    const sourceId = event.dataTransfer.getData('application/x-trace-profile-id') || event.dataTransfer.getData('text/plain') || draggingProfileId
-    if (sourceId) {
-      reorderProfileOrder(sourceId, targetId, getProfileDragPlacement(event, layout))
-    }
-    handleProfileDragEnd()
-  }
-
-  const handleProfileDragEnd = () => {
-    setDraggingProfileId(null)
-    setDragOverProfileId(null)
-  }
-
-  const getProfileDragClassName = (profileId: string) => {
-    const classes: string[] = []
-    if (draggingProfileId === profileId) {
-      classes.push('opacity-60')
-    }
-    if (dragOverProfileId === profileId) {
-      classes.push('bg-[var(--color-accent)]/5')
-      classes.push(dragOverPlacement === 'before' ? 'shadow-[inset_0_3px_0_var(--color-accent)]' : 'shadow-[inset_0_-3px_0_var(--color-accent)]')
-    }
-    return classes.join(' ')
-  }
-
-  const renderProfileDragHandle = (record: BrowserProfile) => (
-    <button
-      type="button"
-      draggable
-      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--color-text-muted)] hover:bg-[var(--color-bg-secondary)] hover:text-[var(--color-text-primary)] cursor-grab active:cursor-grabbing"
-      title="拖动排序"
-      aria-label={`拖动排序 ${record.profileName}`}
-      onDragStart={(event) => handleProfileDragStart(event, record.profileId)}
-      onDragEnd={handleProfileDragEnd}
-    >
-      <GripVertical className="h-4 w-4" />
-    </button>
-  )
-
-  const handleSelectAll = () => {
-    setSelectedIds(new Set(filteredProfiles.map(p => p.profileId)))
-  }
-
-  const handleDeselectAll = () => {
-    setSelectedIds(new Set())
-  }
-
-  const handleBatchStart = async () => {
-    const ids = Array.from(selectedIds)
-    if (ids.length === 0) return
-    setBatchLoading(true)
-    let success = 0, pending = 0, failed = 0
-    const pendingMessages: string[] = []
-    const failureMessages: string[] = []
-    for (const id of ids) {
-      const profile = profiles.find(p => p.profileId === id)
-      if (!profile || profile.running) continue
-      updatePendingIds(setStartingIds, id, true)
-      try {
-        const startedProfile = await startBrowserInstance(id)
-        mergeProfileState(startedProfile)
-        success++
-      } catch (error: any) {
-        const feedback = resolveActionFeedback(error, '实例启动失败')
-        if (feedback.pendingAttach) {
-          pending++
-          pendingMessages.push(`${profile.profileName}：${feedback.message}`)
-        } else {
-          failed++
-          failureMessages.push(`${profile.profileName}：${feedback.message}`)
-        }
-      } finally {
-        updatePendingIds(setStartingIds, id, false)
-      }
-    }
-    setBatchLoading(false)
-    const summary = [`成功 ${success}`]
-    if (pending > 0) summary.push(`待接管 ${pending}`)
-    if (failed > 0) summary.push(`失败 ${failed}`)
-    toast.success(`批量启动完成：${summary.join('，')}`)
-    if (pendingMessages.length > 0) {
-      const preview = pendingMessages.slice(0, 3)
-      const more = pendingMessages.length > preview.length ? `\n另有 ${pendingMessages.length - preview.length} 个实例已打开窗口，仍在后台接管。` : ''
-      toast.warning(`以下实例已打开窗口，仍在后台接管：\n${preview.join('\n')}${more}`)
-    }
-    if (failureMessages.length > 0) {
-      const preview = failureMessages.slice(0, 3)
-      const more = failureMessages.length > preview.length ? `\n另有 ${failureMessages.length - preview.length} 个实例启动失败，请逐个检查。` : ''
-      toast.error(`以下实例启动失败：\n${preview.join('\n')}${more}`)
-    }
-    loadProfiles()
-  }
-
-  const handleBatchStop = async () => {
-    const ids = Array.from(selectedIds)
-    if (ids.length === 0) return
-    setBatchLoading(true)
-    let success = 0, failed = 0
-    for (const id of ids) {
-      const profile = profiles.find(p => p.profileId === id)
-      if (!profile || !profile.running) continue
-      updatePendingIds(setStoppingIds, id, true)
-      try {
-        const stoppedProfile = await stopBrowserInstance(id)
-        mergeProfileState(stoppedProfile)
-        success++
-      } catch {
-        failed++
-      } finally {
-        updatePendingIds(setStoppingIds, id, false)
-      }
-    }
-    setBatchLoading(false)
-    toast.success(`批量停止完成：成功 ${success}${failed > 0 ? `，失败 ${failed}` : ''}`)
-    loadProfiles()
-  }
-
-  const handleBatchDelete = async () => {
-    const ids = Array.from(selectedIds)
-    if (ids.length === 0) return
-    setBatchDeleteConfirmOpen(true)
-  }
-
-  const handleConfirmBatchDelete = async () => {
-    const ids = Array.from(selectedIds)
-    if (ids.length === 0) return
-    setBatchDeleteConfirmOpen(false)
-    setBatchLoading(true)
-    try {
-      for (const id of ids) {
-        await deleteBrowserProfile(id)
-      }
-      setSelectedIds(new Set())
-      toast.success(`已删除 ${ids.length} 个实例`)
-      await loadProfiles()
-    } finally {
-      setBatchLoading(false)
-    }
-  }
-
-  const handleCopy = async (profileId: string) => {
-    if (!copyModal.profile) return
-    setCopying(true)
-    try {
-      await copyBrowserProfile(profileId, copyName)
-      toast.success('实例已复制')
-      closeCopyModal()
-      loadProfiles()
-    } catch (error: any) {
-      closeCopyModal()
-      setOpError(typeof error === 'string' ? error : error?.message || '复制失败')
-    } finally {
-      setCopying(false)
-    }
-  }
-
-  const handleOpenSettings = async () => {
-    await Promise.all([loadSettings(), loadCores()])
-    setSettingsModalOpen(true)
-  }
-
-  const handleSaveSettings = async () => {
-    setSavingSettings(true)
-    try {
-      await saveBrowserSettings({
-        ...settings,
-        defaultFingerprintArgs: fingerprintText.split('\n').map(s => s.trim()).filter(Boolean),
-        defaultLaunchArgs: launchText.split('\n').map(s => s.trim()).filter(Boolean),
-      })
-      toast.success('配置已保存')
-      setSettingsModalOpen(false)
-    } catch (error: any) {
-      toast.error(error?.message || '保存失败')
-    } finally {
-      setSavingSettings(false)
-    }
-  }
-
-  // 内核管理
-  const handleOpenCoreModal = (core?: BrowserCore) => {
-    setCoreForm(core ? { ...core } : { coreId: '', coreName: '', corePath: '', isDefault: false })
-    setCoreValidation(null)
-    setCoreModalOpen(true)
-  }
-
-  const handleValidateCorePath = async () => {
-    if (!coreForm.corePath.trim()) {
-      setCoreValidation({ valid: false, message: '请输入路径' })
-      return
-    }
-    const result = await validateBrowserCorePath(coreForm.corePath)
-    setCoreValidation(result)
-  }
-
-  const handleSaveCore = async () => {
-    if (!coreForm.coreName.trim()) {
-      toast.error('请输入内核名称')
-      return
-    }
-    if (!coreForm.corePath.trim()) {
-      toast.error('请输入内核路径')
-      return
-    }
-    setSavingCore(true)
-    try {
-      await saveBrowserCore(coreForm)
-      toast.success('内核已保存')
-      setCoreModalOpen(false)
-      loadCores()
-    } catch (error: any) {
-      toast.error(error?.message || '保存失败')
-    } finally {
-      setSavingCore(false)
-    }
-  }
-
-  const handleDeleteCore = async (coreId: string) => {
-    if (cores.length <= 1) {
-      toast.error('至少保留一个内核')
-      return
-    }
-    await deleteBrowserCore(coreId)
-    toast.success('内核已删除')
-    loadCores()
-  }
-
-  const handleSetDefaultCore = async (coreId: string) => {
-    await setDefaultBrowserCore(coreId)
-    toast.success('已设为默认')
-    loadCores()
-  }
-
-  const toggleVisibleColumn = (key: string) => {
-    const option = PROFILE_COLUMN_OPTIONS.find(item => item.key === key)
-    if (option?.locked) return
-    setVisibleColumnKeys(prev => {
-      const next = prev.includes(key) ? prev.filter(item => item !== key) : [...prev, key]
-      const lockedKeys = PROFILE_COLUMN_OPTIONS.filter(item => item.locked).map(item => item.key)
-      return Array.from(new Set([...lockedKeys, ...next]))
-    })
-  }
+  const getProxyDisplayName = (profile: BrowserProfile) => getBrowserProfileProxyDisplayName(profile, proxies)
 
   const allColumns: TableColumn<BrowserProfile>[] = [
     {
@@ -1528,7 +300,7 @@ export function BrowserListPage() {
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-1.5 min-w-0">
             <Link className="text-[var(--color-accent)] text-sm font-medium hover:underline truncate" to={`/browser/detail/${record.profileId}`}>
-              {value}
+              {String(value ?? '')}
             </Link>
             <CopyProfileNameButton name={record.profileName} />
             {isWindowSyncMaster(record.profileId) && (
@@ -1571,18 +343,18 @@ export function BrowserListPage() {
     {
       key: 'launchCode',
       title: '快捷打开码',
-      render: (value, record) => <LaunchCodeCell profileId={record.profileId} code={value || ''} onRefresh={loadProfiles} />,
+      render: (value, record) => <LaunchCodeCell profileId={record.profileId} code={typeof value === 'string' ? value : ''} onRefresh={loadProfiles} />,
     },
     {
       key: 'keywords',
       title: '关键字',
       width: 200,
-      render: (value) => <KeywordInlineRow keywords={value || []} />,
+      render: (value) => <KeywordInlineRow keywords={Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []} />,
     },
     {
       key: 'updatedAt',
       title: '上次更新',
-      render: formatTime,
+      render: value => formatTime(typeof value === 'string' ? value : undefined),
     },
     {
       key: 'actions',
@@ -1602,54 +374,32 @@ export function BrowserListPage() {
         const canClearCookies = !record.running || record.debugReady
 
         return (
-          <div className="flex justify-end gap-1">
-            {record.running ? (
-              <Button size="sm" variant="secondary" onClick={() => handleStop(record.profileId)} title={disabledBySync ? '同步状态下无法修改主控窗口' : '停止'} loading={isStopping} disabled={disabledBySync}>
-                {!isStopping && <Square className="w-3.5 h-3.5" />}
-              </Button>
-            ) : (
-              <Button size="sm" onClick={() => handleStart(record.profileId)} title={disabledBySync ? '同步状态下无法修改主控窗口' : '启动'} loading={isStarting} disabled={disabledBySync}>
-                {!isStarting && <Play className="w-3.5 h-3.5 fill-current" />}
-              </Button>
-            )}
-            {record.running && record.autoProxySwitchEnabled && (
-              <Button size="sm" variant="ghost" onClick={() => handleSwitchProxyNow(record.profileId)} title={disabledBySync ? '同步状态下无法修改主控窗口' : '手动切换出口'} loading={isSwitchingProxy} disabled={disabledBySync || (isBusy && !isSwitchingProxy)}>
-                {!isSwitchingProxy && <Shuffle className="w-3.5 h-3.5" />}
-              </Button>
-            )}
-            {record.running && (
-              <Button size="sm" variant="ghost" onClick={() => handlePinCenter(record.profileId)} title="置顶居中" loading={isPinning} disabled={isBusy && !isPinning}>
-                {!isPinning && <Focus className="w-3.5 h-3.5" />}
-              </Button>
-            )}
-            <Button size="sm" variant="ghost" onClick={() => handleRestart(record.profileId)} title={disabledBySync ? '同步状态下无法修改主控窗口' : '重启'} disabled={disabledBySync || isBusy}><RotateCcw className="w-3.5 h-3.5" /></Button>
-            <Button size="sm" variant="ghost" onClick={() => openKwModal(record)} title="关键字" disabled={isBusy}><Key className="w-3.5 h-3.5" /></Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => handleExportCookies(record)}
-              aria-label="导出 Cookie 文本"
-              title={getCookieActionTitle(record, 'export')}
-              loading={isExportingCookies}
-              disabled={!canExportCookies || isClearingCookies || (isBusy && !isExportingCookies)}
-            >
-              {!isExportingCookies && <Download className="w-3.5 h-3.5" />}
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => setCookieClearTarget(record)}
-              aria-label={record.running ? '清空全部 Cookie' : '清空用户数据'}
-              title={getCookieActionTitle(record, 'clear')}
-              loading={isClearingCookies}
-              disabled={!canClearCookies || isExportingCookies || (isBusy && !isClearingCookies)}
-            >
-              {!isClearingCookies && <Eraser className="w-3.5 h-3.5 text-red-500" />}
-            </Button>
-            <Link to={`/browser/edit/${record.profileId}`}><Button size="sm" variant="ghost" title={disabledBySync ? '同步状态下无法修改主控窗口' : '配置'} disabled={disabledBySync || isBusy}><Settings className="w-3.5 h-3.5" /></Button></Link>
-            <Button size="sm" variant="ghost" onClick={() => openCopyModal(record)} title="克隆" disabled={isBusy}><Copy className="w-3.5 h-3.5" /></Button>
-            <Button size="sm" variant="ghost" onClick={() => handleDelete(record.profileId)} title={disabledBySync ? '同步状态下无法修改主控窗口' : '删除'} disabled={disabledBySync || isBusy}><Trash2 className="w-3.5 h-3.5 text-red-500" /></Button>
-          </div>
+          <BrowserProfileActions
+            record={record}
+            mode="table"
+            disabledBySync={disabledBySync}
+            isStarting={isStarting}
+            isStopping={isStopping}
+            isSwitchingProxy={isSwitchingProxy}
+            isPinning={isPinning}
+            isExportingCookies={isExportingCookies}
+            isClearingCookies={isClearingCookies}
+            isBusy={isBusy}
+            canExportCookies={canExportCookies}
+            canClearCookies={canClearCookies}
+            exportCookieTitle={getCookieActionTitle(record, 'export')}
+            clearCookieTitle={getCookieActionTitle(record, 'clear')}
+            onStart={handleStart}
+            onStop={handleStop}
+            onSwitchProxyNow={handleSwitchProxyNow}
+            onPinCenter={handlePinCenter}
+            onRestart={handleRestart}
+            onOpenKeywords={openKwModal}
+            onExportCookies={handleExportCookies}
+            onClearCookies={setCookieClearTarget}
+            onCopy={openCopyModal}
+            onDelete={handleDelete}
+          />
         )
       },
     },
@@ -1686,88 +436,32 @@ export function BrowserListPage() {
 
   return (
     <div className="overflow-auto p-5 space-y-5 animate-fade-in h-full">
-      {/* 页头 */}
-      <div className="flex flex-col gap-3 2xl:flex-row 2xl:items-start 2xl:justify-between">
-        <div className="shrink-0">
-          <h1 className="text-xl font-semibold text-[var(--color-text-primary)]">实例列表</h1>
-          <p className="text-sm text-[var(--color-text-muted)] mt-1">
-            当前配置总数 {profiles.length}
-            {filteredProfiles.length !== profiles.length && <span className="ml-1 text-[var(--color-accent)]">（已筛选 {filteredProfiles.length}）</span>}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center justify-start 2xl:justify-end gap-2 min-w-0">
-          <Button variant="secondary" size="sm" className="shrink-0 whitespace-nowrap" onClick={() => setHeaderCollapsed(prev => !prev)}>{headerCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}{headerCollapsed ? '展开面板' : '收起面板'}</Button>
-          <Button variant="secondary" size="sm" className="shrink-0 whitespace-nowrap" onClick={() => { void loadProfiles() }}><RefreshCw className="w-4 h-4" />刷新</Button>
-          <Button variant="secondary" size="sm" className="shrink-0 whitespace-nowrap" onClick={() => setBatchRandomModalOpen(true)}><Wand2 className="w-4 h-4" />批量生成</Button>
-          <Button variant="secondary" size="sm" className="shrink-0 whitespace-nowrap" onClick={() => setBackupModalOpen(true)}><Download className="w-4 h-4" />实例备份与恢复</Button>
-          <Button variant="secondary" size="sm" className="shrink-0 whitespace-nowrap" onClick={handleOpenWindowSyncModal}><MonitorUp className="w-4 h-4" />窗口同步</Button>
-          <Button variant="secondary" size="sm" className="shrink-0 whitespace-nowrap" onClick={handleOpenSettings}><Sliders className="w-4 h-4" />基础配置</Button>
-          <Button variant="secondary" size="sm" onClick={() => setExpandModalOpen(true)} className="shrink-0 whitespace-nowrap text-[var(--color-primary)] border-[var(--color-primary)] hover:bg-[var(--color-primary)]/10">
-            <Plus className="w-4 h-4" />扩容情况
-          </Button>
-          <div className="flex shrink-0 items-center bg-[var(--color-bg-secondary)] rounded-md border border-[var(--color-border-default)] p-0.5">
-            <button
-              className={`p-1.5 rounded text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors ${viewMode === 'card' ? 'bg-[var(--color-bg-surface)] shadow-sm text-[var(--color-accent)]' : ''}`}
-              onClick={() => setViewMode('card')}
-              title="卡片视图"
-            >
-              <LayoutGrid className="w-4 h-4" />
-            </button>
-            <button
-              className={`p-1.5 rounded text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors ${viewMode === 'table' ? 'bg-[var(--color-bg-surface)] shadow-sm text-[var(--color-accent)]' : ''}`}
-              onClick={() => setViewMode('table')}
-              title="表格视图"
-            >
-              <List className="w-4 h-4" />
-            </button>
-          </div>
-          <details className="relative shrink-0">
-            <summary className="list-none p-1.5 rounded text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-secondary)] cursor-pointer" title="选择显示列">
-              <Sliders className="w-4 h-4" />
-            </summary>
-            <div className="absolute right-0 top-9 z-20 w-56 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] shadow-lg p-2">
-              <div className="text-xs font-medium text-[var(--color-text-muted)] px-2 py-1">显示列</div>
-              {PROFILE_COLUMN_OPTIONS.map(option => (
-                <label key={option.key} className="flex items-center gap-2 px-2 py-1.5 text-sm text-[var(--color-text-primary)] rounded hover:bg-[var(--color-bg-secondary)] cursor-pointer">
-                  <input
-                    type="checkbox"
-                    className="w-4 h-4 accent-[var(--color-accent)]"
-                    checked={visibleColumnKeys.includes(option.key)}
-                    disabled={option.locked}
-                    onChange={() => toggleVisibleColumn(option.key)}
-                  />
-                  <span>{option.label}</span>
-                </label>
-              ))}
-            </div>
-          </details>
-          <span className="w-px h-4 bg-[var(--color-border-muted)] mx-1 self-center shrink-0"></span>
-          <Link to="/browser/edit/new" className="shrink-0"><Button size="sm" className="shrink-0 whitespace-nowrap"><Play className="w-4 h-4" />新建配置</Button></Link>
-        </div>
-      </div>
-
-      {/* 可折叠的统计+筛选区 */}
-      {!headerCollapsed && (
-        <>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <StatCard title="配置总数" value={`${profiles.length}`} icon={<FileText className="w-5 h-5" />} />
-            <StatCard title="运行中实例" value={`${runningCount}`} icon={<Activity className="w-5 h-5" />} />
-            <StatCard title="停止实例" value={`${profiles.length - runningCount}`} icon={<Square className="w-5 h-5 text-gray-400" />} />
-          </div>
-
-          <InstanceFilterBar
-            filters={filters}
-            onChange={setFilters}
-            proxies={proxies}
-            cores={cores}
-            allTags={allTags}
-            groups={groups}
-          />
-        </>
-      )}
+      <BrowserListHeaderPanel
+        profilesCount={profiles.length}
+        filteredCount={filteredProfiles.length}
+        runningCount={runningCount}
+        headerCollapsed={headerCollapsed}
+        viewMode={viewMode}
+        visibleColumnKeys={visibleColumnKeys}
+        filters={filters}
+        proxies={proxies}
+        cores={cores}
+        allTags={allTags}
+        groups={groups}
+        onToggleHeaderCollapsed={toggleHeaderCollapsed}
+        onRefresh={() => { void loadProfiles() }}
+        onOpenBatchRandom={() => setBatchRandomModalOpen(true)}
+        onOpenBackup={() => setBackupModalOpen(true)}
+        onOpenWindowSync={handleOpenWindowSyncModal}
+        onOpenSettings={handleOpenSettings}
+        onOpenExpand={() => setExpandModalOpen(true)}
+        onViewModeChange={setViewMode}
+        onToggleColumn={toggleVisibleColumn}
+        onFiltersChange={setFilters}
+      />
 
       {/* 批量操作工具栏 */}
-      <BatchToolbar
+      <BrowserBatchToolbar
         selectedCount={selectedIds.size}
         totalCount={filteredProfiles.length}
         onSelectAll={handleSelectAll}
@@ -1793,7 +487,7 @@ export function BrowserListPage() {
               getRowProps={(record) => ({
                 onDragOver: (event) => handleProfileDragOver(event, record.profileId, 'table'),
                 onDragLeave: (event) => handleProfileDragLeave(event, record.profileId),
-                onDrop: (event) => handleProfileDrop(event, record.profileId, 'table'),
+                onDrop: (event) => handleProfileDrop(event, record.profileId, 'table', filteredProfiles),
                 className: getProfileDragClassName(record.profileId),
               })}
             />
@@ -1820,7 +514,7 @@ export function BrowserListPage() {
                     key={record.profileId}
                     onDragOver={(event) => handleProfileDragOver(event, record.profileId, 'card')}
                     onDragLeave={(event) => handleProfileDragLeave(event, record.profileId)}
-                    onDrop={(event) => handleProfileDrop(event, record.profileId, 'card')}
+                    onDrop={(event) => handleProfileDrop(event, record.profileId, 'card', filteredProfiles)}
                     className={`flex flex-col border rounded-xl bg-[var(--color-bg-surface)] p-3 shadow-[0_1px_4px_rgba(0,0,0,0.08)] transition-all duration-200 h-[320px] overflow-hidden
                         ${isSelected ? 'border-[var(--color-accent)] ring-1 ring-[var(--color-accent)]/20' : 'border-[var(--color-border-default)] hover:border-[var(--color-accent)]'}
                         ${getProfileDragClassName(record.profileId)}
@@ -1867,61 +561,32 @@ export function BrowserListPage() {
                         </Badge>
                       </div>
 
-                      <div className="flex items-center gap-1 flex-wrap">
-                        {record.running ? (
-                          <Button size="sm" variant="secondary" onClick={() => handleStop(record.profileId)} title={disabledBySync ? '同步状态下无法修改主控窗口' : (isStopping ? '停止中' : '停止')} loading={isStopping} disabled={disabledBySync}>
-                            {!isStopping && <Square className="w-4 h-4 mr-1.5" />}
-                            {isStopping ? '停止中' : '停止'}
-                          </Button>
-                        ) : (
-                          <Button size="sm" onClick={() => handleStart(record.profileId)} title={disabledBySync ? '同步状态下无法修改主控窗口' : (isStarting ? '启动中' : '启动')} loading={isStarting} disabled={disabledBySync}>
-                            {!isStarting && <Play className="w-4 h-4 fill-current mr-1.5" />}
-                            {isStarting ? '启动中' : '启动'}
-                          </Button>
-                        )}
-                        {record.running && record.autoProxySwitchEnabled && (
-                          <Button size="sm" variant="ghost" onClick={() => handleSwitchProxyNow(record.profileId)} title={disabledBySync ? '同步状态下无法修改主控窗口' : '手动切换出口'} className="px-3" loading={isSwitchingProxy} disabled={disabledBySync || (isBusy && !isSwitchingProxy)}>
-                            {!isSwitchingProxy && <Shuffle className="w-4 h-4 mr-1.5" />}
-                            {isSwitchingProxy ? '切换中' : '切换出口'}
-                          </Button>
-                        )}
-                        {record.running && (
-                          <Button size="sm" variant="ghost" onClick={() => handlePinCenter(record.profileId)} title="置顶居中" className="px-3" loading={isPinning} disabled={isBusy && !isPinning}>
-                            {!isPinning && <Focus className="w-4 h-4 mr-1.5" />}
-                            {isPinning ? '定位中' : '置顶居中'}
-                          </Button>
-                        )}
-                        <span className="w-px h-4 bg-[var(--color-border-muted)] mx-1"></span>
-                        <Button size="sm" variant="ghost" onClick={() => handleRestart(record.profileId)} title={disabledBySync ? '同步状态下无法修改主控窗口' : '重启'} className="px-3" disabled={disabledBySync || isBusy}><RotateCcw className="w-4 h-4 mr-1.5" />重启</Button>
-                        <Button size="sm" variant="ghost" onClick={() => openKwModal(record)} title="关键字管理" className="px-3" disabled={isBusy}><Key className="w-4 h-4 mr-1.5" />关键字</Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => handleExportCookies(record)}
-                          aria-label="导出 Cookie 文本"
-                          title={getCookieActionTitle(record, 'export')}
-                          className="px-3"
-                          loading={isExportingCookies}
-                          disabled={!canExportCookies || isClearingCookies || (isBusy && !isExportingCookies)}
-                        >
-                          {!isExportingCookies && <Download className="w-4 h-4" />}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => setCookieClearTarget(record)}
-                          aria-label={record.running ? '清空全部 Cookie' : '清空用户数据'}
-                          title={getCookieActionTitle(record, 'clear')}
-                          className="px-3 text-red-500 hover:text-red-600 hover:bg-red-50"
-                          loading={isClearingCookies}
-                          disabled={!canClearCookies || isExportingCookies || (isBusy && !isClearingCookies)}
-                        >
-                          {!isClearingCookies && <Eraser className="w-4 h-4" />}
-                        </Button>
-                        <Link to={`/browser/edit/${record.profileId}`}><Button size="sm" variant="ghost" title={disabledBySync ? '同步状态下无法修改主控窗口' : '配置'} className="px-3" disabled={disabledBySync || isBusy}><Settings className="w-4 h-4 mr-1.5" />配置</Button></Link>
-                        <Button size="sm" variant="ghost" onClick={() => openCopyModal(record)} title="克隆" className="px-3" disabled={isBusy}><Copy className="w-4 h-4 mr-1.5" />克隆</Button>
-                        <Button size="sm" variant="ghost" onClick={() => handleDelete(record.profileId)} title={disabledBySync ? '同步状态下无法修改主控窗口' : '删除'} className="px-3 text-red-500 hover:text-red-600 hover:bg-red-50" disabled={disabledBySync || isBusy}><Trash2 className="w-4 h-4 mr-1.5" />删除</Button>
-                      </div>
+                      <BrowserProfileActions
+                        record={record}
+                        mode="card"
+                        disabledBySync={disabledBySync}
+                        isStarting={isStarting}
+                        isStopping={isStopping}
+                        isSwitchingProxy={isSwitchingProxy}
+                        isPinning={isPinning}
+                        isExportingCookies={isExportingCookies}
+                        isClearingCookies={isClearingCookies}
+                        isBusy={isBusy}
+                        canExportCookies={canExportCookies}
+                        canClearCookies={canClearCookies}
+                        exportCookieTitle={getCookieActionTitle(record, 'export')}
+                        clearCookieTitle={getCookieActionTitle(record, 'clear')}
+                        onStart={handleStart}
+                        onStop={handleStop}
+                        onSwitchProxyNow={handleSwitchProxyNow}
+                        onPinCenter={handlePinCenter}
+                        onRestart={handleRestart}
+                        onOpenKeywords={openKwModal}
+                        onExportCookies={handleExportCookies}
+                        onClearCookies={setCookieClearTarget}
+                        onCopy={openCopyModal}
+                        onDelete={handleDelete}
+                      />
                     </div>
 
                     {/* Body Grid: Key-Value Pairs */}
@@ -1986,401 +651,97 @@ export function BrowserListPage() {
         }}
       />
 
-      {/* 基础配置弹窗 */}
-      <Modal open={settingsModalOpen} onClose={() => setSettingsModalOpen(false)} title="基础配置" width="700px"
-        footer={<><Button variant="secondary" onClick={() => setSettingsModalOpen(false)}>取消</Button><Button onClick={handleSaveSettings} loading={savingSettings}>保存</Button></>}>
-        <div className="space-y-6">
-          {/* 内核管理 */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium text-[var(--color-text-primary)]">内核管理</span>
-              <div className="flex gap-2">
-                <Button size="sm" onClick={() => handleOpenCoreModal()}><Plus className="w-4 h-4" />新增内核</Button>
-              </div>
-            </div>
-            <Card padding="none">
-              <Table columns={coreColumns} data={cores} rowKey="coreId" />
-            </Card>
-          </div>
+      <BrowserListSettingsModal
+        open={settingsModalOpen}
+        settings={settings}
+        fingerprintText={fingerprintText}
+        launchText={launchText}
+        saving={savingSettings}
+        cores={cores}
+        coreColumns={coreColumns}
+        onClose={() => setSettingsModalOpen(false)}
+        onSave={handleSaveSettings}
+        onSettingsChange={setSettings}
+        onFingerprintTextChange={setFingerprintText}
+        onLaunchTextChange={setLaunchText}
+        onOpenCoreModal={() => handleOpenCoreModal()}
+      />
 
-          {/* 其他设置 */}
-          <FormItem label="用户数据根目录">
-            <Input value={settings.userDataRoot} onChange={e => setSettings(prev => ({ ...prev, userDataRoot: e.target.value }))} placeholder="data" />
-          </FormItem>
-          <FormItem label="默认指纹参数（每行一个）">
-            <Textarea value={fingerprintText} onChange={e => setFingerprintText(e.target.value)} rows={3} placeholder="--fingerprint-brand=Chrome" />
-          </FormItem>
-          <FormItem label="默认启动参数（每行一个）">
-            <Textarea value={launchText} onChange={e => setLaunchText(e.target.value)} rows={3} placeholder="--disable-sync" />
-          </FormItem>
-          <FormItem label="默认代理">
-            <Input value={settings.defaultProxy} onChange={e => setSettings(prev => ({ ...prev, defaultProxy: e.target.value }))} placeholder="http://127.0.0.1:7890" />
-          </FormItem>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <FormItem label="启动就绪超时（毫秒）" hint="默认 3000，慢机器可调到 5000-10000">
-              <Input
-                type="number"
-                min={1000}
-                step={500}
-                value={settings.startReadyTimeoutMs}
-                onChange={e => setSettings(prev => ({ ...prev, startReadyTimeoutMs: Math.max(1000, Number(e.target.value) || 3000) }))}
-                placeholder="3000"
-              />
-            </FormItem>
-            <FormItem label="启动稳定窗口（毫秒）" hint="建议 1200-3000">
-              <Input
-                type="number"
-                min={0}
-                step={100}
-                value={settings.startStableWindowMs}
-                onChange={e => setSettings(prev => ({ ...prev, startStableWindowMs: Math.max(0, Number(e.target.value) || 1200) }))}
-                placeholder="1200"
-              />
-            </FormItem>
-          </div>
-        </div>
-      </Modal>
-
-      {/* 窗口同步弹窗 */}
-      <Modal
+      <BrowserWindowSyncModal
         open={windowSyncModalOpen}
+        state={windowSyncState}
+        candidates={windowSyncCandidates}
+        selectedIds={windowSyncSelectedIds}
+        masterId={windowSyncMasterId}
+        loading={windowSyncLoading}
         onClose={() => setWindowSyncModalOpen(false)}
-        title="窗口同步"
-        width="760px"
-        footer={
-          <>
-            {windowSyncState?.active && (
-              <Button variant="secondary" onClick={handleStopWindowSync} loading={windowSyncLoading}>
-                停止同步
-              </Button>
-            )}
-            <Button variant="secondary" onClick={() => setWindowSyncModalOpen(false)}>取消</Button>
-            {!windowSyncState?.active && (
-              <Button onClick={handleStartWindowSync} loading={windowSyncLoading}>
-                开始同步窗口
-              </Button>
-            )}
-          </>
-        }
-      >
-        <div className="space-y-4">
-          {windowSyncState?.active && (
-            <div className="rounded-lg border border-[var(--color-accent)]/25 bg-[var(--color-accent)]/10 px-3 py-2">
-              <div className="flex flex-wrap items-center gap-2 text-sm text-[var(--color-text-primary)]">
-                <Badge variant="info" dot dotClassName="w-2 h-2">同步中</Badge>
-                <span>主控窗口：{windowSyncState.windows.find(item => item.profileId === windowSyncState.masterProfileId)?.profileName || windowSyncState.masterProfileId}</span>
-                <span className="text-[var(--color-text-muted)]">同步状态下无法修改主控窗口。</span>
-              </div>
-            </div>
-          )}
+        onStop={handleStopWindowSync}
+        onStart={handleStartWindowSync}
+        onSelectAll={selectAllWindowSyncCandidates}
+        onClear={clearWindowSyncCandidates}
+        onRefresh={loadWindowSyncCandidates}
+        onToggleCandidate={toggleWindowSyncCandidate}
+        onMasterChange={setWindowSyncMasterId}
+      />
 
-          <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-[var(--color-text-primary)]">选择需要同时操控的窗口</p>
-              <p className="text-xs text-[var(--color-text-muted)] mt-1">已运行实例会立即加入同步；未运行实例可勾选，并在开始同步时自动启动。</p>
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <Button size="sm" variant="secondary" onClick={selectAllWindowSyncCandidates} disabled={!!windowSyncState?.active || windowSyncCandidates.length === 0}>
-                全选
-              </Button>
-              <Button size="sm" variant="ghost" onClick={clearWindowSyncCandidates} disabled={!!windowSyncState?.active || windowSyncSelectedIds.size === 0}>
-                清空
-              </Button>
-              <Button size="sm" variant="secondary" onClick={loadWindowSyncCandidates} loading={windowSyncLoading}>
-                <RefreshCw className="w-4 h-4" />刷新
-              </Button>
-            </div>
-          </div>
-
-          <div className="border border-[var(--color-border-default)] rounded-lg overflow-hidden">
-            <div className="grid grid-cols-[44px_1.4fr_120px_120px_96px] gap-3 bg-[var(--color-bg-secondary)] px-3 py-2 text-xs font-medium text-[var(--color-text-muted)]">
-              <span>选择</span>
-              <span>窗口</span>
-              <span>状态</span>
-              <span>主控窗口</span>
-              <span>调试端口</span>
-            </div>
-            <div className="max-h-[360px] overflow-y-auto divide-y divide-[var(--color-border-muted)]">
-              {windowSyncCandidates.length === 0 ? (
-                <div className="px-3 py-10 text-center text-sm text-[var(--color-text-muted)]">
-                  {windowSyncLoading ? '正在加载窗口...' : '暂无可同步窗口，请先启动至少 2 个实例。'}
-                </div>
-              ) : (
-                windowSyncCandidates.map(candidate => {
-                  const checked = windowSyncSelectedIds.has(candidate.profileId)
-                  const isMaster = windowSyncMasterId === candidate.profileId
-                  const selectable = candidate.canSync || !!candidate.canAutoStart
-                  const statusLabel = candidate.canSync ? '可同步' : candidate.canAutoStart ? '将启动' : '不可用'
-                  const statusVariant = candidate.canSync ? 'success' : candidate.canAutoStart ? 'info' : 'warning'
-                  return (
-                    <div
-                      key={candidate.profileId}
-                      className={`grid grid-cols-[44px_1.4fr_120px_120px_96px] gap-3 items-center px-3 py-2 text-sm ${selectable ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-muted)] bg-[var(--color-bg-muted)]/30'}`}
-                    >
-                      <input
-                        type="checkbox"
-                        className="w-4 h-4 accent-[var(--color-accent)]"
-                        checked={checked}
-                        disabled={!selectable || !!windowSyncState?.active}
-                        onChange={() => toggleWindowSyncCandidate(candidate.profileId)}
-                      />
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="truncate font-medium">{candidate.profileName}</span>
-                          {candidate.master && <Badge variant="info" size="sm">当前主控</Badge>}
-                        </div>
-                        {!candidate.canSync && candidate.unavailable && (
-                          <div className={`text-xs mt-0.5 ${candidate.canAutoStart ? 'text-[var(--color-text-muted)]' : 'text-[var(--color-error)]'}`}>{candidate.unavailable}</div>
-                        )}
-                      </div>
-                      <Badge variant={statusVariant} size="sm" dot>
-                        {statusLabel}
-                      </Badge>
-                      <label className="inline-flex items-center gap-2">
-                        <input
-                          type="radio"
-                          name="window-sync-master"
-                          className="w-4 h-4 accent-[var(--color-accent)]"
-                          checked={isMaster}
-                          disabled={!selectable || !checked || !!windowSyncState?.active}
-                          onChange={() => setWindowSyncMasterId(candidate.profileId)}
-                        />
-                        <span className="text-xs">{isMaster ? '主控' : '设为主控'}</span>
-                      </label>
-                      <span className="text-xs font-mono text-[var(--color-text-muted)]">{candidate.debugPort || '-'}</span>
-                    </div>
-                  )
-                })
-              )}
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--color-text-muted)]">
-            <span>已选 {windowSyncSelectedIds.size} 个窗口</span>
-            <span>主控：{windowSyncCandidates.find(item => item.profileId === windowSyncMasterId)?.profileName || '未选择'}</span>
-          </div>
-        </div>
-      </Modal>
-
-      {/* 窗口布局弹窗 */}
-      <Modal
+      <BrowserWindowSyncLayoutModal
         open={windowSyncLayoutModalOpen}
+        layout={windowSyncLayout}
+        loading={windowSyncLoading}
         onClose={() => setWindowSyncLayoutModalOpen(false)}
-        title="窗口布局"
-        width="560px"
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setWindowSyncLayoutModalOpen(false)}>关闭</Button>
-            <Button
-              onClick={() => {
-                void handleApplyWindowSyncLayout()
-                setWindowSyncLayoutModalOpen(false)
-              }}
-              loading={windowSyncLoading}
-            >
-              应用布局
-            </Button>
-          </>
-        }
-      >
-        <div className="space-y-5">
-          <div className="grid grid-cols-3 gap-2">
-            {[
-              { mode: 'grid', label: '宫格布局', icon: <LayoutGrid className="w-4 h-4" /> },
-              { mode: 'stack', label: '堆叠布局', icon: <Layers className="w-4 h-4" /> },
-              { mode: 'custom', label: '自定义', icon: <Sliders className="w-4 h-4" /> },
-            ].map(item => (
-              <Button
-                key={item.mode}
-                size="sm"
-                variant={windowSyncLayout.mode === item.mode ? 'primary' : 'secondary'}
-                onClick={() => {
-                  const next = { ...windowSyncLayout, mode: item.mode }
-                  setWindowSyncLayout(next)
-                  if (item.mode !== 'custom') {
-                    void handleApplyWindowSyncLayout(next)
-                    setWindowSyncLayoutModalOpen(false)
-                  }
-                }}
-                loading={windowSyncLoading && windowSyncLayout.mode === item.mode}
-              >
-                {item.icon}{item.label}
-              </Button>
-            ))}
-          </div>
+        onApply={handleApplyWindowSyncLayout}
+        onLayoutChange={setWindowSyncLayout}
+        onLayoutPatch={updateWindowSyncLayout}
+      />
 
-          <div className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] px-3 py-2">
-            <p className="text-sm font-medium text-[var(--color-text-primary)]">
-              {windowSyncLayout.mode === 'stack' ? '堆叠布局' : windowSyncLayout.mode === 'custom' ? '自定义布局' : '宫格布局'}
-            </p>
-            <p className="text-xs text-[var(--color-text-muted)] mt-1">
-              {windowSyncLayout.mode === 'stack'
-                ? '所有同步窗口撑满主屏，主控窗口保持在最上层。'
-                : windowSyncLayout.mode === 'custom'
-                  ? '按尺寸、间距和每行数量排列，允许窗口溢出主屏。'
-                  : '所有同步窗口会在主屏工作区自动平铺排列。'}
-            </p>
-          </div>
-
-          <div className={windowSyncLayout.mode === 'custom' ? 'space-y-4' : 'space-y-4 opacity-60'}>
-            <div className="grid grid-cols-2 gap-4">
-              <FormItem label="窗口宽度">
-                <Input
-                  type="number"
-                  min={320}
-                  step={10}
-                  disabled={windowSyncLayout.mode !== 'custom'}
-                  value={windowSyncLayout.width}
-                  onChange={e => updateWindowSyncLayout({ width: Math.max(320, Number(e.target.value) || 1500) })}
-                />
-              </FormItem>
-              <FormItem label="窗口高度">
-                <Input
-                  type="number"
-                  min={240}
-                  step={10}
-                  disabled={windowSyncLayout.mode !== 'custom'}
-                  value={windowSyncLayout.height}
-                  onChange={e => updateWindowSyncLayout({ height: Math.max(240, Number(e.target.value) || 500) })}
-                />
-              </FormItem>
-              <FormItem label="水平间距">
-                <Input
-                  type="number"
-                  min={0}
-                  step={1}
-                  disabled={windowSyncLayout.mode !== 'custom'}
-                  value={windowSyncLayout.gapX}
-                  onChange={e => updateWindowSyncLayout({ gapX: Math.max(0, Number(e.target.value) || 0) })}
-                />
-              </FormItem>
-              <FormItem label="垂直间距">
-                <Input
-                  type="number"
-                  min={0}
-                  step={1}
-                  disabled={windowSyncLayout.mode !== 'custom'}
-                  value={windowSyncLayout.gapY}
-                  onChange={e => updateWindowSyncLayout({ gapY: Math.max(0, Number(e.target.value) || 0) })}
-                />
-              </FormItem>
-            </div>
-            <FormItem label="每行数量">
-              <Input
-                type="number"
-                min={1}
-                step={1}
-                disabled={windowSyncLayout.mode !== 'custom'}
-                value={windowSyncLayout.perRow}
-                onChange={e => updateWindowSyncLayout({ perRow: Math.max(1, Number(e.target.value) || 2) })}
-              />
-            </FormItem>
-          </div>
-        </div>
-      </Modal>
-
-      {/* 窗口同步基础设置弹窗 */}
-      <Modal
+      <BrowserWindowSyncSettingsModal
         open={windowSyncSettingsModalOpen}
+        settings={windowSyncSettings}
+        loading={windowSyncLoading}
         onClose={() => setWindowSyncSettingsModalOpen(false)}
-        title="窗口同步设置"
-        width="460px"
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setWindowSyncSettingsModalOpen(false)}>取消</Button>
-            <Button onClick={handleSaveWindowSyncSettings} loading={windowSyncLoading}>保存</Button>
-          </>
-        }
-      >
-        <div className="space-y-5">
-          <FormItem label="主控窗口颜色">
-            <div className="flex items-center gap-3">
-              <input
-                type="color"
-                value={windowSyncSettings.masterColor || '#2563eb'}
-                onChange={e => updateWindowSyncSettings({ masterColor: e.target.value })}
-                className="h-9 w-12 rounded border border-[var(--color-border-default)] bg-transparent"
-              />
-              <Input
-                value={windowSyncSettings.masterColor || '#2563eb'}
-                onChange={e => updateWindowSyncSettings({ masterColor: e.target.value })}
-                placeholder="#2563eb"
-              />
-            </div>
-          </FormItem>
+        onSave={handleSaveWindowSyncSettings}
+        onSettingsChange={updateWindowSyncSettings}
+      />
 
-          <div className="space-y-3">
-            <div className="flex items-center justify-between rounded-lg border border-[var(--color-border-default)] px-3 py-3">
-              <div>
-                <p className="text-sm font-medium text-[var(--color-text-primary)]">同步键盘输入</p>
-                <p className="text-xs text-[var(--color-text-muted)] mt-1">开启后，主控窗口的按键会发送到被控窗口。</p>
-              </div>
-              <Switch
-                checked={windowSyncSettings.syncKeyboard}
-                onChange={checked => updateWindowSyncSettings({ syncKeyboard: checked })}
-              />
-            </div>
-            <div className="flex items-center justify-between rounded-lg border border-[var(--color-border-default)] px-3 py-3">
-              <div>
-                <p className="text-sm font-medium text-[var(--color-text-primary)]">同步鼠标输入</p>
-                <p className="text-xs text-[var(--color-text-muted)] mt-1">开启后，点击和滚动会发送到被控窗口。</p>
-              </div>
-              <Switch
-                checked={windowSyncSettings.syncMouse}
-                onChange={checked => updateWindowSyncSettings({ syncMouse: checked })}
-              />
-            </div>
-          </div>
-        </div>
-      </Modal>
+      <BrowserCoreEditModal
+        open={coreModalOpen}
+        form={coreForm}
+        validation={coreValidation}
+        saving={savingCore}
+        onClose={() => setCoreModalOpen(false)}
+        onSave={handleSaveCore}
+        onValidatePath={handleValidateCorePath}
+        onFormChange={setCoreForm}
+        onValidationReset={() => setCoreValidation(null)}
+      />
 
-      {/* 内核编辑弹窗 */}
-      <Modal open={coreModalOpen} onClose={() => setCoreModalOpen(false)} title={coreForm.coreId ? '编辑内核' : '新增内核'} width="500px"
-        footer={<><Button variant="secondary" onClick={() => setCoreModalOpen(false)}>取消</Button><Button onClick={handleSaveCore} loading={savingCore}>保存</Button></>}>
-        <div className="space-y-4">
-          <FormItem label="内核名称" required>
-            <Input value={coreForm.coreName} onChange={e => setCoreForm(prev => ({ ...prev, coreName: e.target.value }))} placeholder="Chrome 142" />
-          </FormItem>
-          <FormItem label="内核路径" required>
-            <div className="flex gap-2">
-              <Input value={coreForm.corePath} onChange={e => { setCoreForm(prev => ({ ...prev, corePath: e.target.value })); setCoreValidation(null) }} placeholder="chrome 或 D:/browsers/chrome-120" className="flex-1" />
-              <Button variant="secondary" onClick={handleValidateCorePath}>验证</Button>
-            </div>
-            {coreValidation && (
-              <div className={`flex items-center gap-1 mt-1 text-sm ${coreValidation.valid ? 'text-green-600' : 'text-red-600'}`}>
-                {coreValidation.valid ? <CheckCircle className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
-                {coreValidation.message}
-              </div>
-            )}
-          </FormItem>
-        </div>
-      </Modal>
-
-      {/* 代理不支持弹窗 */}
-      <Modal
-        open={proxyErrorModal}
-        onClose={() => { setProxyErrorModal(false); setPendingStartId(null) }}
-        title="代理链路不可用"
-        width="420px"
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => { setProxyErrorModal(false); setPendingStartId(null) }}>取消</Button>
-            {pendingStartId && (
-              <Link to={`/browser/edit/${pendingStartId}`}>
-                <Button onClick={() => setProxyErrorModal(false)}>去修改代理</Button>
-              </Link>
-            )}
-          </>
-        }
-      >
-        <div className="space-y-3">
-          <div className="flex items-start gap-3 p-3 rounded-lg bg-[var(--color-bg-secondary)]">
-            <XCircle className="w-5 h-5 text-red-500 mt-0.5 shrink-0" />
-            <p className="text-sm text-[var(--color-text-primary)]">{proxyErrorMsg}</p>
-          </div>
-          <p className="text-sm text-[var(--color-text-muted)]">请前往编辑页面重新选择可用链路；如果是订阅导入，先刷新订阅并确认该节点仍存在。</p>
-        </div>
-      </Modal>
+      <BrowserListFeedbackModals
+        proxyErrorOpen={proxyErrorModal}
+        proxyErrorMessage={proxyErrorMsg}
+        pendingStartId={pendingStartId}
+        onCloseProxyError={closeProxyError}
+        expandOpen={expandModalOpen}
+        profileCount={profiles.length}
+        onCloseExpand={() => setExpandModalOpen(false)}
+        copyModal={copyModal}
+        copyName={copyName}
+        copying={copying}
+        onCloseCopy={closeCopyModal}
+        onCopyNameChange={setCopyName}
+        onConfirmCopy={profileId => handleCopy(profileId)}
+        operationError={opError}
+        onCloseOperationError={() => setOpError('')}
+        cookieClearTarget={cookieClearTarget}
+        onCloseCookieClear={() => setCookieClearTarget(null)}
+        onConfirmCookieClear={handleConfirmClearCookies}
+        deleteTarget={deleteTarget}
+        onCloseDelete={() => setDeleteTarget(null)}
+        onConfirmDelete={handleConfirmDelete}
+        batchDeleteOpen={batchDeleteConfirmOpen}
+        selectedCount={selectedIds.size}
+        onCloseBatchDelete={() => setBatchDeleteConfirmOpen(false)}
+        onConfirmBatchDelete={handleConfirmBatchDelete}
+      />
 
       {/* 关键字弹窗 */}
       {kwModal.profile && (
@@ -2398,123 +759,6 @@ export function BrowserListPage() {
         />
       )}
 
-      {/* 扩容弹窗 */}
-      <Modal
-        open={expandModalOpen}
-        onClose={() => setExpandModalOpen(false)}
-        title="实例扩容情况"
-        width="480px"
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setExpandModalOpen(false)}>关闭</Button>
-          </>
-        }
-      >
-        <div className="space-y-4">
-          <div className="bg-[var(--color-bg-secondary)] p-4 rounded-lg flex items-center justify-between border border-[var(--color-border-default)]">
-            <div>
-              <p className="text-sm font-medium text-[var(--color-text-primary)]">当前使用情况</p>
-              <p className="text-xs text-[var(--color-text-muted)] mt-1">实例数量不再设置固定上限</p>
-            </div>
-            <div className="text-right">
-              <span className="text-2xl font-semibold text-[var(--color-success)]">
-                {profiles.length}
-              </span>
-              <span className="text-sm text-[var(--color-text-muted)] ml-1">/ 无限制</span>
-            </div>
-          </div>
-
-          <div className="mt-4 p-3 bg-[var(--color-success)]/10 border border-[var(--color-success)]/20 rounded-lg">
-            <p className="text-sm text-[var(--color-text-primary)]">当前为无限制扩容模式，无需兑换码即可继续创建或复制实例。</p>
-          </div>
-        </div>
-      </Modal>
-
-      {/* 复制实例弹窗 */}
-      <Modal
-        open={copyModal.open}
-        onClose={closeCopyModal}
-        title="复制实例"
-        width="420px"
-        footer={
-          <>
-            <Button variant="secondary" onClick={closeCopyModal}>取消</Button>
-            <Button onClick={() => copyModal.profile && handleCopy(copyModal.profile.profileId)} loading={copying}>确认复制</Button>
-          </>
-        }
-      >
-        <div className="space-y-4">
-          <p className="text-sm text-[var(--color-text-muted)]">
-            复制实例将保留原有的代理、内核、启动参数、标签等配置，但会生成新的指纹种子。
-          </p>
-          <FormItem label="新实例名称" required>
-            <Input
-              value={copyName}
-              onChange={e => setCopyName(e.target.value)}
-              placeholder="请输入新实例名称"
-              autoFocus
-            />
-          </FormItem>
-        </div>
-      </Modal>
-
-      {/* 操作错误弹窗 */}
-      <Modal
-        open={!!opError}
-        onClose={() => setOpError('')}
-        title="操作失败"
-        width="420px"
-        footer={<Button onClick={() => setOpError('')}>知道了</Button>}
-      >
-        <div className="text-[var(--color-text-secondary)] whitespace-pre-line">{opError}</div>
-      </Modal>
-
-      <ConfirmModal
-        open={!!cookieClearTarget}
-        onClose={() => setCookieClearTarget(null)}
-        onConfirm={handleConfirmClearCookies}
-        title={cookieClearTarget?.running ? '清空 Cookie' : '清空用户数据'}
-        content={
-          <div className="space-y-2">
-            <p>{cookieClearTarget?.running ? `确定清空实例「${cookieClearTarget?.profileName || ''}」的所有 Cookie？` : `确定清空实例「${cookieClearTarget?.profileName || ''}」的用户数据目录？`}</p>
-            <p className="text-sm text-red-500">
-              {cookieClearTarget?.running ? '该操作会删除当前浏览器会话中的全部 Cookie，无法恢复。' : '实例未运行时会删除该用户数据目录下的全部文件，无法恢复。'}
-            </p>
-          </div>
-        }
-        confirmText={cookieClearTarget?.running ? '清空 Cookie' : '清空用户数据'}
-        danger
-      />
-
-      <ConfirmModal
-        open={!!deleteTarget}
-        onClose={() => setDeleteTarget(null)}
-        onConfirm={handleConfirmDelete}
-        title="删除实例"
-        content={
-          <div className="space-y-2">
-            <p>确定删除实例「{deleteTarget?.profileName || ''}」？</p>
-            <p className="text-sm text-red-500">该操作会同时删除这个实例的用户数据目录，无法恢复。</p>
-          </div>
-        }
-        confirmText="删除实例"
-        danger
-      />
-
-      <ConfirmModal
-        open={batchDeleteConfirmOpen}
-        onClose={() => setBatchDeleteConfirmOpen(false)}
-        onConfirm={handleConfirmBatchDelete}
-        title="批量删除实例"
-        content={
-          <div className="space-y-2">
-            <p>确定删除选中的 {selectedIds.size} 个实例？</p>
-            <p className="text-sm text-red-500">该操作会同时删除这些实例的用户数据目录，无法恢复。</p>
-          </div>
-        }
-        confirmText="删除所选"
-        danger
-      />
     </div>
   )
 }

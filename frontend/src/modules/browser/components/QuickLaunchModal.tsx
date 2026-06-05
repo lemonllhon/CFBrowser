@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { Keyboard, Play, Search, Tag } from 'lucide-react'
 import { Badge, Button, Modal, toast } from '../../../shared/components'
 import { fetchBrowserProfiles, fetchGroups, startBrowserInstanceByCode } from '../api'
@@ -285,7 +285,7 @@ export function QuickLaunchModal({ open, onClose }: QuickLaunchModalProps) {
       toast.success(profile?.running ? `实例「${profile.profileName}」已在运行` : `实例「${profile?.profileName || normalized}」已启动`)
       onClose()
       return true
-    } catch (error: any) {
+    } catch (error: unknown) {
       const feedback = resolveActionFeedback(error, '按 Code 启动失败')
       if (feedback.tone === 'warning') {
         toast.warning(feedback.message)

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { isValidElement, useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { CheckCircle, ChevronRight, Copy, FileText } from 'lucide-react'
@@ -1453,9 +1453,9 @@ function MarkdownContent({ content }: { content: string }) {
           )
         },
         pre: ({ children }) => {
-          const codeEl = (children as any)?.props
-          const lang = codeEl?.className?.replace('language-', '') || ''
-          const codeText = codeEl?.children || ''
+          const codeProps = isValidElement<{ className?: string; children?: unknown }>(children) ? children.props : null
+          const lang = codeProps?.className?.replace('language-', '') || ''
+          const codeText = codeProps?.children || ''
           return (
             <div className="my-4 rounded-lg overflow-hidden border border-[var(--color-border-default)]">
               <div className="flex items-center justify-between px-4 py-2 bg-[var(--color-bg-surface)] border-b border-[var(--color-border-muted)]">

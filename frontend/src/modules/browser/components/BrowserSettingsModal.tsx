@@ -10,6 +10,7 @@ import {
   setDefaultBrowserCore,
   validateBrowserCorePath,
 } from '../api'
+import { resolveActionErrorMessage } from '../utils/actionErrors'
 
 interface BrowserSettingsModalProps {
   open: boolean
@@ -41,8 +42,8 @@ export function BrowserSettingsModal({ open, onClose, settings: initSettings, co
       })
       toast.success('配置已保存')
       onClose()
-    } catch (error: any) {
-      toast.error(error?.message || '保存失败')
+    } catch (error: unknown) {
+      toast.error(resolveActionErrorMessage(error, '保存失败'))
     } finally {
       setSaving(false)
     }
@@ -70,8 +71,8 @@ export function BrowserSettingsModal({ open, onClose, settings: initSettings, co
       // 刷新 cores 列表
       const { fetchBrowserCores } = await import('../api')
       onCoresChange(await fetchBrowserCores())
-    } catch (error: any) {
-      toast.error(error?.message || '保存失败')
+    } catch (error: unknown) {
+      toast.error(resolveActionErrorMessage(error, '保存失败'))
     } finally {
       setSavingCore(false)
     }

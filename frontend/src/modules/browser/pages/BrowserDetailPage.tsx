@@ -40,6 +40,29 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: 'snapshot', label: '快照管理' },
 ]
 
+type BrowserRuntimeEventPayload = {
+  profileId?: unknown
+  error?: unknown
+}
+
+const runtimeEventRecord = (payload: unknown): BrowserRuntimeEventPayload | null => {
+  if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+    return payload as BrowserRuntimeEventPayload
+  }
+  return null
+}
+
+const runtimeEventProfileId = (payload: unknown): string => {
+  if (typeof payload === 'string') return payload
+  const profileId = runtimeEventRecord(payload)?.profileId
+  return typeof profileId === 'string' ? profileId : ''
+}
+
+const runtimeEventHasTerminalState = (payload: unknown): boolean => {
+  if (typeof payload === 'string') return true
+  return Boolean(runtimeEventRecord(payload)?.error)
+}
+
 export function BrowserDetailPage() {
   const { id } = useParams()
   const [profile, setProfile] = useState<BrowserProfile | null>(null)
@@ -75,14 +98,13 @@ export function BrowserDetailPage() {
   useEffect(() => {
     if (!id) return
 
-    const handleRuntimeChange = (payload: any) => {
-      const profileId = typeof payload === 'string' ? payload : payload?.profileId
-      if (profileId !== id) return
+    const handleRuntimeChange = (payload: unknown) => {
+      if (runtimeEventProfileId(payload) !== id) return
 
       setPendingAction(null)
       void loadProfile()
 
-      if (typeof payload === 'string' || payload?.error) {
+      if (runtimeEventHasTerminalState(payload)) {
         setTabs([])
         return
       }
@@ -128,7 +150,7 @@ export function BrowserDetailPage() {
       } else {
         toast.success('实例已启动')
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       const feedback = resolveActionFeedback(error, '实例启动失败')
       if (feedback.tone === 'warning') {
         toast.warning(feedback.message)
@@ -149,7 +171,7 @@ export function BrowserDetailPage() {
         setProfile(stoppedProfile)
       }
       toast.success('实例已停止')
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast.error(resolveActionErrorMessage(error, '实例停止失败'))
     } finally {
       await loadProfile()
@@ -165,7 +187,7 @@ export function BrowserDetailPage() {
         setProfile(restartedProfile)
       }
       toast.success('实例已重启')
-    } catch (error: any) {
+    } catch (error: unknown) {
       const feedback = resolveActionFeedback(error, '实例重启失败')
       if (feedback.tone === 'warning') {
         toast.warning(feedback.message)
@@ -187,8 +209,8 @@ export function BrowserDetailPage() {
       }
       const proxyName = updatedProfile?.autoProxySwitchLastProxyId ? proxyNames[updatedProfile.autoProxySwitchLastProxyId] : ''
       toast.success(`出口已切换${proxyName ? `：${proxyName}` : ''}`)
-    } catch (error: any) {
-      toast.error(error?.message || '手动切换出口失败')
+    } catch (error: unknown) {
+      toast.error(resolveActionErrorMessage(error, '手动切换出口失败'))
     } finally {
       await loadProfile()
       setPendingAction(null)

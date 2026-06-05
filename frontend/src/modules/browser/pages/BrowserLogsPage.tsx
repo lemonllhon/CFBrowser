@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { RefreshCw, Trash2 } from 'lucide-react'
 import { Badge, Button, Card } from '../../../shared/components'
-import { clearAppLogs, listAppLogs } from '../../../shared/backend/client'
+import { clearAppLogs, listAppLogs, type ProtoJSONObject } from '../../../shared/backend/client'
 
 interface LogEntry {
   time: string
   level: string
   component: string
   message: string
-  fields?: Record<string, any>
+  fields?: ProtoJSONObject
 }
 
 const LEVELS = ['ALL', 'DEBUG', 'INFO', 'WARN', 'ERROR']

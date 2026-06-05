@@ -25,6 +25,7 @@ import {
   readFields,
 } from './protobuf'
 import { ProtoIpcClient } from './transport'
+import { decodeProtoJSONObject, type ProtoJSONObject } from './json'
 import { decodeBrowserActionResponse } from './browser'
 
 const proxyProtoClient = new ProtoIpcClient()
@@ -87,7 +88,7 @@ export type ProtoProxyIPHealthResult = {
   region: string
   city: string
   asOrganization: string
-  rawData: Record<string, unknown>
+  rawData: ProtoJSONObject
   updatedAt: string
 }
 
@@ -568,17 +569,6 @@ function decodeSignedInt64(value: Uint8Array): number {
   return Number(signed)
 }
 
-function decodeJSONRecord(value: string): Record<string, unknown> {
-  if (!value) {
-    return {}
-  }
-  try {
-    const parsed = JSON.parse(value)
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return parsed as Record<string, unknown>
-    }
-  } catch {
-    // Ignore malformed diagnostic payloads from external services.
-  }
-  return {}
+function decodeJSONRecord(value: string): ProtoJSONObject {
+  return decodeProtoJSONObject(value)
 }

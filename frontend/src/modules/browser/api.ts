@@ -605,21 +605,46 @@ export interface LaunchServerInfo {
   }
 }
 
-function normalizeLaunchServerInfo(payload: any): LaunchServerInfo {
-  const host = String(payload?.host || '127.0.0.1')
-  const port = Number(payload?.port) || 0
-  const preferredPort = Number(payload?.preferredPort) || 0
+function asLaunchServerRecord(value: unknown): Record<string, unknown> {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>
+  }
+  return {}
+}
+
+function launchStringField(record: Record<string, unknown>, key: string, fallback: string): string {
+  const value = record[key]
+  if (value === null || value === undefined || value === '') {
+    return fallback
+  }
+  return String(value)
+}
+
+function launchNumberField(record: Record<string, unknown>, key: string): number {
+  const value = record[key]
+  return typeof value === 'number' || typeof value === 'string' ? Number(value) || 0 : 0
+}
+
+function launchBooleanField(record: Record<string, unknown>, key: string): boolean {
+  return Boolean(record[key])
+}
+
+function normalizeLaunchServerInfo(payload: unknown): LaunchServerInfo {
+  const record = asLaunchServerRecord(payload)
+  const host = launchStringField(record, 'host', '127.0.0.1')
+  const port = launchNumberField(record, 'port')
+  const preferredPort = launchNumberField(record, 'preferredPort')
   const fallbackPort = preferredPort > 0 ? preferredPort : 19876
   const effectivePort = port > 0 ? port : fallbackPort
-  const baseUrl = String(payload?.baseUrl || (effectivePort > 0 ? `http://${host}:${effectivePort}` : ''))
-  const cdpUrl = String(payload?.cdpUrl || baseUrl)
-  const activeDebugPort = Number(payload?.activeDebugPort) || 0
-  const apiAuthPayload = payload?.apiAuth || {}
+  const baseUrl = launchStringField(record, 'baseUrl', effectivePort > 0 ? `http://${host}:${effectivePort}` : '')
+  const cdpUrl = launchStringField(record, 'cdpUrl', baseUrl)
+  const activeDebugPort = launchNumberField(record, 'activeDebugPort')
+  const apiAuthPayload = asLaunchServerRecord(record.apiAuth)
   const apiAuth = {
-    requested: !!apiAuthPayload?.requested,
-    configured: !!apiAuthPayload?.configured,
-    enabled: !!apiAuthPayload?.enabled,
-    header: String(apiAuthPayload?.header || 'X-Ant-Api-Key'),
+    requested: launchBooleanField(apiAuthPayload, 'requested'),
+    configured: launchBooleanField(apiAuthPayload, 'configured'),
+    enabled: launchBooleanField(apiAuthPayload, 'enabled'),
+    header: launchStringField(apiAuthPayload, 'header', 'X-Ant-Api-Key'),
   }
 
   return {
@@ -629,7 +654,7 @@ function normalizeLaunchServerInfo(payload: any): LaunchServerInfo {
     baseUrl,
     cdpUrl,
     activeDebugPort,
-    ready: !!payload?.ready && port > 0,
+    ready: launchBooleanField(record, 'ready') && port > 0,
     apiAuth,
   }
 }

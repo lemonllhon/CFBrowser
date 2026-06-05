@@ -44,11 +44,14 @@ function importTypeFromPath(path: string): 'archive' | 'directory' {
   return /\.(zip|crx)$/i.test(path.trim()) ? 'archive' : 'directory'
 }
 
-function errorMessage(error: any, fallback: string) {
+function errorMessage(error: unknown, fallback: string) {
   if (!error) return fallback
   if (typeof error === 'string') return error || fallback
-  if (typeof error?.message === 'string' && error.message.trim()) return error.message
-  if (typeof error?.error === 'string' && error.error.trim()) return error.error
+  if (typeof error === 'object') {
+    const record = error as { message?: unknown; error?: unknown }
+    if (typeof record.message === 'string' && record.message.trim()) return record.message
+    if (typeof record.error === 'string' && record.error.trim()) return record.error
+  }
   try {
     return JSON.stringify(error)
   } catch {
@@ -116,7 +119,7 @@ export function ExtensionManagementPage() {
     try {
       const list = await fetchBrowserExtensions()
       setExtensions(list)
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast.error(errorMessage(error, '加载扩展列表失败'), 6000)
     } finally {
       setLoading(false)
@@ -161,7 +164,7 @@ export function ExtensionManagementPage() {
       if (detail) {
         setSelectedExtension(detail)
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast.error(errorMessage(error, '加载扩展详情失败'), 6000)
     } finally {
       setDetailLoading(false)
@@ -182,7 +185,7 @@ export function ExtensionManagementPage() {
       if (detail) {
         setSelectedExtension(detail)
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast.error(errorMessage(error, '加载扩展详情失败'), 6000)
     }
     await Promise.all([
@@ -202,7 +205,7 @@ export function ExtensionManagementPage() {
     try {
       const list = await fetchBrowserProfiles()
       setProfiles(list)
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast.error(errorMessage(error, '加载实例列表失败'), 6000)
     }
   }
@@ -214,7 +217,7 @@ export function ExtensionManagementPage() {
     try {
       const list = await fetchBrowserExtensionProfileBindings(id)
       setBindings(list)
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast.error(errorMessage(error, '加载扩展绑定失败'), 6000)
     } finally {
       setBindingsLoading(false)
@@ -236,7 +239,7 @@ export function ExtensionManagementPage() {
         setSelectedExtension(null)
       }
       toast.success('扩展插件已删除')
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast.error(errorMessage(error, '删除扩展插件失败'), 6000)
     } finally {
       setDeletingExtension(null)
@@ -258,7 +261,7 @@ export function ExtensionManagementPage() {
       if (!result?.cancelled && result?.path) {
         setImportPath(result.path)
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast.error(errorMessage(error, '选择路径失败'), 6000)
     }
   }
@@ -291,7 +294,7 @@ export function ExtensionManagementPage() {
         setSelectedExtension(result.extension)
         setDetailOpen(true)
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast.error(errorMessage(error, '导入扩展插件失败'), 6000)
     } finally {
       setImporting(false)
@@ -351,7 +354,7 @@ export function ExtensionManagementPage() {
       if (stoppedForDuplicate) {
         toast.info('发现重复扩展，请在弹窗中选择处理方式')
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast.error(errorMessage(error, '拖拽导入扩展失败'), 6000)
     } finally {
       setImporting(false)
@@ -483,7 +486,7 @@ export function ExtensionManagementPage() {
       setAutoBindModalOpen(false)
       const runningCount = profiles.filter(profile => profile.running).length
       toast.success(autoBindEnabled && runningCount > 0 ? `自动绑定已开启，${runningCount} 个运行中实例需重启后生效` : (autoBindEnabled ? '自动绑定已开启' : '自动绑定已关闭'))
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast.error(errorMessage(error, '保存自动绑定失败'), 6000)
     } finally {
       setAutoBindSaving(false)
@@ -510,7 +513,7 @@ export function ExtensionManagementPage() {
       await refreshSelectedExtension()
       const runningCount = profiles.filter(profile => profileIds.includes(profile.profileId) && profile.running).length
       toast.success(runningCount > 0 ? `扩展绑定已保存，${runningCount} 个运行中实例需重启后生效` : '扩展绑定已保存')
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast.error(errorMessage(error, '保存扩展绑定失败'), 6000)
     } finally {
       setBindingSaving(false)
@@ -534,7 +537,7 @@ export function ExtensionManagementPage() {
       await refreshSelectedExtension()
       const runningCount = profiles.filter(profile => profileIds.includes(profile.profileId) && profile.running).length
       toast.success(runningCount > 0 ? `扩展绑定已移除，${runningCount} 个运行中实例需重启后生效` : '扩展绑定已移除')
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast.error(errorMessage(error, '移除扩展绑定失败'), 6000)
     } finally {
       setBindingSaving(false)
@@ -558,7 +561,7 @@ export function ExtensionManagementPage() {
       const profile = profiles.find(item => item.profileId === binding.profileId)
       const message = '扩展绑定已更新'
       toast.success(profile?.running ? `${message}，运行中实例需重启后生效` : message)
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast.error(errorMessage(error, '更新扩展绑定失败'), 6000)
     } finally {
       setBindingSaving(false)
@@ -586,7 +589,7 @@ export function ExtensionManagementPage() {
       setBindings(list)
       await refreshSelectedExtension()
       toast.success(`数据同步完成：${targetProfileIds.length} 个副实例已更新`)
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast.error(errorMessage(error, '数据同步失败'), 6000)
     } finally {
       setSyncingData(false)
@@ -619,35 +622,38 @@ export function ExtensionManagementPage() {
       title: '版本',
       width: '9%',
       align: 'center',
-      render: (value) => value || '-',
+      render: (value) => String(value ?? '-') || '-',
     },
     {
       key: 'manifestVersion',
       title: 'Manifest',
       width: '10%',
       align: 'center',
-      render: (value) => value ? `MV${value}` : '-',
+      render: (value) => value ? `MV${String(value)}` : '-',
     },
     {
       key: 'sourceType',
       title: '来源',
       width: '10%',
       align: 'center',
-      render: (value) => <Badge variant="default">{sourceLabel(value)}</Badge>,
+      render: (value) => <Badge variant="default">{sourceLabel(typeof value === 'string' ? value : '')}</Badge>,
     },
     {
       key: 'boundCount',
       title: '绑定实例',
       width: '10%',
       align: 'center',
-      render: (value) => <Badge variant={value > 0 ? 'info' : 'default'}>{value || 0}</Badge>,
+      render: (value) => {
+        const count = typeof value === 'number' ? value : 0
+        return <Badge variant={count > 0 ? 'info' : 'default'}>{count}</Badge>
+      },
     },
     {
       key: 'updatedAt',
       title: '更新时间',
       width: '15%',
       align: 'center',
-      render: (value) => formatTime(value),
+      render: (value) => formatTime(typeof value === 'string' ? value : ''),
     },
     {
       key: 'actions',

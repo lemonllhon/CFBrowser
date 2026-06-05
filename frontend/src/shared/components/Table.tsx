@@ -15,7 +15,7 @@ export interface TableColumn<T> {
   width?: string | number
   align?: 'left' | 'center' | 'right'
   headerAlign?: 'left' | 'center' | 'right'
-  render?: (value: any, record: T, index: number) => ReactNode
+  render?: (value: unknown, record: T, index: number) => ReactNode
   sortable?: boolean // 是否可排序
 }
 
@@ -37,7 +37,7 @@ interface TableProps<T> {
   getRowProps?: (record: T, index: number) => HTMLAttributes<HTMLTableRowElement>
 }
 
-export function Table<T extends Record<string, any>>({
+export function Table<T extends object>({
   columns,
   data,
   rowKey,
@@ -58,7 +58,17 @@ export function Table<T extends Record<string, any>>({
     if (typeof rowKey === 'function') {
       return rowKey(record)
     }
-    return record[rowKey] ?? index.toString()
+    const value = getRecordValue(record, rowKey)
+    return value === undefined || value === null ? index.toString() : String(value)
+  }
+
+  const getRecordValue = (record: T, key: string): unknown => (record as Record<string, unknown>)[key]
+
+  const renderDefaultCell = (value: unknown): ReactNode => {
+    if (value === null || value === undefined) return null
+    if (typeof value === 'string' || typeof value === 'number') return value
+    if (typeof value === 'boolean') return value ? '是' : '否'
+    return String(value)
   }
 
   if (loading) {
@@ -189,8 +199,8 @@ export function Table<T extends Record<string, any>>({
                       )}
                     >
                       {col.render
-                        ? col.render(record[col.key], record, index)
-                        : record[col.key]}
+                        ? col.render(getRecordValue(record, col.key), record, index)
+                        : renderDefaultCell(getRecordValue(record, col.key))}
                     </td>
                   ))}
                 </tr>

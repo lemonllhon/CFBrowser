@@ -1,3 +1,5 @@
+import type { ProtoJSONObject } from '../../shared/backend/client'
+
 export interface BrowserProfile {
   profileId: string
   profileName: string
@@ -125,7 +127,7 @@ export interface ProxyIPHealthResult {
   region: string
   city: string
   asOrganization: string
-  rawData: Record<string, any>
+  rawData: ProtoJSONObject
   updatedAt: string
 }
 

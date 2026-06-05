@@ -3,6 +3,7 @@ import { Bookmark, FolderTree, Link2, Plus, Save, Tag, Trash2 } from 'lucide-rea
 import { Badge, Button, Card, Input, Select, Switch, toast } from '../../../shared/components'
 import type { BrowserBookmark, BrowserGroupWithCount, BrowserStartURL, DefaultContentRule } from '../types'
 import { fetchAllTags, fetchDefaultContentRules, fetchGroups, saveDefaultContentRules } from '../api'
+import { resolveActionErrorMessage } from '../utils/actionErrors'
 import { BookmarkSettingsPage } from './BookmarkSettingsPage'
 
 type ManagedItem = BrowserStartURL | BrowserBookmark
@@ -170,8 +171,8 @@ export function DefaultContentLinkPage() {
       await saveDefaultContentRules(normalized)
       setRules(normalized)
       toast.success('默认内容联动已保存')
-    } catch (error: any) {
-      toast.error(error?.message || '保存失败')
+    } catch (error: unknown) {
+      toast.error(resolveActionErrorMessage(error, '保存失败'))
     } finally {
       setSaving(false)
     }

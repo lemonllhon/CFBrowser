@@ -4,6 +4,7 @@ import { FolderOpen, Layers } from 'lucide-react'
 import { Button, Card, ConfirmModal, FormItem, Input, Modal, Select, Textarea, toast } from '../../../shared/components'
 import type { BrowserCore, BrowserProfileInput, BrowserProxy, BrowserGroup } from '../types'
 import { createBrowserProfile, fetchAllTags, fetchBrowserCores, fetchBrowserProfiles, fetchBrowserProxies, fetchBrowserSettings, fetchGroups, openProfileUserDataDir, openUserDataDir, updateBrowserProfile } from '../api'
+import { resolveActionErrorMessage } from '../utils/actionErrors'
 import { FingerprintPanel } from '../components/FingerprintPanel'
 import { TagInput } from '../components/TagInput'
 import { GroupSelector } from '../components/GroupSelector'
@@ -215,8 +216,8 @@ export function BrowserEditPage() {
       }
       setIsDirty(false)
       navigate('/browser/list')
-    } catch (error: any) {
-      setSaveError(typeof error === 'string' ? error : error?.message || '保存失败')
+    } catch (error: unknown) {
+      setSaveError(resolveActionErrorMessage(error, '保存失败'))
     } finally {
       setSaving(false)
     }

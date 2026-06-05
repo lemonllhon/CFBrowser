@@ -13,6 +13,7 @@ import {
   randomHardwareFingerprintConfig,
   serialize as serializeFingerprint,
 } from '../utils/fingerprintSerializer'
+import { resolveActionErrorMessage } from '../utils/actionErrors'
 
 type FingerprintBatchMode = 'randomHardware' | 'seedOnly' | 'keepTemplate'
 type ProxyMode = 'none' | 'pool' | 'manual' | 'autoSwitch'
@@ -289,9 +290,9 @@ export function BatchRandomFingerprintModal({
         try {
           await createBrowserProfile(input)
           success++
-        } catch (error: any) {
+        } catch (error: unknown) {
           failed++
-          failures.push(`${profileName}：${error?.message || error || '创建失败'}`)
+          failures.push(`${profileName}：${resolveActionErrorMessage(error, '创建失败')}`)
         }
         setProgress(Math.round(((i + 1) / total) * 100))
       }

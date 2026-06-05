@@ -31,3 +31,5 @@ export type { ProtoBrowserCore, ProtoBrowserCoreDownloadProgress, ProtoBrowserCo
 export type { ProtoBrowserProxy, ProtoClashImportURLResult, ProtoProxyIPHealthResult, ProtoProxyPreviewTestInput, ProtoProxyTestResult, ProtoProxyValidationResult } from './proxy'
 export { BinaryWebSocketProtoIpcClient, ProtoIpcClient, ProtoIpcError, RawProtoIpcClient, isProtoIpcAvailable, onProtoEvent } from './transport'
 export type { TraceProtoIpcConfig } from './transport'
+
+export type { ProtoJSONArray, ProtoJSONObject, ProtoJSONPrimitive, ProtoJSONValue } from './json'

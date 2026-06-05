@@ -3,6 +3,7 @@ import { Plus, Tag, Trash2, X } from 'lucide-react'
 import { Badge, Button, Card, toast } from '../../../shared/components'
 import type { BrowserProfile } from '../types'
 import { batchRemoveProfileTags, batchSetProfileTags, fetchBrowserProfiles, renameBrowserTag } from '../api'
+import { resolveActionErrorMessage } from '../utils/actionErrors'
 
 // ─── 左侧标签面板 ────────────────────────────────────────────────────────────
 
@@ -272,8 +273,8 @@ export function TagManagementPage({ embedded = false }: { embedded?: boolean }) 
       await batchSetProfileTags(ids, tags, false)
       toast.success(`已为 ${ids.length} 个实例添加标签`)
       await load()
-    } catch (e: any) {
-      toast.error(e?.message || '操作失败')
+    } catch (error: unknown) {
+      toast.error(resolveActionErrorMessage(error, '操作失败'))
     } finally { setSaving(false) }
   }
 
@@ -285,8 +286,8 @@ export function TagManagementPage({ embedded = false }: { embedded?: boolean }) 
       await batchRemoveProfileTags(ids, tags)
       toast.success(`已从 ${ids.length} 个实例移除标签`)
       await load()
-    } catch (e: any) {
-      toast.error(e?.message || '操作失败')
+    } catch (error: unknown) {
+      toast.error(resolveActionErrorMessage(error, '操作失败'))
     } finally { setSaving(false) }
   }
 
@@ -308,8 +309,8 @@ export function TagManagementPage({ embedded = false }: { embedded?: boolean }) 
         setSelectedTag(newName.trim())
       }
       await load()
-    } catch (e: any) {
-      toast.error(e?.message || '重命名失败')
+    } catch (error: unknown) {
+      toast.error(resolveActionErrorMessage(error, '重命名失败'))
     } finally {
       setSaving(false)
     }

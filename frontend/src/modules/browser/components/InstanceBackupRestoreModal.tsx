@@ -10,6 +10,7 @@ import {
   type BrowserProfileBackupProgress,
 } from '../api'
 import type { BrowserProfile } from '../types'
+import { resolveActionErrorMessage } from '../utils/actionErrors'
 
 type ExportScope = 'all' | 'selected' | 'filtered' | 'custom'
 
@@ -152,8 +153,8 @@ export function InstanceBackupRestoreModal({
         setExportCompleted(true)
         toast.success(`实例备份已导出：${result.profileCount || result.exported} 个实例`)
       }
-    } catch (error: any) {
-      toast.error(error?.message || '实例备份导出失败')
+    } catch (error: unknown) {
+      toast.error(resolveActionErrorMessage(error, '实例备份导出失败'))
     } finally {
       setBusy(false)
     }
@@ -174,8 +175,8 @@ export function InstanceBackupRestoreModal({
         setRestoreCompleted(false)
         toast.success('实例备份包校验通过')
       }
-    } catch (error: any) {
-      toast.error(error?.message || '实例备份包校验失败')
+    } catch (error: unknown) {
+      toast.error(resolveActionErrorMessage(error, '实例备份包校验失败'))
     } finally {
       setBusy(false)
     }
@@ -201,8 +202,8 @@ export function InstanceBackupRestoreModal({
       setRestoreCompleted(true)
       toast.success(`实例恢复完成：成功 ${result.imported}${result.failed ? `，失败 ${result.failed}` : ''}`)
       onRestored()
-    } catch (error: any) {
-      toast.error(error?.message || '实例恢复失败')
+    } catch (error: unknown) {
+      toast.error(resolveActionErrorMessage(error, '实例恢复失败'))
     } finally {
       setBusy(false)
     }
