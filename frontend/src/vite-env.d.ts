@@ -1,1 +1,0 @@
-declare const __TRACE_BROWSER_BUILD_VERSION__: string
