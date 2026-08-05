@@ -418,6 +418,41 @@ function setupAtmosphereEffects() {
   });
 }
 
+function setupHeroTitleFlow() {
+  const hero = document.querySelector('.hero');
+  const source = hero?.querySelector('#hero-title');
+  const target = hero?.querySelector('.hero-accent-line em');
+  if (!hero || !source || !target) return;
+
+  const transfer = document.createElement('span');
+  transfer.className = 'hero-title-transfer';
+  transfer.setAttribute('aria-hidden', 'true');
+  hero.append(transfer);
+
+  const updateTransferPosition = () => {
+    const heroRect = hero.getBoundingClientRect();
+    const sourceRect = source.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    const startX = sourceRect.left + sourceRect.width * 0.8 - heroRect.left;
+    const startY = sourceRect.top + sourceRect.height * 0.54 - heroRect.top;
+    const endX = targetRect.left + targetRect.width * 0.22 - heroRect.left;
+    const endY = targetRect.top + targetRect.height * 0.52 - heroRect.top;
+
+    transfer.style.setProperty('--transfer-start-x', `${startX}px`);
+    transfer.style.setProperty('--transfer-start-y', `${startY}px`);
+    transfer.style.setProperty('--transfer-end-x', `${endX}px`);
+    transfer.style.setProperty('--transfer-end-y', `${endY}px`);
+    transfer.style.setProperty('--transfer-angle', `${Math.atan2(endY - startY, endX - startX)}rad`);
+  };
+
+  updateTransferPosition();
+  if (reducedMotion) return;
+
+  hero.classList.add('has-hero-title-flow');
+  window.setTimeout(updateTransferPosition, 900);
+  window.addEventListener('resize', updateTransferPosition, { passive: true });
+}
+
 if ('IntersectionObserver' in window && !reducedMotion) {
   const revealObserver = new IntersectionObserver(
     entries => {
@@ -560,6 +595,12 @@ function setupThemeShowcase() {
     ['accent', 'themeAccent'],
     ['soft', 'themeSoft'],
   ];
+  const autoPlayDelay = 3000;
+  const manualResumeDelay = 6500;
+  let activeIndex = 0;
+  let autoPlayTimer = 0;
+  let resumeTimer = 0;
+  let interactionPaused = false;
 
   choices.forEach(choice => {
     variables.forEach(([key, datasetKey]) => {
@@ -568,15 +609,16 @@ function setupThemeShowcase() {
     });
   });
 
-  function selectChoice(choice) {
+  function selectChoice(choice, { automatic = false } = {}) {
     variables.forEach(([key, datasetKey]) => {
       showcase.style.setProperty(`--showcase-${key}`, choice.dataset[datasetKey]);
     });
 
+    activeIndex = Math.max(0, choices.indexOf(choice));
     showcase.dataset.activeTheme = choice.dataset.themeChoice || '';
     name.textContent = choice.dataset.themeLabel || '';
     description.textContent = choice.dataset.themeDescription || '';
-    status.textContent = '已选择';
+    status.textContent = automatic ? '自动切换' : '已选择';
 
     choices.forEach(item => {
       const active = item === choice;
@@ -585,8 +627,53 @@ function setupThemeShowcase() {
     });
   }
 
-  choices.forEach(choice => choice.addEventListener('click', () => selectChoice(choice)));
-  selectChoice(choices.find(choice => choice.classList.contains('is-active')) || choices[0]);
+  function scheduleAutoPlay(delay = autoPlayDelay) {
+    window.clearTimeout(autoPlayTimer);
+    if (reducedMotion || interactionPaused || document.hidden) return;
+
+    autoPlayTimer = window.setTimeout(() => {
+      const nextIndex = (activeIndex + 1) % choices.length;
+      selectChoice(choices[nextIndex], { automatic: true });
+      scheduleAutoPlay();
+    }, delay);
+  }
+
+  function pauseAutoPlay() {
+    interactionPaused = true;
+    window.clearTimeout(autoPlayTimer);
+    window.clearTimeout(resumeTimer);
+  }
+
+  function resumeAutoPlay(delay = autoPlayDelay) {
+    interactionPaused = false;
+    window.clearTimeout(resumeTimer);
+    scheduleAutoPlay(delay);
+  }
+
+  choices.forEach(choice => choice.addEventListener('click', () => {
+    selectChoice(choice);
+    window.clearTimeout(autoPlayTimer);
+    window.clearTimeout(resumeTimer);
+    resumeTimer = window.setTimeout(() => resumeAutoPlay(), manualResumeDelay);
+  }));
+
+  showcase.addEventListener('mouseenter', pauseAutoPlay);
+  showcase.addEventListener('mouseleave', () => resumeAutoPlay(1200));
+  showcase.addEventListener('focusin', pauseAutoPlay);
+  showcase.addEventListener('focusout', event => {
+    if (!showcase.contains(event.relatedTarget)) resumeAutoPlay(1200);
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      window.clearTimeout(autoPlayTimer);
+      return;
+    }
+    scheduleAutoPlay(1200);
+  });
+
+  const initialChoice = choices.find(choice => choice.classList.contains('is-active')) || choices[0];
+  selectChoice(initialChoice, { automatic: !reducedMotion });
+  scheduleAutoPlay();
 }
 
 function setupDownloadChoices() {
@@ -714,5 +801,6 @@ setupFunctionIndex();
 setupThemeShowcase();
 setupDownloadChoices();
 setupMoltenMetalBackground();
+setupHeroTitleFlow();
 setupAtmosphereEffects();
 setupImageLightbox();

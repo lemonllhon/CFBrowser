@@ -70,6 +70,32 @@
 html {
   scroll-behavior: smooth;
   scroll-padding-top: 88px;
+  scrollbar-color: rgba(90, 87, 200, 0.68) transparent;
+  scrollbar-width: thin;
+}
+
+html::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+html::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+html::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #a78bfa, #5a57c8) padding-box;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+
+html::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #c4b5fd, #5a57c8) padding-box;
+}
+
+html::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 body {
@@ -551,12 +577,41 @@ img.lightbox-trigger:hover {
 
 .hero-accent-line {
   margin: 19px 0 0;
-  color: var(--accent);
+  color: var(--theme-purple-accent);
   font-size: clamp(30px, 4vw, 58px);
-  font-weight: 420;
+  font-weight: 520;
   letter-spacing: -0.075em;
   line-height: 0.98;
   white-space: nowrap;
+}
+
+.hero-title-transfer {
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  left: 0;
+  width: clamp(120px, 16vw, 260px);
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, rgba(167, 139, 250, 0.08) 12%, rgba(245, 239, 250, 0.95) 50%, rgba(167, 139, 250, 0.08) 88%, transparent);
+  box-shadow: 0 0 9px rgba(245, 239, 250, 0.72), 0 0 25px rgba(167, 139, 250, 0.72);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate3d(var(--transfer-start-x, 0px), var(--transfer-start-y, 0px), 0) rotate(var(--transfer-angle, 0rad)) scaleX(0.2);
+  transform-origin: 0 50%;
+  will-change: opacity, transform;
+}
+
+.hero.has-hero-title-flow .hero-title-transfer {
+  animation: hero-title-transfer 8.4s var(--ease) infinite;
+}
+
+.hero.has-hero-title-flow h1.text-shimmer {
+  animation: hero-source-sheen 8.4s ease-in-out infinite;
+}
+
+.hero.has-hero-title-flow .hero-accent-line em.text-shimmer {
+  animation: hero-target-sheen 8.4s ease-in-out infinite;
 }
 
 .eyebrow {
@@ -2662,7 +2717,10 @@ body.has-lightbox {
   --text-base: var(--text-on-dark);
 }
 
-.hero-accent-line em.text-shimmer,
+.hero-accent-line em.text-shimmer {
+  --text-base: var(--theme-purple-accent);
+}
+
 h2 em.text-shimmer {
   --text-base: var(--accent);
 }
@@ -2828,6 +2886,76 @@ h2 em.text-shimmer {
   72% {
     background-position: 0% 50%;
   }
+  100% {
+    background-position: 100% 50%;
+  }
+}
+
+@keyframes hero-title-transfer {
+  0%,
+  8% {
+    opacity: 0;
+    transform: translate3d(var(--transfer-start-x), var(--transfer-start-y), 0) rotate(var(--transfer-angle)) scaleX(0.2);
+  }
+  15% {
+    opacity: 1;
+    transform: translate3d(var(--transfer-start-x), var(--transfer-start-y), 0) rotate(var(--transfer-angle)) scaleX(0.8);
+  }
+  44% {
+    opacity: 0.86;
+    transform: translate3d(var(--transfer-end-x), var(--transfer-end-y), 0) rotate(var(--transfer-angle)) scaleX(1);
+  }
+  52%,
+  60% {
+    opacity: 0;
+    transform: translate3d(var(--transfer-end-x), var(--transfer-end-y), 0) rotate(var(--transfer-angle)) scaleX(0.55);
+  }
+  68% {
+    opacity: 1;
+    transform: translate3d(var(--transfer-end-x), var(--transfer-end-y), 0) rotate(var(--transfer-angle)) scaleX(0.8);
+  }
+  92% {
+    opacity: 0.86;
+    transform: translate3d(var(--transfer-start-x), var(--transfer-start-y), 0) rotate(var(--transfer-angle)) scaleX(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(var(--transfer-start-x), var(--transfer-start-y), 0) rotate(var(--transfer-angle)) scaleX(0.2);
+  }
+}
+
+@keyframes hero-source-sheen {
+  0%,
+  8% {
+    background-position: 100% 50%;
+  }
+  15%,
+  22% {
+    background-position: 0% 50%;
+  }
+  35%,
+  74% {
+    background-position: 100% 50%;
+  }
+  81%,
+  88% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 100% 50%;
+  }
+}
+
+@keyframes hero-target-sheen {
+  0%,
+  35% {
+    background-position: 100% 50%;
+  }
+  42%,
+  50% {
+    background-position: 0% 50%;
+  }
+  63%,
   100% {
     background-position: 100% 50%;
   }
@@ -3330,6 +3458,10 @@ h2 em.text-shimmer {
 
   .hero-footnotes span {
     font-size: 9px;
+  }
+
+  .hero-accent-line {
+    white-space: normal;
   }
 
   .console-caption {
@@ -4168,7 +4300,7 @@ h2 em.text-shimmer {
   display: grid;
   grid-template-columns: minmax(0, 0.84fr) minmax(430px, 1.16fr);
   gap: clamp(44px, 6vw, 96px);
-  align-items: start;
+  align-items: center;
 }
 
 .download-hero-visual {
@@ -4301,10 +4433,10 @@ h2 em.text-shimmer {
 .download-hero-copy h2 {
   margin: 22px 0 0;
   color: #111218;
-  font-size: clamp(54px, 6.2vw, 92px);
+  font-size: clamp(48px, 5.2vw, 78px);
   font-weight: 530;
   letter-spacing: -0.085em;
-  line-height: 0.91;
+  line-height: 0.96;
 }
 
 .download-hero-copy h2 span {
@@ -4313,13 +4445,16 @@ h2 em.text-shimmer {
 
 .download-hero-copy h2 .download-title-cn {
   color: #111218;
-  font-size: clamp(52px, 5.4vw, 82px);
+  font-size: clamp(46px, 4.8vw, 72px);
   letter-spacing: -0.09em;
   white-space: nowrap;
 }
 
 .download-hero-copy h2 .download-title-product {
   color: #5a57c8;
+  font-size: clamp(38px, 4.2vw, 66px);
+  letter-spacing: -0.075em;
+  white-space: nowrap;
 }
 
 .download-hero-lede {
@@ -4707,7 +4842,8 @@ h2 em.text-shimmer {
   position: relative;
   z-index: 2;
   max-width: 760px;
-  margin-top: 28px;
+  margin-top: 0;
+  align-self: center;
 }
 
 .download-platform-support-label {
@@ -4871,6 +5007,23 @@ h2 em.text-shimmer {
   transform: translateY(-6px);
   transition: opacity 160ms ease, visibility 160ms ease, transform 160ms ease;
   visibility: hidden;
+  scrollbar-color: color-mix(in srgb, var(--download-tone) 62%, #7c6fd0) transparent;
+  scrollbar-width: thin;
+}
+
+.download-platform-support .download-options::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.download-platform-support .download-options::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.download-platform-support .download-options::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: var(--download-tone) padding-box;
 }
 
 .download-platform-support .download-options::before {
