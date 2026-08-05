@@ -126,7 +126,11 @@ function appAssetMatches(asset, platform, architecture, packageKind) {
   const name = String(asset.name || '')
   if (isChecksumOrSource(name)) return false
   if (platform === 'windows') {
-    if (packageKind === 'installer') return architecture === 'amd64' && /^TraceBrowser-Setup-.*\.exe$/i.test(name)
+    if (packageKind === 'installer') {
+      if (!/^TraceBrowser-Setup-.*\.exe$/i.test(name)) return false
+      const hasArchitectureSuffix = isArchitectureMatch(name, 'amd64') || isArchitectureMatch(name, 'arm64')
+      return hasArchitectureSuffix ? isArchitectureMatch(name, architecture) : architecture === 'amd64'
+    }
     return isPlatformMatch(name, platform) && isArchitectureMatch(name, architecture) && /^TraceBrowser-Portable-.*\.zip$/i.test(name)
   }
   if (!isPlatformMatch(name, platform) || !isArchitectureMatch(name, architecture)) return false
