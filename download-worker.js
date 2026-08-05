@@ -101,7 +101,9 @@ function notModifiedResponse(etag) {
 function requestMatchesETag(request, etag) {
   const value = request.headers.get('If-None-Match')
   if (!value) return false
-  return value.split(',').some(candidate => candidate.trim() === '*' || candidate.trim() === etag)
+  const normalize = candidate => candidate.trim().replace(/^W\//i, '')
+  const normalizedETag = normalize(etag)
+  return value.split(',').some(candidate => candidate.trim() === '*' || normalize(candidate) === normalizedETag)
 }
 
 function githubHeaders(env, accept = 'application/vnd.github+json') {
