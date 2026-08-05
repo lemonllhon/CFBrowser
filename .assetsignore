@@ -3,3 +3,5 @@ download-worker.js
 crx-worker.js
 wrangler.jsonc
 .assetsignore
+.git/
+.wrangler/

@@ -35,7 +35,25 @@ const PACKAGE_NAMES = {
 }
 
 const SUPPORTED_DOWNLOADS = new Set(['installer', 'portable'])
-const RELEASE_CACHE_SECONDS = 300
+const RELEASE_CACHE_SECONDS = 30
+const DOWNLOAD_CACHE_SECONDS = 300
+const RELEASE_STALE_WHILE_REVALIDATE_SECONDS = 15
+
+const TRACE_BROWSER_REQUIRED_ASSET_PATTERNS = [
+  /^TraceBrowser-Setup-.*-win-x64\.exe$/i,
+  /^TraceBrowser-Setup-.*-win-arm64\.exe$/i,
+  /^TraceBrowser-Portable-.*-win-x64\.zip$/i,
+  /^TraceBrowser-Portable-.*-win-arm64\.zip$/i,
+  /^TraceBrowser-SelfUpdate-.*-windows-amd64\.zip$/i,
+  /^TraceBrowser-SelfUpdate-.*-windows-arm64\.zip$/i,
+  /^TraceBrowser-.*-macos-amd64\.dmg$/i,
+  /^TraceBrowser-.*-macos-arm64\.dmg$/i,
+  /^trace-browser_.*_amd64\.deb$/i,
+  /^trace-browser_.*_arm64\.deb$/i,
+  /^TraceBrowser-.*-linux-amd64\.tar\.gz$/i,
+  /^TraceBrowser-.*-linux-arm64\.tar\.gz$/i,
+  /^SHA256SUMS$/i,
+]
 
 function corsHeaders() {
   return {
@@ -51,7 +69,9 @@ function jsonResponse(payload, status = 200, extraHeaders = {}) {
     status,
     headers: {
       'Content-Type': 'application/json; charset=utf-8',
-      'Cache-Control': status >= 400 ? 'no-store' : `public, max-age=0, s-maxage=${RELEASE_CACHE_SECONDS}, stale-while-revalidate=60`,
+      'Cache-Control': status >= 400
+        ? 'no-store'
+        : `public, max-age=0, s-maxage=${RELEASE_CACHE_SECONDS}, stale-while-revalidate=${RELEASE_STALE_WHILE_REVALIDATE_SECONDS}`,
       ...corsHeaders(),
       ...extraHeaders,
     },
@@ -60,6 +80,28 @@ function jsonResponse(payload, status = 200, extraHeaders = {}) {
 
 function errorResponse(message, status = 404, detail = '') {
   return jsonResponse({ ok: false, error: message, detail }, status)
+}
+
+function releaseETag(release) {
+  const tag = String(release?.tag_name || release?.name || 'unknown-release').trim().replaceAll('"', '')
+  return `"${tag || 'unknown-release'}"`
+}
+
+function notModifiedResponse(etag) {
+  return new Response(null, {
+    status: 304,
+    headers: {
+      'Cache-Control': `public, max-age=0, s-maxage=${RELEASE_CACHE_SECONDS}, stale-while-revalidate=${RELEASE_STALE_WHILE_REVALIDATE_SECONDS}`,
+      ETag: etag,
+      ...corsHeaders(),
+    },
+  })
+}
+
+function requestMatchesETag(request, etag) {
+  const value = request.headers.get('If-None-Match')
+  if (!value) return false
+  return value.split(',').some(candidate => candidate.trim() === '*' || candidate.trim() === etag)
 }
 
 function githubHeaders(env, accept = 'application/vnd.github+json') {
@@ -86,6 +128,32 @@ async function fetchLatestRelease(source, env) {
     throw new Error(`${config.label} 最新版本接口返回 HTTP ${response.status}: ${body.slice(0, 240)}`)
   }
   return response.json()
+}
+
+function traceBrowserReleaseCompleteness(release) {
+  const names = new Set(
+    (Array.isArray(release?.assets) ? release.assets : [])
+      .map(asset => String(asset?.name || '').trim())
+      .filter(Boolean),
+  )
+  const missing = TRACE_BROWSER_REQUIRED_ASSET_PATTERNS
+    .filter(pattern => !Array.from(names).some(name => pattern.test(name)))
+    .map(pattern => pattern.source)
+  return {
+    complete: missing.length === 0,
+    missing,
+  }
+}
+
+function ensureTraceBrowserReleaseComplete(source, release) {
+  if (source !== 'trace-browser') return null
+  const result = traceBrowserReleaseCompleteness(release)
+  if (result.complete) return null
+  return errorResponse(
+    'Trace Browser 最新版本发布资产尚未完整',
+    503,
+    `缺少资产匹配项: ${result.missing.join(', ')}`,
+  )
 }
 
 function normalizedArchitecture(value) {
@@ -224,7 +292,7 @@ async function proxyAsset(request, env, source, asset) {
     const value = upstream.headers.get(headerName)
     if (value) responseHeaders.set(headerName, value)
   }
-  responseHeaders.set('Cache-Control', 'public, max-age=0, s-maxage=300, stale-while-revalidate=60')
+  responseHeaders.set('Cache-Control', `public, max-age=0, s-maxage=${DOWNLOAD_CACHE_SECONDS}, stale-while-revalidate=60`)
   responseHeaders.set('X-Trace-Download-Source', 'cloudflare-release-proxy')
   return new Response(upstream.body, { status: upstream.status, headers: responseHeaders })
 }
@@ -238,6 +306,8 @@ async function handleDownload(request, env, source, parts) {
   }
 
   const release = await fetchLatestRelease(source, env)
+  const incompleteResponse = ensureTraceBrowserReleaseComplete(source, release)
+  if (incompleteResponse) return incompleteResponse
   const asset = pickAsset(release, source, platform, architecture, packageKind)
   if (!asset) {
     return errorResponse(`当前最新版本没有找到 ${PLATFORM_NAMES[platform]} ${ARCHITECTURE_NAMES[architecture]} ${PACKAGE_NAMES[packageKind]}`, 404)
@@ -257,6 +327,8 @@ async function handleNamedAsset(request, env, source, encodedAssetName) {
   }
 
   const release = await fetchLatestRelease(source, env)
+  const incompleteResponse = ensureTraceBrowserReleaseComplete(source, release)
+  if (incompleteResponse) return incompleteResponse
   const asset = (Array.isArray(release.assets) ? release.assets : []).find(item => item.name === assetName)
   if (!asset) return errorResponse('当前最新版本中没有找到该资产', 404)
   return proxyAsset(request, env, source, asset)
@@ -264,7 +336,11 @@ async function handleNamedAsset(request, env, source, encodedAssetName) {
 
 async function handleAPI(request, env, source) {
   const release = await fetchLatestRelease(source, env)
-  return jsonResponse(publicReleasePayload(request, source, release))
+  const incompleteResponse = ensureTraceBrowserReleaseComplete(source, release)
+  if (incompleteResponse) return incompleteResponse
+  const etag = releaseETag(release)
+  if (requestMatchesETag(request, etag)) return notModifiedResponse(etag)
+  return jsonResponse(publicReleasePayload(request, source, release), 200, { ETag: etag })
 }
 
 async function serveSite(request, env) {
