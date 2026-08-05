@@ -110,8 +110,16 @@ function isPlatformMatch(name, platform) {
   return false
 }
 
+function isChecksumAsset(name) {
+  return /sha256|checksum/i.test(String(name || '')) || /\.(sha256|sha512|sums|checksum|checksums|sha256\.txt|sha512\.txt)$/i.test(String(name || ''))
+}
+
+function isSourceAsset(name) {
+  return /source code|patchset/i.test(String(name || ''))
+}
+
 function isChecksumOrSource(name) {
-  return /sha256|checksum|source code|patchset/i.test(String(name || ''))
+  return isChecksumAsset(name) || isSourceAsset(name)
 }
 
 function appAssetMatches(asset, platform, architecture, packageKind) {
@@ -161,7 +169,10 @@ function publicAssetURL(request, source, assetName) {
 function publicReleasePayload(request, source, release) {
   const config = SOURCES[source]
   const assets = (Array.isArray(release.assets) ? release.assets : [])
-    .filter(asset => asset && asset.name && !isChecksumOrSource(asset.name))
+    // Keep checksum assets in the public manifest so desktop clients can
+    // verify packages after downloading through the same Cloudflare source.
+    // Source archives remain hidden because they are not installable assets.
+    .filter(asset => asset && asset.name && !isSourceAsset(asset.name))
     .map(asset => ({
       name: asset.name,
       size: Number(asset.size || 0),
@@ -237,7 +248,7 @@ async function handleNamedAsset(request, env, source, encodedAssetName) {
   } catch {
     return errorResponse('资产名称编码无效', 400)
   }
-  if (!assetName || assetName.includes('/') || assetName.includes('\\') || isChecksumOrSource(assetName)) {
+  if (!assetName || assetName.includes('/') || assetName.includes('\\') || isSourceAsset(assetName)) {
     return errorResponse('不允许下载该资产', 403)
   }
 

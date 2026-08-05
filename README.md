@@ -16,7 +16,7 @@
 1. 进入 Cloudflare Dashboard。
 2. 创建 Pages 项目。
 3. 选择直接上传。
-4. 上传整个 `website/cloudflare` 目录内的文件。
+4. 上传整个 `website/CFBrowser` 目录内的文件。
 
 ## 连接 Git 仓库部署
 
@@ -41,6 +41,6 @@
 
 注意：普通 Cloudflare Pages“直接上传静态文件”不会自动执行 Worker。必须选择 Pages Advanced Mode / Workers 部署 `_worker.js`，或者单独部署 `download-worker.js` 并将 `browser.lemon.vin/*` 路由绑定到它；否则 `/download/...` 会被 Pages 当成普通路径回退到 `index.html`，浏览器就会看到官网 HTML 而不是文件下载。
 
-如果使用 Cloudflare Pages Advanced Mode，可以将该文件作为根目录的 `_worker.js`，并配置 `ASSETS` 静态资源绑定；如果使用独立 Worker，则保留现有 Pages 作为源站，让 Worker 只处理 `/download/*` 与 `/api/*` 路径。
+如果使用 Cloudflare Pages Advanced Mode，可以将该文件作为根目录的 `_worker.js`，并配置 `ASSETS` 静态资源绑定；如果使用独立 Worker，则保留现有 Pages 作为源站，让 Worker 只处理 `/download/*` 与 `/api/*` 路径。`/api/trace-browser/latest` 会同时公开发布资产和 SHA-256 校验资产，桌面端更新器会通过官网同源读取校验文件。
 
 可选地在 Worker 中配置 `GITHUB_TOKEN` Secret，降低 GitHub API 的匿名请求限制。官网不展示 Chromium 内核下载入口，但软件后续的内核列表可以调用 `/api/chromium/latest`，下载时调用对应 `/download/chromium/...` 地址。
