@@ -38,6 +38,7 @@ const SUPPORTED_DOWNLOADS = new Set(['installer', 'portable'])
 const RELEASE_CACHE_SECONDS = 30
 const DOWNLOAD_CACHE_SECONDS = 300
 const RELEASE_STALE_WHILE_REVALIDATE_SECONDS = 15
+const PROXY_HEALTH_PATH = /^\/api\/proxy-health\/?$/
 
 const TRACE_BROWSER_REQUIRED_ASSET_PATTERNS = [
   /^TraceBrowser-Setup-.*-win-x64\.exe$/i,
@@ -80,6 +81,69 @@ function jsonResponse(payload, status = 200, extraHeaders = {}) {
 
 function errorResponse(message, status = 404, detail = '') {
   return jsonResponse({ ok: false, error: message, detail }, status)
+}
+
+function countryNameFromCode(countryCode) {
+  if (!countryCode) return ''
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'region' }).of(countryCode) || countryCode
+  } catch {
+    return countryCode
+  }
+}
+
+function proxyHealthResponse(request) {
+  const cf = request.cf || {}
+  const ip = String(request.headers.get('CF-Connecting-IP') || '').trim()
+  if (!ip) {
+    return new Response(JSON.stringify({ ok: false, error: 'Cloudflare 未提供访问者出口 IP' }), {
+      status: 503,
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Cache-Control': 'no-store, no-cache, must-revalidate',
+        ...corsHeaders(),
+      },
+    })
+  }
+
+  const checkedAt = new Date().toISOString()
+  const countryCode = String(cf.country || request.headers.get('CF-IPCountry') || '').trim().toUpperCase()
+  const payload = {
+    ok: true,
+    source: 'trace-cloudflare',
+    ip,
+    ipVersion: ip.includes(':') ? 6 : 4,
+    country: countryNameFromCode(countryCode),
+    countryCode,
+    region: String(cf.region || ''),
+    regionCode: String(cf.regionCode || ''),
+    city: String(cf.city || ''),
+    continent: String(cf.continent || ''),
+    postalCode: String(cf.postalCode || ''),
+    timezone: String(cf.timezone || ''),
+    latitude: String(cf.latitude || ''),
+    longitude: String(cf.longitude || ''),
+    asn: Number(cf.asn || 0),
+    asOrganization: String(cf.asOrganization || ''),
+    colo: String(cf.colo || ''),
+    httpProtocol: String(cf.httpProtocol || ''),
+    tlsVersion: String(cf.tlsVersion || ''),
+    requestId: String(request.headers.get('CF-Ray') || ''),
+    checkedAt,
+  }
+  const body = request.method === 'HEAD' ? null : JSON.stringify(payload)
+  return new Response(body, {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+      Pragma: 'no-cache',
+      Expires: '0',
+      'X-Trace-Health-Source': 'cloudflare-edge',
+      'X-Trace-Health-Checked-At': checkedAt,
+      ...corsHeaders(),
+    },
+  })
 }
 
 function releaseETag(release) {
@@ -356,6 +420,9 @@ export default {
     if (!['GET', 'HEAD'].includes(request.method)) return errorResponse('只支持 GET、HEAD 和 OPTIONS', 405)
 
     const url = new URL(request.url)
+    if (PROXY_HEALTH_PATH.test(url.pathname)) {
+      return proxyHealthResponse(request)
+    }
     const apiMatch = url.pathname.match(/^\/api\/(trace-browser|chromium)\/latest\/?$/)
     if (apiMatch) {
       try {

@@ -43,4 +43,10 @@
 
 如果使用 Cloudflare Pages Advanced Mode，可以将该文件作为根目录的 `_worker.js`，并配置 `ASSETS` 静态资源绑定；如果使用独立 Worker，则保留现有 Pages 作为源站，让 Worker 只处理 `/download/*` 与 `/api/*` 路径。`/api/trace-browser/latest` 会同时公开发布资产和 SHA-256 校验资产，桌面端更新器会通过官网同源读取校验文件。
 
+## 代理健康检查
+
+Worker 同时提供 `GET /api/proxy-health`（也支持 `HEAD`），用于 Trace Browser 通过待测代理获取真实公网出口信息。接口直接读取 Cloudflare 边缘注入的访问者 IP 和 `request.cf` 元数据，不访问上游服务，并强制返回 `Cache-Control: no-store`。响应包含 IPv4/IPv6、国家、地区、城市、ASN、运营商组织、Cloudflare 数据中心和请求时间等字段。
+
+该接口是节点公网可达性和出口信息的主检测来源。IPPure 只在桌面端缺少住宅/机房、风险分数和纯净度补充数据时，由独立单并发队列调用；IPPure 失败不会改变主健康结果。
+
 可选地在 Worker 中配置 `GITHUB_TOKEN` Secret，降低 GitHub API 的匿名请求限制。官网不展示 Chromium 内核下载入口，但软件后续的内核列表可以调用 `/api/chromium/latest`，下载时调用对应 `/download/chromium/...` 地址。
