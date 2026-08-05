@@ -1,0 +1,775 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#17131c" />
+    <meta
+      name="description"
+      content="Trace Browser：让浏览器环境可隔离、可控制、可自动化、可备份，也可随时流转。"
+    />
+    <title>Trace Browser — 浏览器环境隔离好，随时接着用</title>
+    <link rel="preload" as="image" href="assets/images/instances.png" fetchpriority="high" />
+    <link rel="icon" type="image/png" href="assets/logo.png?v=trace-browser" />
+    <link rel="apple-touch-icon" href="assets/logo.png?v=trace-browser" />
+    <link rel="stylesheet" href="styles.css?v=trace-theme-41" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">跳到正文</a>
+
+    <header class="site-header" data-header>
+      <div class="nav-shell">
+        <a class="brand" href="#top" aria-label="Trace Browser 官网首页">
+          <img src="assets/logo.png" alt="" width="30" height="30" decoding="async" />
+          <span class="brand-name">Trace <strong>Browser</strong></span>
+          <span class="brand-note">指纹浏览器</span>
+        </a>
+
+        <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav" data-nav-toggle>
+          <span></span>
+          <span></span>
+          <span class="sr-only">展开导航</span>
+        </button>
+
+        <nav id="site-nav" class="site-nav fluid-menu" data-nav aria-label="主导航">
+          <a href="#product">工作台</a>
+          <a href="#all-features">能力总览</a>
+          <a href="#rpa">自动化</a>
+          <a href="#flow">环境流转</a>
+          <a href="#playbooks">推荐流程</a>
+          <a href="#feature-index">完整索引</a>
+          <a href="#themes">主题配色</a>
+          <span class="nav-placeholder" aria-disabled="true" title="使用案例即将上线">使用案例</span>
+        </nav>
+
+        <a class="header-cta" href="#downloads">
+          下载桌面版 <span aria-hidden="true">↗</span>
+        </a>
+      </div>
+    </header>
+
+    <main id="main">
+      <section id="top" class="hero" aria-labelledby="hero-title">
+        <canvas class="hero-molten-metal" data-molten-metal aria-hidden="true"></canvas>
+        <div class="hero-shade" aria-hidden="true"></div>
+        <div class="hero-effects" aria-hidden="true">
+          <span class="hero-beam hero-beam-one"></span>
+          <span class="hero-beam hero-beam-two"></span>
+          <span class="hero-signal hero-signal-one"></span>
+          <span class="hero-signal hero-signal-two"></span>
+        </div>
+        <div class="hero-inner content-width">
+          <div class="hero-copy reveal">
+            <p class="eyebrow eyebrow-light"><span class="eyebrow-index">01</span> 浏览器操作系统</p>
+            <h1 id="hero-title">让浏览器环境</h1>
+            <p class="hero-lede">
+              Trace Browser 把指纹实例、代理资源、Cookie、扩展、自动化工作流和备份恢复，收进同一个可控的本地工作台。
+            </p>
+            <div class="hero-actions">
+              <a class="button button-light" href="#downloads">
+                开始使用 <span aria-hidden="true">↗</span>
+              </a>
+              <a class="button button-ghost" href="#product">探索能力 <span aria-hidden="true">↓</span></a>
+            </div>
+            <div class="hero-footnotes" aria-label="产品特性">
+              <span><i aria-hidden="true"></i> Windows / macOS / Linux</span>
+              <span><i aria-hidden="true"></i> 本地优先</span>
+              <span><i aria-hidden="true"></i> 支持 CDP</span>
+            </div>
+          </div>
+
+          <div class="hero-visual reveal">
+            <div class="hero-console" aria-label="Trace Browser 实例工作台预览">
+              <div class="console-bar">
+                <span class="window-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                <span>TRACE / 实例</span>
+                <span class="console-status"><i aria-hidden="true"></i> 3 个环境已就绪</span>
+              </div>
+              <div class="console-image-wrap">
+                <img src="assets/images/instances.png" alt="Trace Browser 实例列表界面" width="1280" height="720" decoding="async" />
+              </div>
+              <div class="console-caption">
+                <span>一个实例 = 一套独立环境</span>
+                <span>指纹 · 代理 · Cookie · 扩展</span>
+              </div>
+            </div>
+            <p class="hero-accent-line"><em>隔离好，随时接着用。</em></p>
+          </div>
+        </div>
+        <a class="hero-scroll" href="#signal"><span>向下探索</span><i aria-hidden="true"></i></a>
+      </section>
+
+      <section id="signal" class="signal-band" aria-label="Trace Browser 产品概览">
+        <div class="content-width signal-grid">
+          <p class="signal-intro reveal">
+            <span class="signal-intro-kicker">TRACE 系统 / 09 项能力</span>
+            <strong>浏览器环境<br />应该好管、能复用。</strong>
+            <small>从隔离到流转，把每个浏览器环境变成可以复用、维护和接管的工作单元。</small>
+          </p>
+          <div class="signal-item reveal"><strong>01</strong><span>环境隔离</span><small>每个账号都有独立用户数据、设备画像与启动参数。</small></div>
+          <div class="signal-item reveal"><strong>02</strong><span>统一运维</span><small>实例、代理、扩展、内核和日志在同一个工作区。</small></div>
+          <div class="signal-item reveal"><strong>03</strong><span>随时流转</span><small>本地备份、云端同步、实例分享，减少重复配置。</small></div>
+          <div class="signal-item reveal"><strong>04</strong><span>自动化编排</span><small>节点、选择器、录制器、触发器、计划和运行历史连成一条流程。</small></div>
+          <div class="signal-item reveal"><strong>05</strong><span>代理与出口</span><small>订阅、YAML、节点健康、域名分流和链式代理统一配置。</small></div>
+          <div class="signal-item reveal"><strong>06</strong><span>数据采集</span><small>从列表到详情、SKU、邮箱验证码，再到 JSON / CSV 导出。</small></div>
+          <div class="signal-item reveal"><strong>07</strong><span>外部接入</span><small>Launch Server、HTTP API 与 CDP 让 Playwright 等脚本接管实例。</small></div>
+          <div class="signal-item reveal"><strong>08</strong><span>持续维护</span><small>内核、扩展、配置备份、同步加密、日志排障和自动更新都有入口。</small></div>
+          <div class="signal-item reveal"><strong>09</strong><span>全平台支持</span><small>Windows、macOS、Linux 共享同一套本地优先的工作台和浏览器环境管理方式。</small></div>
+        </div>
+      </section>
+
+      <section id="product" class="section section-product" aria-labelledby="product-title">
+        <div class="content-width">
+          <div class="section-heading section-heading-workspace reveal">
+            <p class="eyebrow"><span class="eyebrow-index">02</span> 工作台</p>
+            <h2 id="product-title">从身份到网络出口，<em>一套工作台管理清楚。</em></h2>
+            <p>把多账号运营、测试环境和自动化任务拆成清晰的浏览器实例，再用同一套规则持续维护。</p>
+          </div>
+
+          <div class="feature-tabs reveal" role="tablist" aria-label="核心能力分类">
+            <button class="is-active" type="button" role="tab" aria-selected="true" data-feature-tab="0"><span>01</span> 指纹实例</button>
+            <button type="button" role="tab" aria-selected="false" data-feature-tab="1"><span>02</span> 代理资源</button>
+            <button type="button" role="tab" aria-selected="false" data-feature-tab="2"><span>03</span> Cookie 快照</button>
+            <button type="button" role="tab" aria-selected="false" data-feature-tab="3"><span>04</span> 云端备份</button>
+          </div>
+
+          <div class="feature-board reveal" data-feature-switcher>
+            <article class="feature-panel is-active" role="tabpanel" data-feature-panel="0">
+              <div class="feature-copy">
+                <p class="card-kicker">指纹实例</p>
+                <h3>每个账号，<br />都有一套独立环境。</h3>
+                <p>实例承载设备指纹、代理、Cookie、扩展和启动状态。创建、复制、筛选、批量启动，始终围绕同一个清晰的工作单元。</p>
+                <ul class="feature-list">
+                  <li>独立用户数据目录与设备画像</li>
+                  <li>标签、关键字和分组保持归属清晰</li>
+                  <li>可通过 Launch Code 与 CDP 接管</li>
+                </ul>
+              </div>
+              <div class="feature-shot">
+                <span class="shot-label">实例 / 03</span>
+                <img src="assets/images/fingerprint.png" alt="Trace Browser 指纹实例界面截图" width="1280" height="720" loading="lazy" decoding="async" />
+              </div>
+            </article>
+
+            <article class="feature-panel" role="tabpanel" data-feature-panel="1" hidden>
+              <div class="feature-copy">
+                <p class="card-kicker">代理资源中心</p>
+                <h3>从节点到路由，<br />网络出口也有秩序。</h3>
+                <p>导入订阅、维护节点、执行测速和 IP 健康检查，再将代理绑定到实例或交给代理池自动分配。</p>
+                <ul class="feature-list">
+                  <li>支持手动代理、订阅与常见分享内容</li>
+                  <li>代理池自动分配，也支持手动切换</li>
+                  <li>支持代理路由与链式代理场景</li>
+                </ul>
+              </div>
+              <div class="feature-shot">
+                <span class="shot-label">代理池 / 状态正常</span>
+                <img src="assets/images/proxy-pool.png" alt="Trace Browser 代理资源中心界面截图" width="1280" height="720" loading="lazy" decoding="async" />
+              </div>
+            </article>
+
+            <article class="feature-panel" role="tabpanel" data-feature-panel="2" hidden>
+              <div class="feature-copy">
+                <p class="card-kicker">Cookie 快照</p>
+                <h3>登录状态，<br />也能保存和恢复。</h3>
+                <p>持久 Cookie 与运行中 Cookie 快照都能按需纳入实例备份，换设备或恢复环境时少一点重复验证。</p>
+                <ul class="feature-list">
+                  <li>支持持久 Cookie 与运行中快照</li>
+                  <li>备份前确认实例与 Cookie 范围</li>
+                  <li>恢复时可选择是否带回登录状态</li>
+                </ul>
+              </div>
+              <div class="feature-shot">
+                <span class="shot-label">快照 / 可恢复</span>
+                <img src="assets/images/snapshot.png" alt="Trace Browser Cookie 快照界面截图" width="1280" height="720" loading="lazy" decoding="async" />
+              </div>
+            </article>
+
+            <article class="feature-panel" role="tabpanel" data-feature-panel="3" hidden>
+              <div class="feature-copy">
+                <p class="card-kicker">备份与同步</p>
+                <h3>环境可以备份，<br />也可以随时流转。</h3>
+                <p>全量配置、实例级导出、云端备份和分享恢复，让换机、重装、归档和团队交接不再从零开始。</p>
+                <ul class="feature-list">
+                  <li>支持全部实例、筛选结果或自定义范围</li>
+                  <li>导入前校验，冲突实例自动重命名</li>
+                  <li>可通过一次性分享码授权恢复</li>
+                </ul>
+              </div>
+              <div class="feature-shot">
+                <span class="shot-label">CLOUD BACKUP / 466.4 MB</span>
+                <img src="assets/images/backup.png" alt="Trace Browser 云端备份界面截图" width="1280" height="720" loading="lazy" decoding="async" />
+              </div>
+            </article>
+          </div>
+
+          <div class="module-grid">
+            <article class="module-card module-card-wide reveal">
+              <div>
+                <p class="card-kicker">控制中心</p>
+                <h3>所有重要状态，<br />都在第一屏。</h3>
+                <p>实例总数、运行状态、代理节点、内核版本与系统事件集中呈现，进入工作区就知道下一步该做什么。</p>
+              </div>
+              <img src="assets/images/home.png" alt="Trace Browser 控制台总览界面" width="1280" height="720" loading="lazy" decoding="async" />
+            </article>
+            <article class="module-card reveal">
+              <p class="card-kicker">组织管理</p>
+              <h3>数量增长，归属不乱。</h3>
+              <p>标签、分组、默认启动页和窗口联动，让多个业务环境依然容易找到、批量操作和交接。</p>
+              <div class="module-tags" aria-label="组织管理能力"><span>标签</span><span>分组</span><span>窗口联动</span></div>
+            </article>
+            <article class="module-card reveal">
+              <p class="card-kicker">扩展管理</p>
+              <h3>插件也有自己的绑定关系。</h3>
+              <p>插件导入、状态查看、实例绑定与数据同步，放回可维护的工作区层级。</p>
+              <div class="module-meter"><span style="width: 76%"></span></div>
+              <small>7 个扩展 / 已同步</small>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="all-features" class="section section-atlas" aria-labelledby="atlas-title">
+        <div class="content-width">
+          <div class="section-heading section-heading-split section-heading-atlas reveal">
+            <div>
+              <p class="eyebrow"><span class="eyebrow-index">03</span> 完整能力总览</p>
+              <h2 id="atlas-title">不只是多开浏览器，<br /><em>每一层都能被管理。</em></h2>
+            </div>
+            <p>从设备画像、网络出口，到自动化任务、外部接入和系统维护，Trace Browser 把浏览器工作所需的基础设施收进同一张能力地图。</p>
+          </div>
+
+          <div class="atlas-tabs reveal" role="tablist" aria-label="Trace Browser 全部能力分类">
+            <button class="is-active" type="button" role="tab" aria-selected="true" data-atlas-tab="0"><span>01</span> 环境基础</button>
+            <button type="button" role="tab" aria-selected="false" data-atlas-tab="1"><span>02</span> 自动化执行</button>
+            <button type="button" role="tab" aria-selected="false" data-atlas-tab="2"><span>03</span> 接入与流转</button>
+            <button type="button" role="tab" aria-selected="false" data-atlas-tab="3"><span>04</span> 运维与技术</button>
+          </div>
+
+          <div class="atlas-panels reveal">
+            <article class="atlas-panel is-active" role="tabpanel" data-atlas-panel="0">
+              <div class="atlas-panel-heading">
+                <div><p class="card-kicker">环境基础</p><h3>先把浏览器环境的底座搭稳。</h3></div>
+                <p>指纹、代理、内核、扩展和组织规则彼此关联，又保持独立。实例可以被创建、复制、清理、批量管理和持续维护。</p>
+              </div>
+              <div class="atlas-grid">
+                <article class="atlas-card atlas-card-large">
+                  <div class="atlas-card-copy"><p class="card-kicker">设备画像</p><h4>细粒度设备画像，启动前先做一致性检查。</h4><p>可配置浏览器品牌、操作系统、语言地区、时区、指纹种子、分辨率、CPU、内存、WebGL、Canvas、Audio、WebRTC 和媒体设备画像。</p><div class="atlas-tags"><span>基础身份</span><span>严格设备画像</span><span>指纹随机</span><span>一致性提示</span></div></div>
+                  <div class="atlas-media"><img src="assets/images/fingerprint.png" alt="Trace Browser 指纹配置界面" width="1280" height="720" loading="lazy" decoding="async" /><span>指纹 / 实际界面</span></div>
+                </article>
+                <article class="atlas-card">
+                  <p class="card-kicker">实例生命周期</p><h4>创建、复制、运行、快照和清理，都有明确入口。</h4><p>实例支持新建、编辑、复制、删除、启动、停止、重启、详情查看和 Launch Code；可以保存快照、恢复版本，清空 Cookie 或用户数据时提供确认保护。</p><div class="atlas-tags"><span>启动 / 停止</span><span>实例复制</span><span>快照回滚</span><span>Cookie 清理</span></div>
+                  <div class="visual-placeholder" data-slot="instance-detail-screenshot"><small>图片位置 / 实例详情</small><strong>实例详情与快照截图</strong><span>后续可替换为实例详情、运行状态或恢复确认界面</span></div>
+                </article>
+                <article class="atlas-card">
+                  <p class="card-kicker">代理池与路由</p><h4>节点很多，出口依然有规则。</h4><p>手动代理、Clash YAML、订阅、Base64 内容和常见分享链接都能进入代理池，再按域名、路径、地区、健康状态配置分流或链式代理。</p><div class="atlas-tags"><span>测速</span><span>IP 健康检查</span><span>路由导入 / 导出</span><span>故障切换</span></div>
+                  <div class="atlas-media atlas-media-short"><img src="assets/images/proxy-pool.png" alt="Trace Browser 代理池界面" width="1280" height="720" loading="lazy" decoding="async" /><span>代理池 / 实际界面</span></div>
+                </article>
+                <article class="atlas-card">
+                  <p class="card-kicker">浏览器内核</p><h4>内核版本，也要管清楚。</h4><p>扫描本地 Chrome、注册内核路径、校验版本、设置默认内核，也可以从官方下载页或自定义镜像下载适配当前平台的内核包。</p><div class="atlas-tags"><span>Chrome / Chromium</span><span>版本管理</span><span>下载进度</span><span>全局启动设置</span></div>
+                  <div class="visual-placeholder" data-slot="browser-kernel-screenshot"><small>图片位置 / 内核管理</small><strong>浏览器内核管理截图</strong><span>后续可替换为内核列表、下载进度或全局设置界面</span></div>
+                </article>
+                <article class="atlas-card">
+                  <p class="card-kicker">扩展与组织管理</p><h4>插件、标签、分组，都有归属。</h4><p>插件支持 ZIP、CRX、目录和地址导入，可搜索 Chrome Web Store；绑定支持共享、独占、自动绑定和源实例数据同步。标签、分组、默认启动页与书签规则可继承。</p><div class="atlas-tags"><span>插件库</span><span>共享 / 独占</span><span>标签与分组</span><span>默认内容</span></div>
+                  <div class="atlas-media atlas-media-short"><img src="assets/images/organization.png" alt="Trace Browser 组织管理界面" width="1280" height="720" loading="lazy" decoding="async" /><span>组织管理 / 实际界面</span></div>
+                </article>
+                <article class="atlas-card atlas-card-wide">
+                  <div class="atlas-card-copy"><p class="card-kicker">窗口联动与批量操作</p><h4>多个实例，同时保持同一个节奏。</h4><p>选择主控与被控窗口，同步键盘、鼠标、滚动、拖动和 URL。支持按行填充不同文本、批量打开页面、暂停恢复联动、宫格或堆叠排列，并可调整浮动工具栏和主控窗口颜色。</p><div class="atlas-tags"><span>同步输入</span><span>批量 URL</span><span>联动状态</span><span>宫格 / 堆叠布局</span></div></div>
+                  <div class="visual-placeholder visual-placeholder-dark" data-slot="window-sync-screenshot"><small>图片位置 / 窗口联动</small><strong>窗口联动与批量操作截图</strong><span>后续可替换为多窗口联动工具栏与布局视图</span></div>
+                </article>
+              </div>
+            </article>
+
+            <article class="atlas-panel" role="tabpanel" data-atlas-panel="1" hidden>
+              <div class="atlas-panel-heading">
+                <div><p class="card-kicker">自动化操作</p><h3>从第一次点击，到长期运行。</h3></div>
+                <p>RPA 不止是一张画布：工作流可以录制、调试、复用、版本化、排期，并在运行历史里留下可追踪的状态。</p>
+              </div>
+              <div class="atlas-grid">
+                <article class="atlas-card atlas-card-wide atlas-card-dark">
+                  <div class="atlas-card-copy"><p class="card-kicker">工作流设计器</p><h4>从页面拾取元素开始，搭出真正可运行的流程。</h4><p>支持拖拽节点、普通 / 成功 / 失败连线、真 / 假分支、撤销重做、导入导出和工作流初始化。触发方式覆盖手动、启动、间隔、Cron、日期、访问网页、快捷键和右键菜单。</p><div class="atlas-tags"><span>点击</span><span>表单</span><span>滚动</span><span>条件</span><span>循环</span><span>HTTP</span><span>通知</span><span>导出数据</span></div></div>
+                  <div class="atlas-media atlas-media-dark"><div class="mini-workflow"><span>触发</span><i></i><span>选择器</span><i></i><span>循环</span><i></i><span>导出</span></div><small>工作流 / 图片位置</small></div>
+                </article>
+                <article class="atlas-card">
+                  <p class="card-kicker">选择器与录制器</p><h4>目标元素，既能拾取，也能修复。</h4><p>支持 CSS Selector、XPath、iframe、Shadow DOM、列表字段和表单控件拾取，展示匹配数量、稳定性分数和历史选择器。录制器可把点击、输入、滚动、下载和截屏批量转换为节点。</p><div class="atlas-tags"><span>元素拾取</span><span>稳定性评分</span><span>录制合并</span><span>选择器历史</span></div>
+                  <div class="visual-placeholder" data-slot="selector-screenshot"><small>图片位置 / 选择器</small><strong>元素选择器与录制器截图</strong><span>后续可替换为真实页面拾取状态</span></div>
+                </article>
+                <article class="atlas-card">
+                  <p class="card-kicker">数据与消息</p><h4>采集、验证码和导出，连在一条链上。</h4><p>从文本、属性、链接、图片和资源 URL 采集数据，支持列表到详情、SKU 组合、JSON / CSV / 纯文本导出，也能接入邮箱池、验证码、通知和敏感字段脱敏。</p><div class="atlas-tags"><span>列表到详情</span><span>SKU 结果</span><span>JSON / CSV</span><span>邮箱验证码</span></div>
+                  <div class="visual-placeholder" data-slot="data-collection-screenshot"><small>图片位置 / 数据采集</small><strong>数据采集与导出截图</strong><span>后续可替换为采集结果或运行表格</span></div>
+                </article>
+                <article class="atlas-card">
+                  <p class="card-kicker">复用与版本</p><h4>把好流程存下来，再继续变好。</h4><p>工作流片段、模块组和节点包可以复用；工作流版本记录草稿、已发布和已恢复状态，支持从历史版本恢复并记录节点数、边数和定义大小。</p><div class="atlas-tags"><span>模块组</span><span>节点包</span><span>工作流版本</span><span>已发布</span><span>版本恢复</span></div>
+                  <div class="visual-placeholder" data-slot="workflow-version-screenshot"><small>图片位置 / 工作流版本</small><strong>工作流包与版本截图</strong><span>后续可替换为版本列表与包管理界面</span></div>
+                </article>
+                <article class="atlas-card atlas-card-wide">
+                  <div class="atlas-card-copy"><p class="card-kicker">计划、任务与运行数据</p><h4>自动化真正进入生产节奏。</h4><p>创建立即执行、定时和循环任务，配置开始时间、间隔、最大并发和运行实例。运行存储会保留变量、数据表、循环状态、点击对象池、详情结果、凭据和存储版本，并支持恢复与清理。</p><div class="atlas-tags"><span>间隔计划</span><span>Cron</span><span>任务状态</span><span>运行快照</span><span>存储版本</span></div></div>
+                  <div class="visual-placeholder visual-placeholder-dark" data-slot="task-scheduler-screenshot"><small>图片位置 / 任务中心</small><strong>任务调度与运行历史截图</strong><span>后续可替换为计划、任务和运行历史界面</span></div>
+                </article>
+              </div>
+            </article>
+
+            <article class="atlas-panel" role="tabpanel" data-atlas-panel="2" hidden>
+              <div class="atlas-panel-heading">
+                <div><p class="card-kicker">接入与流转</p><h3>环境能被系统接管，也能被安全交接。</h3></div>
+                <p>本地服务给脚本一个稳定入口，备份与分享给环境一条可回溯的流转路径。</p>
+              </div>
+              <div class="atlas-grid">
+                <article class="atlas-card atlas-card-wide atlas-card-dark">
+                  <div class="atlas-card-copy"><p class="card-kicker">Launch Server 与 CDP</p><h4>用 HTTP 管理实例，用 CDP 接回自动化。</h4><p>Launch Server 默认监听本机 <code>127.0.0.1:19876</code>，支持健康检查、实例配置、组合选择器、Launch Code、临时启动参数和调用记录。返回实例 ID、PID、调试端口、CDP 地址与运行警告。</p><div class="atlas-tags"><span>HTTP + JSON</span><span>API Key</span><span>Launch Code</span><span>Playwright</span><span>Selenium</span><span>Puppeteer</span></div></div>
+                  <div class="api-preview"><div><span>GET</span><strong>/api/health</strong></div><div><span>POST</span><strong>/api/launch</strong></div><div><span>GET</span><strong>/json/version</strong></div><div><span>WS</span><strong>/devtools/...</strong></div><small>API / 图片位置</small></div>
+                </article>
+                <article class="atlas-card">
+                  <p class="card-kicker">备份范围</p><h4>全量保存，或只带走目标实例。</h4><p>全量备份覆盖配置、实例、代理路由、扩展绑定、标签分组、默认内容和 RPA 数据；实例级备份支持全选、筛选、已选或自定义范围，并可选择 Cookie。</p><div class="atlas-tags"><span>备份摘要</span><span>导入校验</span><span>冲突重命名</span><span>Cookie 可选</span></div>
+                  <div class="atlas-media atlas-media-short"><img src="assets/images/backup.png" alt="Trace Browser 备份界面" width="1280" height="720" loading="lazy" decoding="async" /><span>备份 / 实际界面</span></div>
+                </article>
+                <article class="atlas-card">
+                  <p class="card-kicker">云端同步与加密</p><h4>授权、设备和加密状态可查看。</h4><p>支持账号密码或 OAuth 授权同步服务，登记当前设备并查看设备 ID、绑定 ID 与最后心跳。云端备份上传、下载、删除、恢复前校验，并可使用独立同步密码加密。</p><div class="atlas-tags"><span>OAuth</span><span>设备登记</span><span>云端备份</span><span>同步加密</span></div>
+                  <div class="visual-placeholder" data-slot="cloud-sync-screenshot"><small>图片位置 / 云端同步</small><strong>云端同步与加密截图</strong><span>后续可替换为授权状态或备份列表</span></div>
+                </article>
+                <article class="atlas-card atlas-card-wide">
+                  <div class="atlas-card-copy"><p class="card-kicker">实例分享</p><h4>一次性分享码，把可信环境交给下一台设备。</h4><p>创建实例分享包，生成分享文本或授权信息；接收方解析后按范围准备恢复，通过深链交给 Trace Browser，最终恢复成新的独立实例环境。适合换设备、账号交接和团队协作。</p><div class="atlas-tags"><span>分享包</span><span>分享范围</span><span>深链恢复</span><span>24 小时有效</span></div></div>
+                  <div class="share-ticket"><small>Trace 分享凭证</small><strong>TB-9K4X-27Q</strong><span>一次性授权 · 可以恢复</span></div>
+                </article>
+              </div>
+            </article>
+
+            <article class="atlas-panel" role="tabpanel" data-atlas-panel="3" hidden>
+              <div class="atlas-panel-heading">
+                <div><p class="card-kicker">运维与技术</p><h3>长期使用，也要有维护入口。</h3></div>
+                <p>主题、语言、日志、更新和底层技术边界都被明确放在产品能力之外，方便用户判断如何部署、排障和升级。</p>
+              </div>
+              <div class="atlas-grid">
+                <article class="atlas-card atlas-card-large">
+                  <div class="atlas-card-copy"><p class="card-kicker">系统设置</p><h4>把偏好、配置和更新策略放在一个地方。</h4><p>支持主题切换、多套内置主题、中文 / 英文、功能开关、日志等级、自动更新，以及配置初始化、导出和导入。</p><div class="atlas-tags"><span>主题</span><span>语言</span><span>功能开关</span><span>配置恢复</span></div></div>
+                  <div class="atlas-media"><img src="assets/images/settings.png" alt="Trace Browser 内核与全局设置界面" width="1280" height="720" loading="lazy" decoding="async" /><span>设置 / 实际界面</span></div>
+                </article>
+                <article class="atlas-card">
+                  <p class="card-kicker">日志与排障</p><h4>故障有迹可循，敏感字段会脱敏。</h4><p>查看应用日志、实例启动与停止错误、代理桥接错误、RPA 通知和 Launch Server 调用记录；记录耗时、步骤、错误阶段与页面 URL。</p><div class="atlas-tags"><span>结构化日志</span><span>运行历史</span><span>错误阶段</span><span>脱敏</span></div>
+                  <div class="visual-placeholder" data-slot="logs-screenshot"><small>图片位置 / 日志中心</small><strong>日志与排障截图</strong><span>后续可替换为日志列表与运行详情</span></div>
+                </article>
+                <article class="atlas-card">
+                  <p class="card-kicker">自动更新</p><h4>升级应用，不影响你的配置。</h4><p>检查新版本、展示版本差异、下载当前平台安装包、显示进度，便携版可自动替换并重启，安装版可唤起安装程序，同时保护配置、数据、内核和代理运行时。</p><div class="atlas-tags"><span>版本检查</span><span>下载进度</span><span>便携版</span><span>配置保留</span></div>
+                  <div class="update-preview"><span>TRACE BROWSER</span><strong>可以更新</strong><small>v0.9.4 → v0.9.5</small><i><b></b></i></div>
+                </article>
+                <article class="atlas-card atlas-card-wide">
+                  <div class="atlas-card-copy"><p class="card-kicker">技术基础</p><h4>桌面工作台，连接浏览器、脚本和本地资源。</h4><p>React、TypeScript、Tailwind CSS、Go、Wails v3、Protocol Buffers Binary IPC、SQLite、YAML、独立用户数据目录、CDP，以及 Xray、sing-box、mihomo / Clash 适配共同组成底层能力。</p><div class="atlas-tags"><span>Windows</span><span>macOS</span><span>Linux</span><span>本地优先</span><span>SQLite</span><span>CDP</span></div></div>
+                  <div class="stack-list"><span>桌面应用 <b>Wails v3</b></span><span>后端 <b>Go</b></span><span>数据 <b>SQLite / YAML</b></span><span>控制 <b>CDP / HTTP</b></span><span>代理运行时 <b>Xray · sing-box · mihomo</b></span></div>
+                </article>
+              </div>
+              <div class="boundaries-note"><strong>官网表述边界</strong><span>使用“支持 / 提供 / 可配置 / 可选”描述能力；实例并发、代理最终可用性、云端同步和复杂页面选择器效果取决于设备、节点、服务授权与页面环境。</span></div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="rpa" class="section section-rpa" aria-labelledby="rpa-title">
+        <div class="content-width rpa-layout">
+          <div class="rpa-copy reveal">
+            <p class="eyebrow eyebrow-light"><span class="eyebrow-index">04</span> 自动化，可视化</p>
+            <h2 id="rpa-title">把重复的浏览器操作，<br /><em>编排成可执行的流程。</em></h2>
+            <p>在真实页面中拾取元素，用节点连接点击、表单、采集、循环、条件、下载和通知，再交给任务计划持续运行。</p>
+            <a class="text-link text-link-light" href="#flow">看看它如何流转 <span aria-hidden="true">→</span></a>
+          </div>
+
+          <div class="workflow-stage reveal" aria-label="RPA 工作流示意图">
+            <div class="workflow-toolbar"><span>工作流 / 商品采集</span><span class="workflow-state"><i aria-hidden="true"></i> 可运行</span></div>
+            <div class="workflow-canvas">
+              <div class="workflow-line workflow-line-a" aria-hidden="true"></div>
+              <div class="workflow-line workflow-line-b" aria-hidden="true"></div>
+              <div class="workflow-line workflow-line-c" aria-hidden="true"></div>
+              <article class="flow-node flow-trigger"><small>触发</small><strong>访问网页</strong><span>开始一个工作流</span></article>
+              <article class="flow-node flow-action"><small>浏览器</small><strong>拾取列表</strong><span>CSS Selector · 24 项</span></article>
+              <article class="flow-node flow-condition"><small>控制</small><strong>循环数据</strong><span>每个商品执行一次</span></article>
+              <article class="flow-node flow-output"><small>输出</small><strong>导出 CSV</strong><span>保存到运行表格</span></article>
+              <span class="canvas-note note-one">element selector / stable 96</span>
+              <span class="canvas-note note-two">运行历史 / 12:48:03</span>
+            </div>
+            <div class="workflow-footer"><span>节点 <strong>04</strong></span><span>连线 <strong>04</strong></span><span>最近运行 <strong>成功</strong></span></div>
+          </div>
+        </div>
+
+        <div class="content-width rpa-pills reveal" aria-label="RPA 功能列表">
+          <span>可视化画布</span><span>元素拾取</span><span>录制器</span><span>条件与循环</span><span>数据采集</span><span>计划调度</span><span>运行日志</span>
+        </div>
+      </section>
+
+      <section id="flow" class="section section-flow" aria-labelledby="flow-title">
+        <div class="content-width">
+          <div class="section-heading section-heading-split reveal">
+            <div>
+              <p class="eyebrow"><span class="eyebrow-index">05</span> 环境流转</p>
+              <h2 id="flow-title">换设备、做交接、<br /><em>从一个快照继续。</em></h2>
+            </div>
+            <p>Trace Browser 让环境可以被授权、保存和迁移。需要流转时，边界清楚；需要恢复时，路径明确。</p>
+          </div>
+
+          <div class="flow-grid">
+            <div class="flow-steps reveal">
+              <article class="flow-step is-active"><span>01</span><div><strong>保存</strong><p>把配置、实例、代理、插件和 Cookie 纳入全量或实例级备份。</p></div></article>
+              <article class="flow-step"><span>02</span><div><strong>授权</strong><p>通过同步服务授权或一次性分享码，把恢复范围交给可信设备。</p></div></article>
+              <article class="flow-step"><span>03</span><div><strong>继续工作</strong><p>导入前校验，恢复后继续运行，也可以通过 CDP 接回外部脚本。</p></div></article>
+              <div class="flow-availability"><i aria-hidden="true"></i><span>分享凭证有效期 <strong>24 小时</strong></span></div>
+            </div>
+            <div class="flow-visual reveal">
+              <div class="flow-visual-top"><span>备份 / 实例包</span><span>466.4 MB</span></div>
+              <img src="assets/images/backup.png" alt="Trace Browser 备份恢复界面" width="1280" height="720" loading="lazy" decoding="async" />
+              <div class="flow-visual-bottom"><span>来源：Trace Browser Windows</span><span class="verified"><i aria-hidden="true"></i> 恢复前已校验</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="playbooks" class="section section-playbooks" aria-labelledby="playbooks-title">
+        <div class="content-width">
+          <div class="section-heading section-heading-split reveal">
+            <div>
+              <p class="eyebrow"><span class="eyebrow-index">06</span> 推荐使用流程</p>
+              <h2 id="playbooks-title">四种方式，<br /><em>把能力用起来。</em></h2>
+            </div>
+            <p>从手动管理一个浏览器环境，到让外部系统接管多个实例，Trace Browser 为不同阶段准备了清晰的起步路径。</p>
+          </div>
+          <div class="playbook-grid">
+            <article class="playbook-card reveal"><span>01</span><div><p class="card-kicker">手动管理</p><h3>手动管理浏览器环境</h3><ol><li>准备或扫描浏览器内核</li><li>导入代理，创建实例并配置指纹</li><li>启动、保存快照或备份</li></ol></div></article>
+            <article class="playbook-card reveal"><span>02</span><div><p class="card-kicker">多账号运营</p><h3>批量运营多个账号</h3><ol><li>按国家、业务或账号类型分组</li><li>配置代理路由与标签规则</li><li>批量启动并使用窗口联动</li></ol></div></article>
+            <article class="playbook-card reveal"><span>03</span><div><p class="card-kicker">RPA 自动化</p><h3>搭建 RPA 自动化流程</h3><ol><li>启动专用实例并拾取页面元素</li><li>编排节点、条件、循环和采集</li><li>试运行后创建计划与任务</li></ol></div></article>
+            <article class="playbook-card reveal"><span>04</span><div><p class="card-kicker">外部接入</p><h3>通过外部系统接入</h3><ol><li>检查 <code>/api/health</code></li><li>按 Code、标签或分组启动实例</li><li>用 cdpUrl 交给 Playwright 或 Selenium</li></ol></div></article>
+          </div>
+        </div>
+      </section>
+
+      <section id="feature-index" class="section section-index" aria-labelledby="feature-index-title">
+        <div class="content-width">
+          <div class="section-heading section-heading-split reveal">
+            <div>
+              <p class="eyebrow"><span class="eyebrow-index">07</span> 完整功能索引</p>
+              <h2 id="feature-index-title">每一项能力，<br /><em>都有自己的入口。</em></h2>
+            </div>
+            <p>以下按模块完整展开能力清单，所有功能、特性与使用边界直接可见，帮助你快速了解 Trace Browser 的工作台、浏览器环境、自动化和运维能力。</p>
+          </div>
+
+          <div class="function-index-grid">
+            <details class="function-detail reveal" open>
+              <summary><span>01</span><strong>控制台与工作区总览</strong><i aria-hidden="true">+</i></summary>
+              <div class="detail-body">
+                <p>进入应用后，先用一屏看清当前运行态和下一步动作。</p>
+                <ul><li>实例总数、运行中实例、代理资源、浏览器内核统计</li><li>实例列表、代理池、内核管理、系统设置快捷入口</li><li>应用版本、运行环境、协议版本、数据目录与存储信息</li><li>崩溃、代理桥接失败、节点失败、RPA 通知等系统事件</li><li>系统通知与应用内通知中心，可查看未读与历史记录</li><li>恢复窗口尺寸；最小化、隐藏、退出；退出时关闭浏览器实例</li></ul>
+              </div>
+            </details>
+
+            <details class="function-detail reveal" open>
+              <summary><span>02</span><strong>指纹浏览器实例</strong><i aria-hidden="true">+</i></summary>
+              <div class="detail-body">
+                <p>实例是 Trace Browser 里最小、最清晰、可以独立流转的环境。</p>
+                <ul><li>创建、编辑、复制、删除、启动、停止、重启与详情查看</li><li>配置名称、用户数据目录、分组、浏览器内核、代理、启动页</li><li>设置指纹、标签、关键字与 Launch Code</li><li>列表分页、过滤、列显隐、排序、顺序调整与批量启动 / 停止 / 删除</li><li>查看运行状态、进程 PID、调试端口、最近错误与启动耗时</li><li>运行中居中窗口、切换代理、打开已有标签页、打开 URL、接入 CDP</li><li>支持并发控制，避免大量实例同时启动导致资源争抢</li></ul>
+              </div>
+            </details>
+
+            <details class="function-detail reveal" open>
+              <summary><span>03</span><strong>指纹与设备画像</strong><i aria-hidden="true">+</i></summary>
+              <div class="detail-body">
+                <p>让身份、设备和网络信号在一个实例里保持可解释的一致性。</p>
+                <ul><li>浏览器品牌：Chrome、Chromium、Edge、Brave、Opera、Vivaldi</li><li>Windows、macOS、Linux 操作系统画像、语言地区、时区与指纹种子</li><li>按地区联动语言、时区、字体建议；支持预设和自定义覆盖</li><li>虚拟架构、系统版本画像 ID、报告路径、虚拟字体目录与字体模式</li><li>屏幕分辨率、色深、CPU 核心数、设备内存、触摸点数</li><li>WebGL 供应商 / 渲染器、Canvas / Audio 噪声、WebRTC、DNT、媒体设备与字体列表</li><li>指纹一致性检查：系统、WebGL、语言、时区与字体的冲突提示</li><li>复制实例时可重新生成种子、随机完整画像，或保留原指纹；支持启动时自动生成硬件画像</li></ul>
+              </div>
+            </details>
+
+            <details class="function-detail reveal" open>
+              <summary><span>04</span><strong>代理池与代理路由</strong><i aria-hidden="true">+</i></summary>
+              <div class="detail-body">
+                <p>把代理当作可检测、可分配、可追踪的网络资源，而不是一串临时文本。</p>
+                <ul><li>手动添加与批量导入 HTTP、HTTPS、SOCKS5 代理</li><li>粘贴 Clash YAML，导入订阅 URL、Base64、vmess、vless、trojan、Shadowsocks、hysteria2、AnyTLS 等内容</li><li>导入预览、命名、分组、重复节点处理、确认后写入与导入结果反馈</li><li>搜索、编辑、删除、订阅来源管理、刷新状态与稳定节点身份</li><li>连接测试、真实网络测试、单节点 / 批量测速、IP 健康检查</li><li>查看 IP、国家、地区、城市、运营商、延迟、风险分数和最近检测时间</li><li>住宅代理、广播地址、链式检测与运行时桥接状态</li><li>连续失效节点隔离、手动解除、立即重试、批量清理和后台自动刷新</li></ul>
+              </div>
+            </details>
+
+            <details class="function-detail reveal" open>
+              <summary><span>05</span><strong>代理路由与链式代理</strong><i aria-hidden="true">+</i></summary>
+              <div class="detail-body">
+                <p>需要更细的网络策略时，用路由规则把请求送到正确的出口。</p>
+                <ul><li>路由分流、前置链式代理与混合模式</li><li>域名、通配符、带路径地址、多域名模式和更具体规则优先</li><li>直连、指定节点、指定国家 / 地区与健康节点选择</li><li>默认策略、失效节点的国家 / 地区替换策略与路由优先级</li><li>代理路由导入、导出、复制、启用 / 停用与匹配预览</li><li>多前置候选、按健康状态故障切换、固定最终出口</li><li>完整链路失败时明确报错，不静默降级为直连；复杂协议可通过本地桥接</li><li>命中记录、端口占用、桥接状态和异常通知</li></ul>
+              </div>
+            </details>
+
+            <details class="function-detail reveal" open>
+              <summary><span>06</span><strong>浏览器内核管理</strong><i aria-hidden="true">+</i></summary>
+              <div class="detail-body">
+                <p>把浏览器运行时也纳入版本和平台管理，保证实例启动有稳定底座。</p>
+                <ul><li>新增、编辑、删除、打开目录、设置默认与注册本地 Chrome / Chromium</li><li>扫描本地目录、校验路径、查看版本、架构、可用状态与实例使用数量</li><li>从官方下载页、自定义地址或内部镜像选择平台 / 架构版本</li><li>支持 ZIP、tar.xz、AppImage、DMG 等包格式，显示进度、可中断并重命名安装目录</li><li>为内核下载配置系统代理、直连或指定代理节点</li><li>全局用户数据根目录、默认代理、默认指纹、默认启动参数</li><li>启动就绪超时、稳定窗口、版本兼容与执行权限检查</li></ul>
+              </div>
+            </details>
+
+            <details class="function-detail reveal" open>
+              <summary><span>07</span><strong>扩展插件管理</strong><i aria-hidden="true">+</i></summary>
+              <div class="detail-body">
+                <p>插件不是散落在文件夹里的依赖，而是可以绑定到实例的工作区资源。</p>
+                <ul><li>ZIP、CRX、解压目录、地址与拖拽导入；自动读取 manifest.json</li><li>识别名称、版本、Manifest 版本、描述、图标、权限与安装目录</li><li>同名同版本导入支持取消、覆盖或作为新扩展导入</li><li>搜索 Chrome Web Store，查看发布者、评分、用户量、分类、版本、截图和站点权限</li><li>查看插件绑定实例、批量绑定 / 解除、启用 / 停用；运行中实例提示重启</li><li>共享绑定、独占绑定、自动绑定与源实例数据同步</li><li>新建、复制、启动实例时自动绑定；删除时清理关系并校验运行状态</li><li>插件配置与用户数据可进入备份范围</li></ul>
+              </div>
+            </details>
+
+            <details class="function-detail reveal" open>
+              <summary><span>08</span><strong>标签、分组和默认内容管理</strong><i aria-hidden="true">+</i></summary>
+              <div class="detail-body">
+                <p>让账号、业务、国家和团队成员拥有稳定的归属关系。</p>
+                <ul><li>标签新建、重命名、批量添加 / 移除，表达业务、地区、平台和账号类型</li><li>分组新建、编辑、删除、层级结构、实例移动与分组筛选</li><li>全局、标签或分组专属默认启动页与书签</li><li>子分组继承、是否包含全局默认内容、启动页顺序与 URL 自动去重</li><li>恢复默认启动页和默认书签；规则启用 / 停用</li><li>分组、标签、关键字贯穿批量启动、外部选择器、备份、分享和交接</li></ul>
+              </div>
+            </details>
+
+            <details class="function-detail reveal" open>
+              <summary><span>09</span><strong>窗口联动与批量操作</strong><i aria-hidden="true">+</i></summary>
+              <div class="detail-body">
+                <p>多实例同时工作时，把重复动作变成可控的联动，而不是不断切换窗口。</p>
+                <ul><li>选择多个可联动窗口，设置主控与被控并查看运行状态</li><li>同步键盘输入、鼠标点击、滚动、拖动与快捷键切换</li><li>批量输入相同文本，按行向不同窗口填充不同文本</li><li>批量打开 URL；关闭其他标签、当前标签或空白标签页</li><li>展示 / 重新显示窗口，暂停 / 恢复联动</li><li>宫格、堆叠布局，按工具栏屏幕区域或所有屏幕区域重新排列</li><li>调整、移动浮动工具栏并自定义主控窗口颜色</li></ul>
+              </div>
+            </details>
+
+            <details class="function-detail reveal" open>
+              <summary><span>10</span><strong>RPA 工作流设计器</strong><i aria-hidden="true">+</i></summary>
+              <div class="detail-body">
+                <p>用可读的节点图把浏览器动作编成可保存、可调试、可交接的流程。</p>
+                <ul><li>新建、打开、编辑、删除、复制、粘贴、多选与删除节点</li><li>拖拽节点、普通 / 成功 / 失败连线、真 / 假分支</li><li>缩放、平移、定位、撤销、重做与画布状态恢复</li><li>初始化触发器、流程变量、工作流设置与保存</li><li>JSON 工作流导入、导出、兼容校验与结构化错误提示</li><li>通用：触发器、执行工作流、延迟、HTTP、导出、模块组、节点包、剪切板、邮箱、随机生成、等待连接、通知、注释、工作流状态、参数提醒</li><li>浏览器：活动 / 新建 / 切换标签页、新建窗口、返回、前进、关闭、重载、获取 URL、浏览器事件、对话框、下载、截屏、Cookies、重置实例数据</li><li>网页交互：点击、获取内容、滚动、链接、属性值、表单、JavaScript、触发器事件、iframe、上传、悬停、保存资源、按键、创建元素</li><li>控制流：重复任务、条件、元素存在、While、循环数据、循环元素、循环断点；显式连接真 / 假与循环回路</li><li>数据：插入、删除、获取日志、切片变量、增加变量、RegEx 变量、数据映射、排序数据</li></ul>
+              </div>
+            </details>
+
+            <details class="function-detail reveal" open>
+              <summary><span>11</span><strong>节点目录、选择器与录制器</strong><i aria-hidden="true">+</i></summary>
+              <div class="detail-body">
+                <p>从可视化拾取到手动修正，让页面交互既快又能在失败时被诊断。</p>
+                <ul><li>通用、浏览器、网页交互、控制流、数据处理节点分类</li><li>连接实例和页面，拾取单个元素、列表、字段与表单</li><li>生成 CSS / XPath，显示匹配数量、稳定性评分、iframe / Shadow DOM 路径</li><li>点击代理建议、历史选择器、复制、预览、填充与元素截图</li><li>失败时记录 URL、日志、DOM、截图并提供修复入口</li><li>录制打开页面、URL 变化、点击、输入、选择、勾选、滚动、键盘、下载、截图</li><li>保存选择器、属性、文本、URL、Frame、Shadow 路径；合并输入并追加到工作流</li></ul>
+              </div>
+            </details>
+
+            <details class="function-detail reveal" open>
+              <summary><span>12</span><strong>页面表单与交互动作</strong><i aria-hidden="true">+</i></summary>
+              <div class="detail-body">
+                <p>把真实页面中的输入、等待和上传动作表达成可复用参数。</p>
+                <ul><li>文本、数字、JSON、下拉框、复选框、单选框与批量字段</li><li>输入前清空、延迟、触发事件、等待条件与失败策略</li><li>CSS / XPath、iframe、Shadow DOM 与嵌套上下文</li><li>文件上传、悬停、按键、真实鼠标、滚动与下载</li><li>页面加载、元素出现 / 消失、文本变化、URL 变化与自定义等待</li></ul>
+              </div>
+            </details>
+
+            <details class="function-detail reveal" open>
+              <summary><span>13</span><strong>数据采集、详情与导出</strong><i aria-hidden="true">+</i></summary>
+              <div class="detail-body">
+                <p>从列表到详情、从字段到 SKU，把采集结果整理成可继续使用的数据。</p>
+                <ul><li>text、innerText、textContent、HTML、元素与资源属性读取</li><li>单条、列表、多组数据、相对选择器、变量与表格映射</li><li>正则、前缀 / 后缀、详情页字段、SKU 与变体组合</li><li>等待数据变化、最大组合数、超时与失败策略</li><li>列表项、字段、链接、详情点击池、新标签页循环、关闭并返回</li><li>URL、选择器、点击与备用路径；跳过禁用变体</li><li>JSON 父子结构、CSV SKU 输出与字段映射</li><li>JSON、CSV、文本导出；字段顺序、分隔符、BOM、冲突处理、预览、模板与目录选择</li></ul>
+              </div>
+            </details>
+
+            <details class="function-detail reveal" open>
+              <summary><span>14</span><strong>邮箱和验证码</strong><i aria-hidden="true">+</i></summary>
+              <div class="detail-body">
+                <p>把注册、登录和批量验证中的邮箱等待，纳入流程的可观察状态。</p>
+                <ul><li>生成邮箱、邮箱池与 Outlook / IMAP / Microsoft Graph / 临时邮箱接入</li><li>发件人、主题、正文正则、验证码提取与基线消息过滤</li><li>轮询间隔、超时、sessionKey、批量测试与失败重试</li><li>邮箱池分配、使用状态、回收与批量验证</li><li>日志脱敏，避免邮箱凭据和验证码进入公开记录</li></ul>
+              </div>
+            </details>
+
+            <details class="function-detail reveal" open>
+              <summary><span>15</span><strong>工作流包、版本、计划与存储</strong><i aria-hidden="true">+</i></summary>
+              <div class="detail-body">
+                <p>把一次写好的自动化流程，变成可以复用、排期和迁移的长期流程。</p>
+                <ul><li>保存工作流片段、模块组与节点包，记录名称、版本、描述、节点数和边数</li><li>包的导入、导出、复制、删除、依赖检查与工作流引用</li><li>工作流版本名称、备注、草稿 / 已发布 / 已恢复状态、定义大小</li><li>历史版本查看、恢复、删除与兼容校验</li><li>间隔、Cron、指定日期、指定星期时间、URL、快捷键、右键菜单计划</li><li>保存变量、数据表、循环状态、点击对象池、详情 / SKU 结果、通知和子流程结果</li><li>保存邮箱池、凭据、本地加密配置、数据列定义与存储版本</li><li>存储版本创建、查看、恢复，以及按时间或保留数量清理</li></ul>
+              </div>
+            </details>
+
+            <details class="function-detail reveal" open>
+              <summary><span>16</span><strong>RPA 任务、计划和运行记录</strong><i aria-hidden="true">+</i></summary>
+              <div class="detail-body">
+                <p>把已设计好的工作流变成立即执行、定时执行或循环执行的任务。</p>
+                <ul><li>查看可用工作流，创建立即执行、定时任务与循环任务</li><li>绑定工作流，选择运行实例或实例运行模式</li><li>配置任务名称、备注、开始时间、分钟 / 小时 / 天级间隔</li><li>启用、禁用、编辑、删除与手动立即执行</li><li>计划草稿、已准备、已禁用；任务未开始、已执行、已禁用</li><li>运行中、成功、失败、取消等运行状态与任务快照</li><li>调度器最大并发任务数、运行窗口和实例并发策略</li><li>任务运行历史、失败记录与通知入口</li></ul>
+              </div>
+            </details>
+
+            <details class="function-detail reveal" open>
+              <summary><span>17</span><strong>任务运行、调试与历史</strong><i aria-hidden="true">+</i></summary>
+              <div class="detail-body">
+                <p>运行不是黑盒：每一个节点的输入、输出、耗时和错误都能被追踪。</p>
+                <ul><li>运行完整工作流、从指定节点运行、单节点运行、计划运行与任务运行</li><li>取消、暂停、恢复、实时事件和运行状态</li><li>节点输入、输出、状态、耗时、失败 URL、错误堆栈与截图</li><li>运行历史按工作流、实例、状态、时间筛选</li><li>失败任务重试、清理历史、结构化日志与耗时阶段</li><li>Launch Server、代理桥接、实例启动 / 停止与 RPA 通知统一进入历史</li></ul>
+              </div>
+            </details>
+
+            <details class="function-detail reveal" open>
+              <summary><span>18</span><strong>外部脚本配置与唤起接口</strong><i aria-hidden="true">+</i></summary>
+              <div class="detail-body">
+                <p>需要接入外部系统时，用本地 HTTP 与 Chrome DevTools Protocol 把实例交给脚本。</p>
+                <ul><li>默认监听本机 <code>127.0.0.1:19876</code>，HTTP + JSON，可选 API Key</li><li><code>/api/health</code> 检查服务、版本、协议与运行状态</li><li><code>/api/profiles</code> 查询 / 创建实例，<code>/api/profiles/{profileId}</code> 查询、更新、删除单实例</li><li><code>/api/launch/{code}</code> 按 Launch Code 启动，<code>/api/launch</code> 支持 ID、名称、关键字、标签、分组组合选择</li><li>支持只创建配置、立即启动、临时启动参数、调用记录与错误信息</li><li>返回实例 ID、名称、Launch Code、PID、调试端口、<code>cdpUrl</code> 与运行警告</li><li><code>/api/launch/logs</code>、<code>/json/version</code>、<code>/json/list</code> 与 <code>/devtools/...</code> 调试入口</li><li>可交给 Playwright、Puppeteer、Selenium、Python、Node.js、PowerShell、cURL 或自研调度器</li><li>默认仅本机访问；端口、CORS、鉴权、超时与错误响应可诊断</li></ul>
+              </div>
+            </details>
+
+            <details class="function-detail reveal" open>
+              <summary><span>19</span><strong>本地备份、云端同步和实例分享</strong><i aria-hidden="true">+</i></summary>
+              <div class="detail-body">
+                <p>登录态和环境配置可以被检查、迁移，也可以按范围交给可信设备。</p>
+                <ul><li>查看、清除、导出、导入 Cookie；支持 Netscape、JSON、文件与粘贴内容</li><li>区分持久 Cookie、运行中明文快照与隐身模式限制；清理前明确确认</li><li>全量配置备份覆盖实例、代理、路由、扩展绑定、标签分组、默认内容与 RPA 数据</li><li>实例级备份支持全部、当前选择、筛选结果、自定义实例和 Cookie 范围</li><li>生成备份摘要，导入前校验，默认创建新实例，冲突自动重命名</li><li>账号密码 / OAuth 同步授权、设备登记、设备 ID、绑定 ID、最后心跳与退出登录</li><li>云端备份上传、下载、删除、恢复、类型 / 版本 / 大小 / 状态查看与进度</li><li>独立同步加密密码的设置、解锁、禁用与新设备恢复</li><li>实例分享包、文本 / 授权信息、接收解析、范围恢复、深链流转与新实例生成</li></ul>
+              </div>
+            </details>
+
+            <details class="function-detail reveal" open>
+              <summary><span>20</span><strong>系统设置、日志和自动更新</strong><i aria-hidden="true">+</i></summary>
+              <div class="detail-body">
+                <p>长期使用的稳定性，来自可维护的偏好、可读的日志和可回滚的更新过程。</p>
+                <ul><li>主题、内置样式、应用信息、中英文切换与功能开关</li><li>日志级别、自动更新、配置初始化、导出、导入、备份与恢复</li><li>应用日志、实例启停、代理桥接、RPA 通知历史与 Launch Server 日志</li><li>日志脱敏、结构化 duration / steps / stages、清理与下载</li><li>检查更新、平台识别、下载进度、版本说明与当前版本展示</li><li>便携版替换并重启、安装器更新，以及配置、数据、内核、代理运行态保留</li></ul>
+              </div>
+            </details>
+
+            <details class="function-detail reveal" open>
+              <summary><span>21</span><strong>技术特点与使用边界</strong><i aria-hidden="true">+</i></summary>
+              <div class="detail-body">
+                <p>官网也明确说明产品如何工作，以及哪些事情需要用户自己负责。</p>
+                <ul><li>Windows、macOS、Linux 全平台支持，同一套实例、指纹、代理和自动化工作台体验</li><li>桌面端、本地优先、实例隔离、CDP 接入与可观测运行</li><li>React / Wails / Go / Chromium / CDP 组成的本地工作台基础</li><li>用户数据、Cookie、邮箱凭据、代理和云端同步内容的权限边界</li><li>网络、代理供应商、站点风控、验证码、第三方 API 和合规责任不由工具自动消除</li><li>批量并发、隐身模式、运行中 Cookie 与外部脚本连接存在明确前置条件</li><li>所有敏感数据应在可信环境中使用，并按组织安全策略管理</li></ul>
+              </div>
+            </details>
+          </div>
+        </div>
+      </section>
+
+      <section id="themes" class="section section-themes" aria-labelledby="themes-title">
+        <div class="content-width">
+          <div class="section-heading section-heading-split section-heading-themes reveal">
+            <div>
+              <p class="eyebrow"><span class="eyebrow-index">08</span> 多主题配色</p>
+              <h2 id="themes-title">今天想用哪种颜色，<br /><em>随手切换就行。</em></h2>
+            </div>
+            <p>草木灰、落晖黄、远山绿、天空蓝、朱砂红、烟墨紫、暗夜黑，按心情和工作场景随时切换，清爽或沉浸都由你决定。</p>
+          </div>
+
+          <div class="theme-showcase reveal" data-theme-showcase>
+            <div class="theme-showcase-heading">
+              <div>
+                <span class="card-kicker">当前主题</span>
+                <strong data-theme-name>草木灰</strong>
+                <p data-theme-current-description>清爽克制的浅灰风格</p>
+              </div>
+              <span class="theme-showcase-status" data-theme-status>已选择</span>
+            </div>
+
+            <div class="theme-choice-grid" role="list" aria-label="主题选择">
+              <button class="theme-choice is-active" type="button" role="listitem" aria-pressed="true" data-theme-choice="gray" data-theme-label="草木灰" data-theme-description="清爽克制的浅灰风格" data-theme-bg="#f1f5f9" data-theme-surface="#ffffff" data-theme-ink="#1e293b" data-theme-accent="#1e293b" data-theme-soft="#cbd5e1">
+                <span class="theme-choice-swatch" aria-hidden="true"><i></i><b></b><em></em></span><strong>草木灰</strong><small>清爽克制</small>
+              </button>
+              <button class="theme-choice" type="button" role="listitem" aria-pressed="false" data-theme-choice="sunset" data-theme-label="落晖黄" data-theme-description="温暖柔和的米黄色风格" data-theme-bg="#f7f1e8" data-theme-surface="#fffaf2" data-theme-ink="#493d2f" data-theme-accent="#9b7544" data-theme-soft="#e5d1b4">
+                <span class="theme-choice-swatch" aria-hidden="true"><i></i><b></b><em></em></span><strong>落晖黄</strong><small>温暖柔和</small>
+              </button>
+              <button class="theme-choice" type="button" role="listitem" aria-pressed="false" data-theme-choice="green" data-theme-label="远山绿" data-theme-description="安静自然的绿色风格" data-theme-bg="#eef5eb" data-theme-surface="#fbfff9" data-theme-ink="#29442d" data-theme-accent="#478a4e" data-theme-soft="#c9ddc8">
+                <span class="theme-choice-swatch" aria-hidden="true"><i></i><b></b><em></em></span><strong>远山绿</strong><small>安静自然</small>
+              </button>
+              <button class="theme-choice" type="button" role="listitem" aria-pressed="false" data-theme-choice="sky" data-theme-label="天空蓝" data-theme-description="明亮清晰的蓝色风格" data-theme-bg="#eaf4fc" data-theme-surface="#f9fdff" data-theme-ink="#173b58" data-theme-accent="#1479b8" data-theme-soft="#b9d9ee">
+                <span class="theme-choice-swatch" aria-hidden="true"><i></i><b></b><em></em></span><strong>天空蓝</strong><small>明亮清晰</small>
+              </button>
+              <button class="theme-choice" type="button" role="listitem" aria-pressed="false" data-theme-choice="cinnabar" data-theme-label="朱砂红" data-theme-description="有力量感的暖红色风格" data-theme-bg="#fff0eb" data-theme-surface="#fffaf8" data-theme-ink="#4d2821" data-theme-accent="#b83a2f" data-theme-soft="#efc2b8">
+                <span class="theme-choice-swatch" aria-hidden="true"><i></i><b></b><em></em></span><strong>朱砂红</strong><small>热烈醒目</small>
+              </button>
+              <button class="theme-choice" type="button" role="listitem" aria-pressed="false" data-theme-choice="purple" data-theme-label="烟墨紫" data-theme-description="沉静有层次的烟紫色风格" data-theme-bg="#e9e3ef" data-theme-surface="#faf7fc" data-theme-ink="#2b2235" data-theme-accent="#8f78c8" data-theme-soft="#c9bbd8">
+                <span class="theme-choice-swatch" aria-hidden="true"><i></i><b></b><em></em></span><strong>烟墨紫</strong><small>沉静有层次</small>
+              </button>
+              <button class="theme-choice" type="button" role="listitem" aria-pressed="false" data-theme-choice="dark" data-theme-label="暗夜黑" data-theme-description="专注沉浸的深色风格" data-theme-bg="#0c0c0e" data-theme-surface="#18181b" data-theme-ink="#f5effa" data-theme-accent="#a78bfa" data-theme-soft="#51485c">
+                <span class="theme-choice-swatch" aria-hidden="true"><i></i><b></b><em></em></span><strong>暗夜黑</strong><small>专注沉浸</small>
+              </button>
+            </div>
+
+            <div class="theme-demo" aria-label="主题预览">
+              <div class="theme-demo-top"><span>TRACE / 工作台</span><i aria-hidden="true"></i><span>主题已切换</span></div>
+              <div class="theme-demo-content"><span>浏览器环境</span><strong data-theme-demo-title>工作台已准备好</strong><div class="theme-demo-lines" aria-hidden="true"><i></i><i></i><i></i></div></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="downloads" class="section section-downloads" aria-labelledby="cta-title">
+        <div class="content-width">
+          <div class="download-hero reveal">
+            <div class="download-hero-copy">
+              <p class="eyebrow"><span class="eyebrow-index">09</span> 前往</p>
+              <h2 id="cta-title"><span class="download-title-cn">下载桌面版</span><span class="download-title-product">Trace Browser</span></h2>
+              <p class="download-hero-lede">把浏览器环境隔离、自动化、备份和流转放在一个地方，少折腾，随时接着用。</p>
+              <div class="download-hero-points" aria-label="下载能力">
+                <span><i aria-hidden="true"></i>官网自动匹配最新版本</span>
+                <span><i aria-hidden="true"></i>安装版与便携版都能选</span>
+              </div>
+            </div>
+
+            <div class="download-platform-support">
+              <p class="download-platform-support-label"><strong>支持全平台下载</strong><span>移入平台，选择架构与版本</span></p>
+              <div class="download-platform-grid download-platform-grid-inline" aria-label="Trace Browser 多平台下载">
+              <details id="downloads-windows" class="download-platform-card download-platform-windows" data-download-choice>
+                <summary>
+                  <span class="download-platform-copy"><strong>Windows</strong><small>x64 / ARM64</small></span>
+                  <span class="download-platform-action">选择版本</span>
+                </summary>
+                <div class="download-options">
+                  <div class="download-architecture">
+                    <div class="download-option-heading"><strong>x64</strong><small>常用 Windows 电脑</small></div>
+                    <a class="download-option" href="download/trace-browser/windows/amd64/installer" data-download-platform="windows" data-download-arch="amd64" data-download-package="installer"><span class="download-option-name">安装版</span><small>Setup EXE</small><span class="download-option-cta">下载</span></a>
+                    <a class="download-option" href="download/trace-browser/windows/amd64/portable" data-download-platform="windows" data-download-arch="amd64" data-download-package="portable"><span class="download-option-name">便携版</span><small>Portable ZIP</small><span class="download-option-cta">下载</span></a>
+                  </div>
+                  <div class="download-architecture is-unavailable">
+                    <div class="download-option-heading"><strong>ARM64</strong><small>当前发布暂未提供对应包</small></div>
+                    <span class="download-option-disabled">等待 ARM64 安装版 / 便携版</span>
+                  </div>
+                </div>
+              </details>
+
+              <details id="downloads-macos" class="download-platform-card download-platform-macos" data-download-choice>
+                <summary>
+                  <span class="download-platform-copy"><strong>macOS</strong><small>Apple 芯片 / Intel</small></span>
+                  <span class="download-platform-action">选择版本</span>
+                </summary>
+                <div class="download-options">
+                  <div class="download-architecture">
+                    <div class="download-option-heading"><strong>Apple 芯片</strong><small>arm64 / Apple Silicon</small></div>
+                    <a class="download-option" href="download/trace-browser/macos/arm64/installer" data-download-platform="macos" data-download-arch="arm64" data-download-package="installer"><span class="download-option-name">安装版</span><small>DMG</small><span class="download-option-cta">下载</span></a>
+                  </div>
+                  <div class="download-architecture">
+                    <div class="download-option-heading"><strong>Intel</strong><small>amd64 / x86_64</small></div>
+                    <a class="download-option" href="download/trace-browser/macos/amd64/installer" data-download-platform="macos" data-download-arch="amd64" data-download-package="installer"><span class="download-option-name">安装版</span><small>DMG</small><span class="download-option-cta">下载</span></a>
+                  </div>
+                  <div class="download-architecture is-unavailable"><div class="download-option-heading"><strong>便携版</strong><small>当前发布暂未提供</small></div><span class="download-option-disabled">macOS 当前提供 DMG 安装版</span></div>
+                </div>
+              </details>
+
+              <details id="downloads-linux" class="download-platform-card download-platform-linux" data-download-choice>
+                <summary>
+                  <span class="download-platform-copy"><strong>Linux</strong><small>amd64 / arm64</small></span>
+                  <span class="download-platform-action">选择版本</span>
+                </summary>
+                <div class="download-options">
+                  <div class="download-architecture">
+                    <div class="download-option-heading"><strong>amd64</strong><small>x86_64 Linux</small></div>
+                    <a class="download-option" href="download/trace-browser/linux/amd64/installer" data-download-platform="linux" data-download-arch="amd64" data-download-package="installer"><span class="download-option-name">安装版</span><small>DEB</small><span class="download-option-cta">下载</span></a>
+                    <a class="download-option" href="download/trace-browser/linux/amd64/portable" data-download-platform="linux" data-download-arch="amd64" data-download-package="portable"><span class="download-option-name">便携版</span><small>TAR.GZ</small><span class="download-option-cta">下载</span></a>
+                  </div>
+                  <div class="download-architecture">
+                    <div class="download-option-heading"><strong>arm64</strong><small>ARM64 Linux</small></div>
+                    <a class="download-option" href="download/trace-browser/linux/arm64/installer" data-download-platform="linux" data-download-arch="arm64" data-download-package="installer"><span class="download-option-name">安装版</span><small>DEB</small><span class="download-option-cta">下载</span></a>
+                    <a class="download-option" href="download/trace-browser/linux/arm64/portable" data-download-platform="linux" data-download-arch="arm64" data-download-package="portable"><span class="download-option-name">便携版</span><small>TAR.GZ</small><span class="download-option-cta">下载</span></a>
+                  </div>
+                </div>
+              </details>
+                </div>
+                <p class="download-panel-note">官网统一转发最新版本，可按架构选择安装版或便携版。</p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="content-width footer-inner">
+        <a class="brand" href="#top" aria-label="返回 Trace Browser 官网首页"><img src="assets/logo.png" alt="" width="28" height="28" loading="lazy" /><span class="brand-name">Trace <strong>Browser</strong></span></a>
+        <p>浏览器环境可隔离、可控制、可自动化、可备份，也可随时流转。</p>
+        <div class="footer-links"><a href="#product">工作台</a><a href="#rpa">自动化</a><a href="#downloads">多平台下载 ↗</a></div>
+        <small>© 2026 Trace Browser</small>
+      </div>
+    </footer>
+
+    <div class="image-lightbox" data-image-lightbox hidden>
+      <div class="image-lightbox-backdrop" data-lightbox-close></div>
+      <div class="image-lightbox-dialog" role="dialog" aria-modal="true" aria-labelledby="lightbox-caption">
+        <button class="image-lightbox-close" type="button" aria-label="关闭图片预览" data-lightbox-close>×</button>
+        <figure class="image-lightbox-figure">
+          <img data-lightbox-image alt="" />
+          <figcaption id="lightbox-caption" data-lightbox-caption></figcaption>
+        </figure>
+      </div>
+    </div>
+
+    <script src="script.js?v=download-proxy-1" defer></script>
+  </body>
+</html>
