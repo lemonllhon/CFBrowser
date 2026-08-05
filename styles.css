@@ -646,11 +646,11 @@ img.lightbox-trigger:hover {
 .hero h1 {
   max-width: 720px;
   margin: 24px 0 0;
-  color: var(--white);
-  font-size: clamp(52px, 6.8vw, 102px);
-  font-weight: 420;
-  letter-spacing: -0.075em;
-  line-height: 0.97;
+  color: rgba(224, 217, 235, 0.9);
+  font-size: clamp(48px, 5.8vw, 88px);
+  font-weight: 460;
+  letter-spacing: -0.065em;
+  line-height: 1;
 }
 
 h1 em,
@@ -671,7 +671,8 @@ h2 em {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
-  margin-top: 32px;
+  margin-top: 44px;
+  margin-left: clamp(16px, 2.8vw, 38px);
 }
 
 .button {
@@ -722,7 +723,8 @@ h2 em {
   display: flex;
   flex-wrap: wrap;
   gap: 18px;
-  margin-top: 42px;
+  margin-top: 54px;
+  margin-left: clamp(16px, 2.8vw, 38px);
   color: var(--text-on-dark-muted);
   font-size: 10px;
   font-weight: 700;
@@ -2703,7 +2705,7 @@ body.has-lightbox {
 .text-shimmer {
   --text-base: var(--ink);
   display: inline-block;
-  background: linear-gradient(108deg, var(--text-base) 0 36%, var(--accent) 48%, var(--white) 53%, var(--text-base) 66% 100%);
+  background: linear-gradient(108deg, var(--text-base) 0 36%, var(--shimmer-accent, var(--accent)) 48%, var(--white) 53%, var(--text-base) 66% 100%);
   background-size: 240% 100%;
   background-position: 100% 50%;
   -webkit-background-clip: text;
@@ -2714,7 +2716,8 @@ body.has-lightbox {
 }
 
 .hero h1.text-shimmer {
-  --text-base: var(--text-on-dark);
+  --text-base: rgba(224, 217, 235, 0.86);
+  --shimmer-accent: rgba(167, 139, 250, 0.72);
 }
 
 .hero-accent-line em.text-shimmer {
@@ -3004,6 +3007,19 @@ h2 em.text-shimmer {
     max-width: 700px;
   }
 
+  .hero-actions,
+  .hero-footnotes {
+    margin-left: 0;
+  }
+
+  .hero-actions {
+    margin-top: 32px;
+  }
+
+  .hero-footnotes {
+    margin-top: 42px;
+  }
+
   .hero-console {
     width: min(750px, 100%);
     justify-self: end;
@@ -3188,7 +3204,7 @@ h2 em.text-shimmer {
   }
 
   .hero h1 {
-    font-size: clamp(48px, 14vw, 76px);
+    font-size: clamp(44px, 12.5vw, 68px);
   }
 
   .hero-lede {
