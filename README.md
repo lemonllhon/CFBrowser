@@ -7,7 +7,7 @@
 - `index.html`：官网页面
 - `styles.css`：页面样式
 - `script.js`：导航、动效和轮播逻辑
-- `download-worker.js`：Cloudflare 下载反代 Worker，按最新 Release 资产提供官网下载
+- `download-worker.js`：Cloudflare 下载反代 Worker，提供最新版本和可按 Release 选择的官网下载
 - `assets/`：logo、favicon 和官网截图资源
 - `_headers`：Cloudflare Pages 响应头配置
 
@@ -36,12 +36,14 @@
 - `GET /download/chromium/{windows|macos|linux}/{amd64|arm64}/{installer|portable}`
 - `GET /api/trace-browser/latest`
 - `GET /api/chromium/latest`
+- `GET /api/trace-browser/releases?limit=100`
+- `GET /api/chromium/releases?limit=100`
 
 将 `download-worker.js` 部署为绑定在 `browser.lemon.vin` 上的 Worker，并让未匹配的请求继续回源到 Pages。Worker 只允许访问 `lemon-casino/trace-browser-release` 与 `lemon-casino/chromium`，不会把站点变成开放代理。
 
 注意：普通 Cloudflare Pages“直接上传静态文件”不会自动执行 Worker。必须选择 Pages Advanced Mode / Workers 部署 `_worker.js`，或者单独部署 `download-worker.js` 并将 `browser.lemon.vin/*` 路由绑定到它；否则 `/download/...` 会被 Pages 当成普通路径回退到 `index.html`，浏览器就会看到官网 HTML 而不是文件下载。
 
-如果使用 Cloudflare Pages Advanced Mode，可以将该文件作为根目录的 `_worker.js`，并配置 `ASSETS` 静态资源绑定；如果使用独立 Worker，则保留现有 Pages 作为源站，让 Worker 只处理 `/download/*` 与 `/api/*` 路径。`/api/trace-browser/latest` 会同时公开发布资产和 SHA-256 校验资产，桌面端更新器会通过官网同源读取校验文件。
+如果使用 Cloudflare Pages Advanced Mode，可以将该文件作为根目录的 `_worker.js`，并配置 `ASSETS` 静态资源绑定；如果使用独立 Worker，则保留现有 Pages 作为源站，让 Worker 只处理 `/download/*` 与 `/api/*` 路径。`/api/trace-browser/latest` 会同时公开发布资产和 SHA-256 校验资产，桌面端更新器会通过官网同源读取校验文件。`/api/*/releases` 返回最多 100 个已发布版本，返回的资产地址带有 release ID，因此下载旧版本时不会被重新解析为最新版本。公开给桌面端的版本和下载地址固定使用 `https://browser.lemon.vin`。
 
 ## 代理健康检查
 
@@ -49,4 +51,4 @@ Worker 同时提供 `GET /api/proxy-health`（也支持 `HEAD`），用于 Trace
 
 该接口是节点公网可达性和出口信息的主检测来源。IPPure 只在桌面端缺少住宅/机房、风险分数和纯净度补充数据时，由独立单并发队列调用；IPPure 失败不会改变主健康结果。
 
-可选地在 Worker 中配置 `GITHUB_TOKEN` Secret，降低 GitHub API 的匿名请求限制。官网不展示 Chromium 内核下载入口，但软件后续的内核列表可以调用 `/api/chromium/latest`，下载时调用对应 `/download/chromium/...` 地址。
+可选地在 Worker 中配置 `GITHUB_TOKEN` Secret，降低 GitHub API 的匿名请求限制。软件内核下载列表调用 `/api/chromium/releases` 获取多个版本，并使用响应中带 release ID 的 `/download/chromium/release/{releaseId}/asset/{assetName}` 地址下载用户选择的版本；旧的 `/api/chromium/latest` 和 `/download/chromium/asset/{assetName}` 入口仍然兼容。

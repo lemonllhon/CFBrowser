@@ -4,7 +4,8 @@
  * Deploy this Worker in front of the Pages site (or use it as the Pages
  * `_worker.js` entrypoint with an ASSETS binding). The public website never
  * exposes GitHub asset URLs: stable Cloudflare paths resolve the newest
- * allowed release asset on every request.
+ * allowed release asset on every request, while release-specific paths keep
+ * desktop clients on the version the user selected.
  */
 
 const SOURCES = {
@@ -34,6 +35,10 @@ const PACKAGE_NAMES = {
   portable: '便携版',
 }
 
+// Release metadata and package URLs exposed to desktop clients must always
+// stay on the official domain, even when the Worker is reached through an
+// alternate hostname during deployment or testing.
+const PUBLIC_ORIGIN = 'https://browser.lemon.vin'
 const SUPPORTED_DOWNLOADS = new Set(['installer', 'portable'])
 const RELEASE_CACHE_SECONDS = 30
 const DOWNLOAD_CACHE_SECONDS = 300
@@ -196,6 +201,36 @@ async function fetchLatestRelease(source, env) {
   return response.json()
 }
 
+async function fetchReleaseList(source, env, limit = 100) {
+  const config = SOURCES[source]
+  const safeLimit = Math.max(1, Math.min(100, Number(limit) || 100))
+  const endpoint = `https://api.github.com/repos/${config.repository}/releases?per_page=${safeLimit}&page=1`
+  const response = await fetch(endpoint, {
+    headers: githubHeaders(env),
+    cf: { cacheTtl: RELEASE_CACHE_SECONDS, cacheEverything: true },
+  })
+  if (!response.ok) {
+    const body = await response.text()
+    throw new Error(`${config.label} 版本列表接口返回 HTTP ${response.status}: ${body.slice(0, 240)}`)
+  }
+  const payload = await response.json()
+  return Array.isArray(payload) ? payload : []
+}
+
+async function fetchReleaseById(source, env, releaseId) {
+  const config = SOURCES[source]
+  const endpoint = `https://api.github.com/repos/${config.repository}/releases/${releaseId}`
+  const response = await fetch(endpoint, {
+    headers: githubHeaders(env),
+    cf: { cacheTtl: RELEASE_CACHE_SECONDS, cacheEverything: true },
+  })
+  if (!response.ok) {
+    const body = await response.text()
+    throw new Error(`${config.label} 指定版本接口返回 HTTP ${response.status}: ${body.slice(0, 240)}`)
+  }
+  return response.json()
+}
+
 function traceBrowserReleaseCompleteness(release) {
   const names = new Set(
     (Array.isArray(release?.assets) ? release.assets : [])
@@ -299,13 +334,16 @@ function pickAsset(release, source, platform, architecture, packageKind) {
   return matches[0] || null
 }
 
-function publicAssetURL(request, source, assetName) {
-  const url = new URL(request.url)
-  return `${url.origin}/download/${source}/asset/${encodeURIComponent(assetName)}`
+function publicAssetURL(request, source, assetName, releaseId = 0) {
+  const releasePart = Number.isSafeInteger(Number(releaseId)) && Number(releaseId) > 0
+    ? `/release/${Number(releaseId)}`
+    : ''
+  return `${PUBLIC_ORIGIN}/download/${source}${releasePart}/asset/${encodeURIComponent(assetName)}`
 }
 
-function publicReleasePayload(request, source, release) {
+function publicReleasePayload(request, source, release, options = {}) {
   const config = SOURCES[source]
+  const releaseId = Number(release.id || 0)
   const assets = (Array.isArray(release.assets) ? release.assets : [])
     // Keep checksum assets in the public manifest so desktop clients can
     // verify packages after downloading through the same Cloudflare source.
@@ -316,7 +354,8 @@ function publicReleasePayload(request, source, release) {
       size: Number(asset.size || 0),
       contentType: asset.content_type || 'application/octet-stream',
       updatedAt: asset.updated_at || release.published_at || '',
-      downloadUrl: publicAssetURL(request, source, asset.name),
+      releaseId,
+      downloadUrl: publicAssetURL(request, source, asset.name, releaseId),
     }))
 
   return {
@@ -324,12 +363,13 @@ function publicReleasePayload(request, source, release) {
     source,
     product: config.label,
     repository: config.repository,
+    releaseId,
     version: String(release.tag_name || release.name || '').replace(/^v/i, ''),
     tagName: release.tag_name || '',
     name: release.name || release.tag_name || '',
     publishedAt: release.published_at || '',
-    notes: release.body || '',
-    releaseUrl: `${new URL(request.url).origin}/#downloads`,
+    notes: options.includeNotes === false ? '' : release.body || '',
+    releaseUrl: `${PUBLIC_ORIGIN}/#downloads`,
     assets,
   }
 }
@@ -382,6 +422,10 @@ async function handleDownload(request, env, source, parts) {
 }
 
 async function handleNamedAsset(request, env, source, encodedAssetName) {
+  return handleNamedAssetForRelease(request, env, source, 0, encodedAssetName)
+}
+
+async function handleNamedAssetForRelease(request, env, source, releaseId, encodedAssetName) {
   let assetName
   try {
     assetName = decodeURIComponent(encodedAssetName)
@@ -392,11 +436,13 @@ async function handleNamedAsset(request, env, source, encodedAssetName) {
     return errorResponse('不允许下载该资产', 403)
   }
 
-  const release = await fetchLatestRelease(source, env)
+  const release = releaseId > 0
+    ? await fetchReleaseById(source, env, releaseId)
+    : await fetchLatestRelease(source, env)
   const incompleteResponse = ensureTraceBrowserReleaseComplete(source, release)
   if (incompleteResponse) return incompleteResponse
   const asset = (Array.isArray(release.assets) ? release.assets : []).find(item => item.name === assetName)
-  if (!asset) return errorResponse('当前最新版本中没有找到该资产', 404)
+  if (!asset) return errorResponse(releaseId > 0 ? '指定版本中没有找到该资产' : '当前最新版本中没有找到该资产', 404)
   return proxyAsset(request, env, source, asset)
 }
 
@@ -407,6 +453,36 @@ async function handleAPI(request, env, source) {
   const etag = releaseETag(release)
   if (requestMatchesETag(request, etag)) return notModifiedResponse(etag)
   return jsonResponse(publicReleasePayload(request, source, release), 200, { ETag: etag })
+}
+
+function releaseListETag(releases) {
+  const identity = releases
+    .map(release => `${release?.id || ''}:${release?.tag_name || release?.name || ''}:${release?.updated_at || release?.published_at || ''}`)
+    .join('|')
+  let hash = 2166136261
+  for (let index = 0; index < identity.length; index += 1) {
+    hash ^= identity.charCodeAt(index)
+    hash = Math.imul(hash, 16777619)
+  }
+  return `"releases-${releases.length}-${(hash >>> 0).toString(16)}"`
+}
+
+async function handleReleasesAPI(request, env, source) {
+  const url = new URL(request.url)
+  const limit = url.searchParams.get('limit') || '100'
+  const releases = await fetchReleaseList(source, env, limit)
+  const etag = releaseListETag(releases)
+  if (requestMatchesETag(request, etag)) return notModifiedResponse(etag)
+  const payload = releases.map(release => publicReleasePayload(request, source, release, { includeNotes: false }))
+  const first = payload[0] || {}
+  return jsonResponse({
+    ok: true,
+    source,
+    product: first.product || SOURCES[source].label,
+    repository: first.repository || SOURCES[source].repository,
+    count: payload.length,
+    releases: payload,
+  }, 200, { ETag: etag })
 }
 
 async function serveSite(request, env) {
@@ -432,6 +508,15 @@ export default {
       }
     }
 
+    const releasesAPIMatch = url.pathname.match(/^\/api\/(trace-browser|chromium)\/releases\/?$/)
+    if (releasesAPIMatch) {
+      try {
+        return await handleReleasesAPI(request, env, releasesAPIMatch[1])
+      } catch (error) {
+        return errorResponse('获取版本列表失败', 502, error instanceof Error ? error.message : String(error))
+      }
+    }
+
     const stableDownloadMatch = url.pathname.match(/^\/download\/(trace-browser|chromium)\/(windows|macos|linux)\/(amd64|arm64)\/(installer|portable)\/?$/)
     if (stableDownloadMatch) {
       try {
@@ -445,6 +530,21 @@ export default {
     if (namedAssetMatch) {
       try {
         return await handleNamedAsset(request, env, namedAssetMatch[1], namedAssetMatch[2])
+      } catch (error) {
+        return errorResponse('下载代理失败', 502, error instanceof Error ? error.message : String(error))
+      }
+    }
+
+    const namedReleaseAssetMatch = url.pathname.match(/^\/download\/(trace-browser|chromium)\/release\/(\d+)\/asset\/([^/]+)\/?$/)
+    if (namedReleaseAssetMatch) {
+      try {
+        return await handleNamedAssetForRelease(
+          request,
+          env,
+          namedReleaseAssetMatch[1],
+          Number(namedReleaseAssetMatch[2]),
+          namedReleaseAssetMatch[3],
+        )
       } catch (error) {
         return errorResponse('下载代理失败', 502, error instanceof Error ? error.message : String(error))
       }
