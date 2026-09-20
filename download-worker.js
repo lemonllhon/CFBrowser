@@ -45,21 +45,29 @@ const DOWNLOAD_CACHE_SECONDS = 300
 const RELEASE_STALE_WHILE_REVALIDATE_SECONDS = 15
 const PROXY_HEALTH_PATH = /^\/api\/proxy-health\/?$/
 
-const TRACE_BROWSER_REQUIRED_ASSET_PATTERNS = [
-  /^TraceBrowser-Setup-.*-win-x64\.exe$/i,
-  /^TraceBrowser-Setup-.*-win-arm64\.exe$/i,
-  /^TraceBrowser-Portable-.*-win-x64\.zip$/i,
-  /^TraceBrowser-Portable-.*-win-arm64\.zip$/i,
-  /^TraceBrowser-SelfUpdate-.*-windows-amd64\.zip$/i,
-  /^TraceBrowser-SelfUpdate-.*-windows-arm64\.zip$/i,
-  /^TraceBrowser-.*-macos-amd64\.dmg$/i,
-  /^TraceBrowser-.*-macos-arm64\.dmg$/i,
-  /^trace-browser_.*_amd64\.deb$/i,
-  /^trace-browser_.*_arm64\.deb$/i,
-  /^TraceBrowser-.*-linux-amd64\.tar\.gz$/i,
-  /^TraceBrowser-.*-linux-arm64\.tar\.gz$/i,
-  /^SHA256SUMS$/i,
-]
+// Bound historical lookup while allowing a failed build to remain unpublished.
+const RELEASE_LOOKUP_PAGE_SIZE = 100
+const RELEASE_LOOKUP_MAX_PAGES = 5
+
+function requiredTraceBrowserAssetNames(version) {
+  return [
+    `TraceBrowser-Setup-${version}-win-x64.exe`,
+    `TraceBrowser-Setup-${version}-win-arm64.exe`,
+    `TraceBrowser-Portable-${version}-win-x64.zip`,
+    `TraceBrowser-Portable-${version}-win-arm64.zip`,
+    `TraceBrowser-SelfUpdate-${version}-windows-amd64.zip`,
+    `TraceBrowser-SelfUpdate-${version}-windows-arm64.zip`,
+    `TraceBrowser-${version}-macos-amd64.dmg`,
+    `TraceBrowser-${version}-macos-arm64.dmg`,
+    `trace-browser_${version}_amd64.deb`,
+    `trace-browser_${version}_arm64.deb`,
+    `TraceBrowser-${version}-linux-amd64.tar.gz`,
+    `TraceBrowser-${version}-linux-arm64.tar.gz`,
+    'SHA256SUMS',
+    ...['macos', 'linux'].flatMap(platform => ['amd64', 'arm64'].map(arch =>
+      `TraceBrowser-${version}-${platform}-${arch}.sha256.txt`)),
+  ]
+}
 
 function corsHeaders() {
   return {
@@ -198,13 +206,19 @@ async function fetchLatestRelease(source, env) {
     const body = await response.text()
     throw new Error(`${config.label} 最新版本接口返回 HTTP ${response.status}: ${body.slice(0, 240)}`)
   }
-  return response.json()
+  const latest = await response.json()
+  if (source !== 'trace-browser' || traceBrowserReleaseCompleteness(latest).complete) return latest
+
+  // Publishing jobs upload independently. Keep serving a complete predecessor
+  // until every platform/architecture package and checksum has finished uploading.
+  const complete = await fetchCompleteTraceBrowserReleases(env, 1)
+  return complete[0] || latest
 }
 
-async function fetchReleaseList(source, env, limit = 100) {
+async function fetchReleaseList(source, env, limit = 100, page = 1) {
   const config = SOURCES[source]
   const safeLimit = Math.max(1, Math.min(100, Number(limit) || 100))
-  const endpoint = `https://api.github.com/repos/${config.repository}/releases?per_page=${safeLimit}&page=1`
+  const endpoint = `https://api.github.com/repos/${config.repository}/releases?per_page=${safeLimit}&page=${page}`
   const response = await fetch(endpoint, {
     headers: githubHeaders(env),
     cf: { cacheTtl: RELEASE_CACHE_SECONDS, cacheEverything: true },
@@ -215,6 +229,19 @@ async function fetchReleaseList(source, env, limit = 100) {
   }
   const payload = await response.json()
   return Array.isArray(payload) ? payload : []
+}
+
+async function fetchCompleteTraceBrowserReleases(env, limit) {
+  const complete = []
+  for (let page = 1; page <= RELEASE_LOOKUP_MAX_PAGES; page += 1) {
+    const releases = await fetchReleaseList('trace-browser', env, RELEASE_LOOKUP_PAGE_SIZE, page)
+    for (const release of releases) {
+      if (traceBrowserReleaseCompleteness(release).complete) complete.push(release)
+      if (complete.length >= limit) return complete
+    }
+    if (releases.length < RELEASE_LOOKUP_PAGE_SIZE) break
+  }
+  return complete
 }
 
 async function fetchReleaseById(source, env, releaseId) {
@@ -231,17 +258,33 @@ async function fetchReleaseById(source, env, releaseId) {
   return response.json()
 }
 
+function traceBrowserReleaseVersion(release) {
+  const version = String(release?.tag_name || '').trim().replace(/^(?:(?:mac|linux)-)?v/i, '')
+  return /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version) ? version : ''
+}
+
+function isUploadedAsset(asset) {
+  return asset?.state === 'uploaded' && Number.isFinite(asset.size) && asset.size > 0 &&
+    typeof asset.browser_download_url === 'string' && asset.browser_download_url.trim() !== ''
+}
+
+function downloadableReleaseAssets(source, release) {
+  const assets = Array.isArray(release?.assets) ? release.assets : []
+  if (source !== 'trace-browser') return assets
+  const version = traceBrowserReleaseVersion(release)
+  if (!version) return []
+  const required = new Set(requiredTraceBrowserAssetNames(version))
+  return assets.filter(asset => isUploadedAsset(asset) && required.has(asset.name))
+}
+
 function traceBrowserReleaseCompleteness(release) {
-  const names = new Set(
-    (Array.isArray(release?.assets) ? release.assets : [])
-      .map(asset => String(asset?.name || '').trim())
-      .filter(Boolean),
-  )
-  const missing = TRACE_BROWSER_REQUIRED_ASSET_PATTERNS
-    .filter(pattern => !Array.from(names).some(name => pattern.test(name)))
-    .map(pattern => pattern.source)
+  const version = traceBrowserReleaseVersion(release)
+  const published = release && !release.draft && !release.prerelease &&
+    Number.isSafeInteger(release.id) && release.id > 0 && Number.isFinite(Date.parse(release.published_at))
+  const names = new Set(downloadableReleaseAssets('trace-browser', release).map(asset => asset.name))
+  const missing = requiredTraceBrowserAssetNames(version).filter(name => !names.has(name))
   return {
-    complete: missing.length === 0,
+    complete: Boolean(version && published && missing.length === 0),
     missing,
   }
 }
@@ -251,9 +294,9 @@ function ensureTraceBrowserReleaseComplete(source, release) {
   const result = traceBrowserReleaseCompleteness(release)
   if (result.complete) return null
   return errorResponse(
-    'Trace Browser 最新版本发布资产尚未完整',
+    'Trace Browser 暂无可用的完整正式发布版本',
     503,
-    `缺少资产匹配项: ${result.missing.join(', ')}`,
+    result.missing.length ? `缺少已上传资产: ${result.missing.join(', ')}` : '版本尚未正式发布',
   )
 }
 
@@ -327,7 +370,7 @@ function chromiumAssetMatches(asset, platform, architecture, packageKind) {
 }
 
 function pickAsset(release, source, platform, architecture, packageKind) {
-  const assets = Array.isArray(release.assets) ? release.assets : []
+  const assets = downloadableReleaseAssets(source, release)
   const matches = assets.filter(asset => source === 'trace-browser'
     ? appAssetMatches(asset, platform, architecture, packageKind)
     : chromiumAssetMatches(asset, platform, architecture, packageKind))
@@ -344,7 +387,7 @@ function publicAssetURL(request, source, assetName, releaseId = 0) {
 function publicReleasePayload(request, source, release, options = {}) {
   const config = SOURCES[source]
   const releaseId = Number(release.id || 0)
-  const assets = (Array.isArray(release.assets) ? release.assets : [])
+  const assets = downloadableReleaseAssets(source, release)
     // Keep checksum assets in the public manifest so desktop clients can
     // verify packages after downloading through the same Cloudflare source.
     // Source archives remain hidden because they are not installable assets.
@@ -364,7 +407,7 @@ function publicReleasePayload(request, source, release, options = {}) {
     product: config.label,
     repository: config.repository,
     releaseId,
-    version: String(release.tag_name || release.name || '').replace(/^v/i, ''),
+    version: source === 'trace-browser' ? traceBrowserReleaseVersion(release) : String(release.tag_name || release.name || '').replace(/^v/i, ''),
     tagName: release.tag_name || '',
     name: release.name || release.tag_name || '',
     publishedAt: release.published_at || '',
@@ -441,7 +484,7 @@ async function handleNamedAssetForRelease(request, env, source, releaseId, encod
     : await fetchLatestRelease(source, env)
   const incompleteResponse = ensureTraceBrowserReleaseComplete(source, release)
   if (incompleteResponse) return incompleteResponse
-  const asset = (Array.isArray(release.assets) ? release.assets : []).find(item => item.name === assetName)
+  const asset = downloadableReleaseAssets(source, release).find(item => item.name === assetName)
   if (!asset) return errorResponse(releaseId > 0 ? '指定版本中没有找到该资产' : '当前最新版本中没有找到该资产', 404)
   return proxyAsset(request, env, source, asset)
 }
@@ -469,8 +512,10 @@ function releaseListETag(releases) {
 
 async function handleReleasesAPI(request, env, source) {
   const url = new URL(request.url)
-  const limit = url.searchParams.get('limit') || '100'
-  const releases = await fetchReleaseList(source, env, limit)
+  const limit = Math.max(1, Math.min(100, Math.floor(Number(url.searchParams.get('limit')) || 100)))
+  const releases = source === 'trace-browser'
+    ? await fetchCompleteTraceBrowserReleases(env, limit)
+    : await fetchReleaseList(source, env, limit)
   const etag = releaseListETag(releases)
   if (requestMatchesETag(request, etag)) return notModifiedResponse(etag)
   const payload = releases.map(release => publicReleasePayload(request, source, release, { includeNotes: false }))
