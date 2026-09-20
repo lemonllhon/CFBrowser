@@ -45,20 +45,32 @@
 
 如果使用 Cloudflare Pages Advanced Mode，可以将该文件作为根目录的 `_worker.js`，并配置 `ASSETS` 静态资源绑定；如果使用独立 Worker，则保留现有 Pages 作为源站，让 Worker 只处理 `/download/*` 与 `/api/*` 路径。`/api/trace-browser/latest` 会同时公开发布资产和 SHA-256 校验资产，桌面端更新器会通过官网同源读取校验文件。`/api/*/releases` 返回最多 100 个已发布版本，返回的资产地址带有 release ID，因此下载旧版本时不会被重新解析为最新版本。公开给桌面端的版本和下载地址固定使用 `https://browser.lemon.vin`。
 
-## 完整发布后再提示更新
+## 按平台、架构独立检查更新
 
-`/api/trace-browser/latest`、Trace Browser 版本列表和稳定下载入口统一只公开完整的正式版本。判定条件为同一版本的以下 **17 个资产**全部存在，GitHub 上传状态为 `uploaded`，文件大小大于零且具有下载地址：
+每个平台、架构独立发布：例如 Windows amd64 的安装包和对应校验文件上传完成，Windows amd64 安装版即可发现更新；Windows ARM64 或其他系统的构建失败不会阻塞它。预检不再要求同一 Release 的所有平台文件齐全。
 
-- Windows amd64 / arm64：安装包、便携包、自更新包，共 6 个文件。
-- macOS amd64 / arm64：DMG，共 2 个文件。
-- Linux amd64 / arm64：DEB、tar.gz，共 4 个文件。
-- Windows `SHA256SUMS`，以及 macOS / Linux 各架构的 `.sha256.txt`，共 5 个校验文件。
+桌面端应携带目标参数，例如：
 
-三个发布工作流可继续独立构建与上传。最新发布尚未齐全时，接口会向前查找上一完整正式版本，桌面端继续按该版本检查更新，官网下载也使用同一版本。最后一个资产上传完成后，接口在缓存刷新后自动切换到新版本。草稿、预发布、旧版本残留文件、零字节文件和上传中资产不能满足完整性条件。Chromium 保持原有独立发布规则。
+```text
+/api/trace-browser/latest?platform=windows&arch=amd64&package=installer
+/api/trace-browser/latest?platform=windows&arch=arm64&package=selfupdate
+/api/trace-browser/latest?platform=macos&arch=arm64&package=installer
+/api/trace-browser/latest?platform=linux&arch=amd64&package=portable
+```
 
-历史查找每页 100 条，最多 5 页；版本列表先筛选完整版本，再应用 `limit`。如果查找范围内没有任何完整正式版本，最新版本接口返回不缓存的 503，不会公开半成品版本号。版本指定下载仍固定 release ID，不会在新版本发布时跳到其他版本。
+`platform` 支持 `windows`、`macos`（兼容 `darwin`）、`linux`，`arch` 支持 `amd64`、`arm64`（兼容 `x64`、`x86_64`、`aarch64`）。`package` 支持 `installer`、`portable`，Windows 便携客户端更新使用 `selfupdate`，并兼容退回完整便携 ZIP。`/api/trace-browser/releases` 支持相同的目标参数。
 
-本次修复在 Cloudflare Worker 生效：将此目录的更新部署到 Cloudflare 后，现有桌面端即可使用，无需为此重新编译桌面程序。发布资产命名或支持的平台发生变化时，需同步修改 `download-worker.js` 中的完整性规则及测试。
+某个包可用的条件仅为：正式发布、包属于该版本、包及其对应校验文件均为 `uploaded` 状态、大小大于零且有下载地址。校验文件分别为：
+
+- Windows：`TraceBrowser-{version}-windows-{arch}.sha256.txt`，兼容旧的 `SHA256SUMS`。
+- macOS：`TraceBrowser-{version}-macos-{arch}.sha256.txt`。
+- Linux：`TraceBrowser-{version}-linux-{arch}.sha256.txt`。
+
+当前目标尚未准备好时，仅该目标回退到上一可用版本；其他准备好的目标直接使用新版本。历史查找每页 100 条，最多 5 页，版本列表先按目标筛选再应用 `limit`。没有可用目标版本时，接口正常返回 `200`、`ok: true`、`ready: false`、空 `assets`，客户端应视为暂无更新。返回的包地址固定 release ID，下载过程中不会串到其他版本。
+
+未携带目标参数的旧请求继续兼容，返回有任意可用包的最新正式版本及已可用资产；精确的按平台/架构回退需要桌面端发送上述参数。稳定下载入口根据路径中的平台、架构和包类型独立选择版本。ETag 包含资产状态对应的清单，同一版本后续上传其他架构时会更新缓存标识。
+
+Windows 发布工作流也需配合：各架构在自己的构建任务中上传发布包，使用独立的架构校验文件，不能再通过 `needs: build` 等待整个矩阵成功，也不能并行覆盖共享的 `SHA256SUMS`。Chromium 保留独立的发布规则。
 
 本地回归测试（Node.js 22 或更新版本，无需安装依赖）：
 
@@ -66,7 +78,7 @@
 node --test download-worker.test.mjs
 ```
 
-测试覆盖分批上传、全部资产门槛、上传状态和版本一致性、上一完整版本回退、分页、ETag 切换、版本列表过滤及下载版本固定。测试文件已通过 `.assetsignore` 排除出静态资源上传。
+测试覆盖各系统与架构单独完成上传、其他目标失败时仍可更新、目标回退、暂无更新、正确选包与下载、独立校验文件、旧接口兼容、分页与 ETag 刷新。测试文件通过 `.assetsignore` 排除出静态资源上传。
 
 ## 代理健康检查
 
